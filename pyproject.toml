@@ -1,0 +1,7 @@
+[project]
+name = "modelica-tools"
+version = "0.1.0"
+description = "A set of tools for working with Modelica models"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["pydelica~=0.6.3"]
