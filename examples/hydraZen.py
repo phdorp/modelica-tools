@@ -1,0 +1,13 @@
+import models.kinematicVehicle as kinematicVehicle
+import hydra_zen
+
+@hydra_zen.store(name="my_app", director=kinematicVehicle.simConfig)
+def simulate(director):
+    director.make_session().simulate()
+
+if __name__ == "__main__":
+    hydra_zen.store.add_to_hydra_store()
+    hydra_zen.zen(simulate).hydra_main(config_name="my_app",
+                                  version_base="1.1",
+                                  config_path=".",
+                                  )
