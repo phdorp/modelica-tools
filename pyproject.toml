@@ -5,3 +5,9 @@ description = "A set of tools for working with Modelica models"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = ["pydelica~=0.6.3"]
+
+[project.optional-dependencies]
+dev = [
+    "mypy~=1.20.0",
+    "pytest~=9.0.2",
+]
