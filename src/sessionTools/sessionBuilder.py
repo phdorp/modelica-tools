@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-import functools
+from typing import Callable, Dict
 
 import pydantic
 import pydelica
@@ -19,8 +19,18 @@ def flatten_nested_dict(data: DictConfig, parent_key: str = "", sep: str = ".") 
     return flattened
 
 
-# @functools.cache
 class SessionBuilder:
+
+    _model_configurations: dict[str, Callable] = {
+        "time_range": lambda session, config: session.set_time_range(**config),
+        "tolerance": lambda session, config: session.set_tolerance(**config),
+        "variable_filter": lambda session, config: session.set_variable_filter(**config),
+    }
+
+    _sim_configurations: dict[str, Callable] = {
+        "solver": lambda session, solver: session.set_solver(solver),
+        "output_format": lambda session, format: session.set_output_format(format),
+    }
 
     @property
     def session(self) -> pydelica.Session:
@@ -34,20 +44,44 @@ class SessionBuilder:
         self._session = pydelica.Session(log_level)
         self._session.build_model(source_file, **build_options)
 
-    def configure_model(self, parameters: DictConfig):
+    def configure_parameters(self, parameters: DictConfig):
         for name, value in parameters.items():
             self._session.set_parameter(str(name), value)
 
-    def configure_simulation(self):
-        raise NotImplementedError("Simulation configuration is not implemented yet.")
+    def configure_models(self, configurations: Dict[str, DictConfig]):
+        for model, configuration in configurations.items():
+            for name, value in configuration.items():
+                if name in self._model_configurations:
+                    self._model_configurations[name](self._session, value)
+                else:
+                    raise ValueError(f"Unknown simulation configuration: {name}")
+
+    def configure_simulation(self, configuration: DictConfig):
+        for name, value in configuration.items():
+            if name in self._sim_configurations:
+                self._sim_configurations[name](self._session, value)
+            else:
+                raise ValueError(f"Unknown simulation configuration: {name}")
 
 
 class Director:
 
-    def __init__(self, model: pydantic.FilePath, parameters: DictConfig):
+    def __init__(
+        self,
+        model: pydantic.FilePath,
+        parameters: DictConfig,
+        model_configurations: Dict[str, DictConfig],
+        sim_configurations: DictConfig,
+        **kwargs,
+    ):
         self._parameters = flatten_nested_dict(parameters)
+        self._model_configurations = model_configurations
+        self._sim_configurations = sim_configurations
+        self._configuration = kwargs
         self._session_builder = SessionBuilder(model)
 
     def make_session(self) -> pydelica.Session:
-        self._session_builder.configure_model(self._parameters)
+        self._session_builder.configure_parameters(self._parameters)
+        self._session_builder.configure_models(self._model_configurations)
+        self._session_builder.configure_simulation(self._sim_configurations)
         return self._session_builder.session
