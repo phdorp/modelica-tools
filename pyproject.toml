@@ -4,10 +4,7 @@ version = "0.1.0"
 description = "A set of tools for working with Modelica models"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = ["pydelica~=0.6.3"]
+dependencies = ["pydelica~=0.6.3", "hydrazen~=0.16.0"]
 
 [project.optional-dependencies]
-dev = [
-    "mypy~=1.20.0",
-    "pytest~=9.0.2",
-]
+dev = ["mypy~=1.20.0", "pytest~=9.0.2"]
