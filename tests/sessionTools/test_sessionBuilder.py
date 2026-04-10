@@ -28,9 +28,15 @@ OVERRIDE: List[str] = [
 
 class TestSessionBuilder:
     @pytest.fixture(params=[NO_OVERRIDE, OVERRIDE])
-    def job_return(self, request: SubRequest):
+    def job_return(self, request: SubRequest, tmp_path):
         overrides: List[str] = request.param
-        return hydra_zen.launch(sim_config, simulate, overrides)
+        extra_overrides = [f"hydra.run.dir={tmp_path}", "hydra.job.chdir=False"]
+        return hydra_zen.launch(
+            sim_config,
+            simulate,
+            overrides + extra_overrides,
+            with_log_configuration=False,
+        )
 
     def test_simulation(self, job_return):
         configuration: DictConfig = job_return.cfg
