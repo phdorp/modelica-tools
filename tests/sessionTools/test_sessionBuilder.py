@@ -1,11 +1,12 @@
+from typing import List
+
 import hydra_zen
 import numpy as np
-from models.kinematicVehicle import Simulation, simConfig
-from omegaconf import OmegaConf
-from omegaconf.dictconfig import DictConfig
 import pytest
 from _pytest.fixtures import SubRequest
-from typing import List
+from models.kinematicVehicle import Simulation, sim_config
+from omegaconf import OmegaConf
+from omegaconf.dictconfig import DictConfig
 
 from sessionTools import SessionDirector, flatten_nested_dict
 
@@ -29,7 +30,7 @@ class TestSessionBuilder:
     @pytest.fixture(params=[NO_OVERRIDE, OVERRIDE])
     def job_return(self, request: SubRequest):
         overrides: List[str] = request.param
-        return hydra_zen.launch(simConfig, simulate, overrides)
+        return hydra_zen.launch(sim_config, simulate, overrides)
 
     def test_simulation(self, job_return):
         configuration: DictConfig = job_return.cfg

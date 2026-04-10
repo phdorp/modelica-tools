@@ -1,5 +1,6 @@
-import models.kinematicVehicle as kinematicVehicle
 import hydra_zen
+import models.kinematicVehicle as kinematicVehicle
+
 
 @hydra_zen.store(name="my_app", director=kinematicVehicle.simConfig)
 def simulate(director):
