@@ -5,7 +5,7 @@ from typing import Dict
 import hydra_zen
 import pydelica
 
-from sessionBuilder import Director
+from sessionTools import Director
 
 
 @dataclasses.dataclass
