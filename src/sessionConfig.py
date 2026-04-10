@@ -1,5 +1,5 @@
 import dataclasses
-from typing import Any, ClassVar, Dict, Protocol
+from typing import Any, ClassVar, Dict, Protocol, Literal
 
 import hydra_zen
 import pydantic
@@ -40,8 +40,8 @@ class Model:
 
 @dataclasses.dataclass
 class Simulation:
-    solver: pydelica.Solver
-    output_format: pydelica.OutputFormat
+    solver: str
+    output_format: str
 
 
 @hydra_zen.hydrated_dataclass(sessionTools.SessionDirector, populate_full_signature=True)

@@ -28,6 +28,7 @@ class TestSessionBuilder:
             simulate,
             overrides + extra_overrides,
             with_log_configuration=False,
+            version_base=None,
         )
 
     def test_simulation(self, job_return):

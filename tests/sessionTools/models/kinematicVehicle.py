@@ -33,8 +33,8 @@ def model_default(model_name: str) -> sessionConfig.Model:
 
 
 simulation_default = sessionConfig.Simulation(
-    solver=pydelica.Solver.RUNGE_KUTTA,
-    output_format=pydelica.OutputFormat.CSV,
+    solver="rungekutta",
+    output_format="csv",
 )
 
 session_default = sessionConfig.Session(
