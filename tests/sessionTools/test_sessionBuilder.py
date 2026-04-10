@@ -7,11 +7,11 @@ import pytest
 from _pytest.fixtures import SubRequest
 from typing import List
 
-from sessionTools import Director, flatten_nested_dict
+from sessionTools import SessionDirector, flatten_nested_dict
 
 
 def simulate(sim_config: Simulation):
-    director: Director = hydra_zen.instantiate(sim_config)
+    director: SessionDirector = hydra_zen.instantiate(sim_config)
     session = director.make_session()
     session.simulate()
     return session.get_solutions()

@@ -64,7 +64,7 @@ class SessionBuilder:
                 raise ValueError(f"Unknown simulation configuration: {name}")
 
 
-class Director:
+class SessionDirector:
 
     def __init__(
         self,

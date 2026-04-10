@@ -5,7 +5,7 @@ from typing import Dict
 import hydra_zen
 import pydelica
 
-from sessionTools import Director
+from sessionTools import SessionDirector
 
 
 @dataclasses.dataclass
@@ -55,7 +55,7 @@ class SimulationConfiguration:
     output_format: pydelica.OutputFormat = pydelica.OutputFormat.CSV
 
 
-@hydra_zen.hydrated_dataclass(Director, populate_full_signature=True)
+@hydra_zen.hydrated_dataclass(SessionDirector, populate_full_signature=True)
 class Simulation:
     parameters: KinematicVehicle
     sim_configurations: SimulationConfiguration

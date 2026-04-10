@@ -3,7 +3,7 @@ from pathlib import Path
 
 import hydra_zen
 
-from sessionTools import Director
+from sessionTools import SessionDirector
 
 
 @dataclasses.dataclass
@@ -21,7 +21,7 @@ class KinematicVehicle:
     l: float = 2.0
 
 
-@hydra_zen.hydrated_dataclass(Director, populate_full_signature=True)
+@hydra_zen.hydrated_dataclass(SessionDirector, populate_full_signature=True)
 class Simulation:
     parameters: KinematicVehicle
     model = Path("examples/models/kinematicVehicle.mo").resolve()
