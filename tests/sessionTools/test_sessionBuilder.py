@@ -4,14 +4,14 @@ import hydra_zen
 import numpy as np
 import pytest
 from _pytest.fixtures import SubRequest
-from models.kinematicVehicle import Simulation, sim_config
+from models.kinematicVehicle import SessionConfig, session_default
 from omegaconf import OmegaConf
 from omegaconf.dictconfig import DictConfig
 
 from sessionTools import SessionDirector, flatten_nested_dict
 
 
-def simulate(sim_config: Simulation):
+def simulate(sim_config: SessionConfig):
     director: SessionDirector = hydra_zen.instantiate(sim_config)
     session = director.make_session()
     session.simulate()
@@ -32,7 +32,7 @@ class TestSessionBuilder:
         overrides: List[str] = request.param
         extra_overrides = [f"hydra.run.dir={tmp_path}", "hydra.job.chdir=False"]
         return hydra_zen.launch(
-            sim_config,
+            session_default,
             simulate,
             overrides + extra_overrides,
             with_log_configuration=False,

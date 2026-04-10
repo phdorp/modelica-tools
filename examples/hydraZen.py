@@ -2,7 +2,7 @@ import hydra_zen
 import models.kinematicVehicle as kinematicVehicle
 
 
-@hydra_zen.store(name="my_app", director=kinematicVehicle.simConfig)
+@hydra_zen.store(name="my_app", director=kinematicVehicle.session_default)
 def simulate(director):
     director.make_session().simulate()
 

@@ -43,34 +43,34 @@ class VariableFilter:
 
 
 @dataclasses.dataclass
-class ModelConfiguration:
+class ModelConfig:
     time_range: TimeRange
     tolerance: Tolerance
     variable_filter: VariableFilter
 
 
 @dataclasses.dataclass
-class SimulationConfiguration:
+class SimulationConfig:
     solver: pydelica.Solver = pydelica.Solver.RUNGE_KUTTA
     output_format: pydelica.OutputFormat = pydelica.OutputFormat.CSV
 
 
 @hydra_zen.hydrated_dataclass(SessionDirector, populate_full_signature=True)
-class Simulation:
+class SessionConfig:
     parameters: KinematicVehicle
-    sim_configurations: SimulationConfiguration
-    model_configurations: Dict[str, ModelConfiguration] = dataclasses.field(default_factory=dict)
+    sim_configurations: SimulationConfig
+    model_configurations: Dict[str, ModelConfig] = dataclasses.field(default_factory=dict)
     model = Path("tests/sessionTools/models/kinematicVehicle.mo").resolve()
 
 
-sim_config = Simulation(
+session_default = SessionConfig(
     parameters=KinematicVehicle(state_0=State()),
     model_configurations={
-        "KinematicVehicle": ModelConfiguration(
+        "KinematicVehicle": ModelConfig(
             time_range=TimeRange(model_name="KinematicVehicle"),
             tolerance=Tolerance(model_name="KinematicVehicle"),
             variable_filter=VariableFilter(model_name="KinematicVehicle"),
         )
     },
-    sim_configurations=SimulationConfiguration(),
+    sim_configurations=SimulationConfig(),
 )
