@@ -63,7 +63,7 @@ class Simulation:
     model = Path("tests/sessionTools/models/kinematicVehicle.mo").resolve()
 
 
-simConfig = Simulation(
+sim_config = Simulation(
     parameters=KinematicVehicle(state_0=State()),
     model_configurations={
         "KinematicVehicle": ModelConfiguration(
