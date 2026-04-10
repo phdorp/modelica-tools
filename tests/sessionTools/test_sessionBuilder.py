@@ -7,7 +7,7 @@ import pytest
 from _pytest.fixtures import SubRequest
 from typing import List
 
-from sessionTools.sessionBuilder import Director, flatten_nested_dict
+from sessionBuilder import Director, flatten_nested_dict
 
 
 def simulate(sim_config: Simulation):

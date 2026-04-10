@@ -3,7 +3,7 @@ from pathlib import Path
 
 import hydra_zen
 
-from sessionTools.sessionBuilder import Director
+from sessionBuilder import Director
 
 
 @dataclasses.dataclass
