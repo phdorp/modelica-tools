@@ -4,19 +4,11 @@ import hydra_zen
 import numpy as np
 import pytest
 from _pytest.fixtures import SubRequest
-from models.kinematicVehicle import SessionConfig, session_default
+from models.kinematicVehicle import session_default
 from omegaconf import OmegaConf
 from omegaconf.dictconfig import DictConfig
 
-from sessionTools import SessionDirector, flatten_nested_dict
-
-
-def simulate(sim_config: SessionConfig):
-    director: SessionDirector = hydra_zen.instantiate(sim_config)
-    session = director.make_session()
-    session.simulate()
-    return session.get_solutions()
-
+from sessionTools import flatten_nested_dict, simulate
 
 NO_OVERRIDE: List[str] = []
 OVERRIDE: List[str] = [

@@ -3,9 +3,19 @@ from __future__ import annotations
 import logging
 from typing import Callable, Dict
 
+import hydra_zen
 import pydantic
 import pydelica
 from omegaconf import DictConfig
+
+import sessionConfig
+
+
+def simulate(config: sessionConfig.Session):
+    director: SessionDirector = hydra_zen.instantiate(config)
+    session = director.make_session()
+    session.simulate()
+    return session.get_solutions()
 
 
 def flatten_nested_dict(data: DictConfig, parent_key: str = "", sep: str = ".") -> DictConfig:
