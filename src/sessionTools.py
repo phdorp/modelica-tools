@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import logging
-from typing import Callable, Dict
+from typing import Callable, Dict, Any
 
 import hydra_zen
 import pydantic
 import pydelica
-from omegaconf import DictConfig
+from dataclasses import asdict
 
 import sessionConfig
 
@@ -18,11 +18,11 @@ def simulate(config: sessionConfig.Session):
     return session.get_solutions()
 
 
-def flatten_nested_dict(data: DictConfig, parent_key: str = "", sep: str = ".") -> DictConfig:
-    flattened = DictConfig({})
+def flatten_nested_dict(data: Dict[str, Any], parent_key: str = "", sep: str = ".") -> Dict[str, Any]:
+    flattened = dict()
     for key, value in data.items():
         new_key = f"{parent_key}{sep}{key}" if parent_key else str(key)
-        if isinstance(value, DictConfig):
+        if isinstance(value, dict):
             flattened.update(flatten_nested_dict(value, new_key, sep))
         else:
             flattened[new_key] = value
@@ -54,11 +54,11 @@ class SessionBuilder:
         self._session = pydelica.Session(log_level)
         self._session.build_model(source_file, **build_options)
 
-    def configure_parameters(self, parameters: DictConfig):
+    def configure_parameters(self, parameters: Dict[str, Any]):
         for name, value in parameters.items():
             self._session.set_parameter(str(name), value)
 
-    def configure_models(self, configurations: Dict[str, DictConfig]):
+    def configure_models(self, configurations: Dict[str, Dict[str, Any]]):
         for model, configuration in configurations.items():
             for name, value in configuration.items():
                 if name in self._model_configurations:
@@ -66,7 +66,7 @@ class SessionBuilder:
                 else:
                     raise ValueError(f"Unknown simulation configuration: {name}")
 
-    def configure_simulation(self, configuration: DictConfig):
+    def configure_simulation(self, configuration: Dict[str, Any]):
         for name, value in configuration.items():
             if name in self._sim_configurations:
                 self._sim_configurations[name](self._session, value)
@@ -79,14 +79,14 @@ class SessionDirector:
     def __init__(
         self,
         model: pydantic.FilePath,
-        parameters: DictConfig,
-        model_configurations: Dict[str, DictConfig],
-        sim_configurations: DictConfig,
+        parameters: sessionConfig.DataclassType,
+        model_configurations: Dict[str, sessionConfig.Model],
+        sim_configurations: sessionConfig.Simulation,
         **kwargs,
     ):
-        self._parameters = flatten_nested_dict(parameters)
-        self._model_configurations = model_configurations
-        self._sim_configurations = sim_configurations
+        self._parameters = flatten_nested_dict(asdict(parameters))
+        self._model_configurations = {name: asdict(config) for name, config in model_configurations.items()}
+        self._sim_configurations = asdict(sim_configurations)
         self._configuration = kwargs
         self._session_builder = SessionBuilder(model)
 

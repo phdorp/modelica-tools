@@ -3,7 +3,6 @@ from typing import Any, ClassVar, Dict, Protocol, Literal
 
 import hydra_zen
 import pydantic
-import pydelica
 
 import sessionTools
 
@@ -44,7 +43,7 @@ class Simulation:
     output_format: str
 
 
-@hydra_zen.hydrated_dataclass(sessionTools.SessionDirector, populate_full_signature=True)
+@hydra_zen.hydrated_dataclass(sessionTools.SessionDirector, populate_full_signature=True, hydra_convert="object", hydra_recursive=None)
 class Session:
     parameters: DataclassType
     sim_configurations: Simulation

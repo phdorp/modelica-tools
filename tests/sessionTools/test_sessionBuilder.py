@@ -1,5 +1,4 @@
 from typing import List
-
 import hydra_zen
 import numpy as np
 import pytest
@@ -33,7 +32,7 @@ class TestSessionBuilder:
 
     def test_simulation(self, job_return):
         configuration: DictConfig = job_return.cfg
-        parameters = flatten_nested_dict(OmegaConf.structured(configuration.parameters))
+        parameters = flatten_nested_dict(OmegaConf.to_container(configuration.parameters))  # type: ignore[arg-type]
 
         solution = job_return.return_value["KinematicVehicle"]
         assert solution["state.px"][0] == parameters["state_0.px"]
