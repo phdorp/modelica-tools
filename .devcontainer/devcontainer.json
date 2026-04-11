@@ -1,0 +1,5 @@
+{
+  "name": "Debian",
+  "build": { "dockerfile": "Dockerfile" },
+  "postCreateCommand": "pipx install uv && uv venv && uv pip install -e '.[dev]'"
+}
