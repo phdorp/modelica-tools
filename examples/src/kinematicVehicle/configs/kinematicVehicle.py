@@ -41,5 +41,5 @@ session_default = sessionConfig.Session(
     parameters=vehicle_default,
     model_configurations={"KinematicVehicle": model_default("KinematicVehicle")},
     sim_configurations=simulation_default,
-    model=Path("tests/sessionTools/models/kinematicVehicle.mo").resolve(),
+    model=Path("src/models/kinematicVehicle.mo").resolve(),
 )
