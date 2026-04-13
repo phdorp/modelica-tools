@@ -1,8 +1,9 @@
 import hydra
 import hydra_zen
-import simTools
-import sessionConfig
 import kinematicVehicle.configs.kinematicVehicle
+
+import sessionConfig
+import simTools
 
 store = hydra_zen.ZenStore()
 store(kinematicVehicle.configs.kinematicVehicle.session_default, name="default")

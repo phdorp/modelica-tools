@@ -1,6 +1,6 @@
+import hydra_zen
 
 import sessionConfig
-import hydra_zen
 import sessionTools
 
 

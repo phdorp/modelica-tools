@@ -1,5 +1,5 @@
 import dataclasses
-from typing import Any, ClassVar, Dict, Protocol, Literal
+from typing import Any, ClassVar, Dict, Protocol
 
 import hydra_zen
 import pydantic
