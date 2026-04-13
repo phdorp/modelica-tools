@@ -8,3 +8,10 @@ wheels/
 
 # Virtual environments
 .venv
+uv.lock
+
+# Logs
+outputs
+
+# Extension
+.mypy_cache
