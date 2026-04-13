@@ -1,9 +1,12 @@
 import dataclasses
 from pathlib import Path
 
-import pydelica
+import hydra_zen
 
 import sessionConfig
+
+
+store = hydra_zen.ZenStore()
 
 
 @dataclasses.dataclass
@@ -11,6 +14,11 @@ class State:
     px: float = 0.0
     py: float = 0.0
     theta: float = 0.0
+
+
+state_store = store(group="state_0", package="parameters.state_0")
+state_store(State(), name="zero_state")
+state_store(State(px=1.0), name="front_position")
 
 
 @dataclasses.dataclass
@@ -37,9 +45,13 @@ simulation_default = sessionConfig.Simulation(
     output_format="csv",
 )
 
-session_default = sessionConfig.Session(
+
+session_default = hydra_zen.make_config(
+    bases=(sessionConfig.Session,),
+    hydra_defaults=["_self_", {"state_0": "zero_state"}],
     parameters=vehicle_default,
     model_configurations={"KinematicVehicle": model_default("KinematicVehicle")},
     sim_configurations=simulation_default,
     model=Path("src/models/kinematicVehicle.mo").resolve(),
 )
+store(session_default, name="default")
