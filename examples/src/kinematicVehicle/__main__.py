@@ -6,7 +6,7 @@ import simTools
 
 
 @hydra.main(config_name="default", version_base=None, config_path=None)
-def main(config: sessionConfig.Session):
+def main(config: sessionConfig.SimulationRun):
     return simTools.simulate(config)
 
 

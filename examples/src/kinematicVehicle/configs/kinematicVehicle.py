@@ -54,4 +54,12 @@ session_default = hydra_zen.make_config(
     sim_configurations=simulation_default,
     model=Path("src/models/kinematicVehicle.mo").resolve(),
 )
-store(session_default, name="default")
+
+run_default = hydra_zen.make_config(
+    bases=(sessionConfig.SimulationRun,),
+    hydra_defaults=["_self_"],
+    model_name="KinematicVehicle",
+    session=session_default,
+)
+
+store(run_default, name="default")

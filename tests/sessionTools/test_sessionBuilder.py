@@ -4,7 +4,7 @@ import hydra_zen
 import numpy as np
 import pytest
 from _pytest.fixtures import SubRequest
-from models.kinematicVehicle import session_default
+from models.kinematicVehicle import run_default
 from omegaconf import OmegaConf
 from omegaconf.dictconfig import DictConfig
 
@@ -13,9 +13,9 @@ from simTools import simulate
 
 NO_OVERRIDE: List[str] = []
 OVERRIDE: List[str] = [
-    "parameters.state_0.px=5.0",
-    "parameters.v_norm=20.0",
-    "model_configurations.KinematicVehicle.time_range.stop_time=20.0",
+    "session.parameters.state_0.px=5.0",
+    "session.parameters.v_norm=20.0",
+    "session.model_configurations.KinematicVehicle.time_range.stop_time=20.0",
 ]
 
 
@@ -25,7 +25,7 @@ class TestSessionBuilder:
         overrides: List[str] = request.param
         extra_overrides = [f"hydra.run.dir={tmp_path}", "hydra.job.chdir=False"]
         return hydra_zen.launch(
-            session_default,
+            run_default,
             simulate,
             overrides + extra_overrides,
             with_log_configuration=False,
@@ -34,7 +34,7 @@ class TestSessionBuilder:
 
     def test_simulation(self, job_return):
         configuration: DictConfig = job_return.cfg
-        parameters = flatten_nested_dict(OmegaConf.to_container(configuration.parameters))  # type: ignore[arg-type]
+        parameters = flatten_nested_dict(OmegaConf.to_container(configuration.session.parameters))  # type: ignore[arg-type]
 
         solution = job_return.return_value["KinematicVehicle"]
         assert solution["state.px"][0] == parameters["state_0.px"]
@@ -46,5 +46,5 @@ class TestSessionBuilder:
         )
         assert (
             solution["time"].values[-1]
-            == configuration.model_configurations["KinematicVehicle"].time_range["stop_time"]
+            == configuration.session.model_configurations["KinematicVehicle"].time_range["stop_time"]
         )
