@@ -16,7 +16,9 @@ class State:
     theta: float = 0.0
 
 
-state_store = store(group="state_0", package="parameters.state_0")
+# register the group under the `session` namespace so selecting it places
+# the stored config into `session.parameters.state_0` when composed
+state_store = store(group="state_0", package="session.parameters.state_0")
 state_store(State(), name="zero_state")
 state_store(State(px=1.0), name="front_position")
 
@@ -48,7 +50,6 @@ simulation_default = sessionConfig.Simulation(
 
 session_default = hydra_zen.make_config(
     bases=(sessionConfig.Session,),
-    hydra_defaults=["_self_", {"state_0": "zero_state"}],
     parameters=vehicle_default,
     model_configurations={"KinematicVehicle": model_default("KinematicVehicle")},
     sim_configurations=simulation_default,
@@ -57,7 +58,8 @@ session_default = hydra_zen.make_config(
 
 run_default = hydra_zen.make_config(
     bases=(sessionConfig.SimulationRun,),
-    hydra_defaults=["_self_"],
+    # include top-level state_0 default so CLI `state_0=...` can replace it
+    hydra_defaults=["_self_", {"state_0": "zero_state"}],
     model_name="KinematicVehicle",
     session=session_default,
 )
