@@ -12,6 +12,7 @@ uv.lock
 
 # Logs
 outputs
+multirun
 
 # Extension
 .mypy_cache
