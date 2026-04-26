@@ -12,5 +12,5 @@ def main(config: sessionConfig.SimulationRun):
 
 
 if __name__ == "__main__":
-    kinematicVehicle.kinematicVehicle.store.add_to_hydra_store()
+    kinematicVehicle.kinematicVehicle.registry.add_to_hydra_store()
     main()

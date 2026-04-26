@@ -2,12 +2,12 @@ import dataclasses
 from pathlib import Path
 
 import hydra_zen
-from hydra_zen import ZenStore
 
+import hydraRegistry
 import sessionConfig
 
 
-store = hydra_zen.ZenStore()
+registry = hydraRegistry.HydraZenRegistry()
 
 
 @dataclasses.dataclass
@@ -17,11 +17,8 @@ class State:
     theta: float = 0.0
 
 
-# register the group under the `session` namespace so selecting it places
-# the stored config into `session.parameters.state_0` when composed
-state_store = store(group="state_0", package="session.parameters.state_0")
-state_store(State(), name="zero_state")
-state_store(State(px=1.0), name="front_position")
+registry.register_group_option("session.parameters.state_0", name="zero_state", config=State())
+registry.register_group_option("session.parameters.state_0", name="front_position", config=State(px=1.0))
 
 
 @dataclasses.dataclass
@@ -57,11 +54,12 @@ session_default = hydra_zen.make_config(
     model=Path("src/kinematicVehicle/kinematicVehicle.mo").resolve(),
 )
 
-run_default = hydra_zen.make_config(
-    bases=(sessionConfig.SimulationRun,),
-    hydra_defaults=["_self_", {"state_0": "zero_state"}],
+run_default = registry.build_run_config(
+    base=sessionConfig.SimulationRun,
     model_name="KinematicVehicle",
     session=session_default,
+    selections={"session.parameters.state_0": "zero_state"},
+    include_experiment_group=True,
 )
 
-store(run_default, name="default")
+registry.register_run_config("default", run_default)
