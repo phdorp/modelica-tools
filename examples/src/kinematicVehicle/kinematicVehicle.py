@@ -2,6 +2,7 @@ import dataclasses
 from pathlib import Path
 
 import hydra_zen
+from hydra_zen import ZenStore
 
 import sessionConfig
 
@@ -58,7 +59,6 @@ session_default = hydra_zen.make_config(
 
 run_default = hydra_zen.make_config(
     bases=(sessionConfig.SimulationRun,),
-    # include top-level state_0 default so CLI `state_0=...` can replace it
     hydra_defaults=["_self_", {"state_0": "zero_state"}],
     model_name="KinematicVehicle",
     session=session_default,
