@@ -1,19 +1,16 @@
 import hydra
-import hydra_zen
-import kinematicVehicle.configs.kinematicVehicle
+import kinematicVehicle.kinematicVehicle
+import kinematicVehicle.experiments
 
 import sessionConfig
 import simTools
 
-store = hydra_zen.ZenStore()
-store(kinematicVehicle.configs.kinematicVehicle.session_default, name="default")
-
 
 @hydra.main(config_name="default", version_base=None, config_path=None)
-def main(config: sessionConfig.Session):
+def main(config: sessionConfig.SimulationRun):
     return simTools.simulate(config)
 
 
 if __name__ == "__main__":
-    store.add_to_hydra_store()
+    kinematicVehicle.kinematicVehicle.store.add_to_hydra_store()
     main()

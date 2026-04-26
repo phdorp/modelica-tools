@@ -49,3 +49,9 @@ class Session:
     sim_configurations: Simulation
     model: pydantic.FilePath
     model_configurations: Dict[str, Model] = dataclasses.field(default_factory=dict)
+
+
+@dataclasses.dataclass
+class SimulationRun:
+    model_name: str
+    session: Session

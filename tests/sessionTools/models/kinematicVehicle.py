@@ -1,6 +1,7 @@
 import dataclasses
 from pathlib import Path
 
+import hydra_zen
 import pydelica
 
 import sessionConfig
@@ -42,4 +43,11 @@ session_default = sessionConfig.Session(
     model_configurations={"KinematicVehicle": model_default("KinematicVehicle")},
     sim_configurations=simulation_default,
     model=Path("tests/sessionTools/models/kinematicVehicle.mo").resolve(),
+)
+
+run_default = hydra_zen.make_config(
+    bases=(sessionConfig.SimulationRun,),
+    hydra_defaults=["_self_"],
+    model_name="KinematicVehicle",
+    session=session_default,
 )
