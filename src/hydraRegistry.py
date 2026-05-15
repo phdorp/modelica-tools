@@ -105,7 +105,7 @@ class HydraZenRegistry:
                 to a different group identifier.
         """
         normalized_path = self._normalize_path(package)
-        group_id = group_name or normalized_path
+        group_id = group_name or self._group_name(normalized_path)
 
         # Check for conflicts: group_id -> package and package -> group_id
         existing_pkg = self._group_names.get(group_id)
