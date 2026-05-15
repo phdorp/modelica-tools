@@ -54,12 +54,12 @@ session_default = hydra_zen.make_config(
     model=Path("src/kinematicVehicle/kinematicVehicle.mo").resolve(),
 )
 
+# Create and register the run config in one step.
 run_default = registry.build_run_config(
     base=sessionConfig.SimulationRun,
     model_name="KinematicVehicle",
     session=session_default,
     selections={"parameters/state_0": "zero_state"},
     include_experiment_group=True,
+    name="default",
 )
-
-registry.register_run_config("default", run_default)

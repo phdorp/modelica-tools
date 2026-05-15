@@ -163,7 +163,7 @@ class HydraZenRegistry:
 
         group_store(config, name=name)
 
-    def build_hydra_defaults(
+    def _build_hydra_defaults(
         self, selections: Mapping[str, str] | None = None, include_self: bool = True, override: bool = False
     ) -> list[Any]:
         """Build a Hydra defaults list from group selections.
@@ -195,6 +195,7 @@ class HydraZenRegistry:
         session: type[DataClass],
         selections: Mapping[str, str] | None = None,
         include_experiment_group: bool = False,
+        name: Optional[str] = None,
     ):
         """Create a run config type with Hydra defaults.
 
@@ -205,20 +206,30 @@ class HydraZenRegistry:
             selections: Optional mapping of hierarchy path to selected option.
             include_experiment_group: Whether to include ``{"experiment": None}``
                 in defaults to allow experiment overrides.
+            name: Optional name to register the created run config under the
+                root store. If provided, the config is registered via
+                ``register_run_config`` before being returned.
 
         Returns:
             A config type created by ``hydra_zen.make_config``.
         """
-        defaults = self.build_hydra_defaults(selections=selections)
+        defaults = self._build_hydra_defaults(selections=selections)
         if include_experiment_group:
             defaults.append({"experiment": None})
 
-        return hydra_zen.make_config(
+        run_config = hydra_zen.make_config(
             bases=(base,),
             model_name=model_name,
             session=session,
             hydra_defaults=defaults,
         )
+
+        # If a name is provided, register the created run config in the
+        # root store so callers can create-and-register in one call.
+        if name is not None:
+            self.register_run_config(name=name, run_config=run_config)
+
+        return run_config
 
     def register_run_config(self, name: str, run_config: Any):
         """Register a run config in the root store.
@@ -246,7 +257,7 @@ class HydraZenRegistry:
                 bases=(base_run_config,),
                 model_name=MISSING,
                 session=MISSING,
-                hydra_defaults=self.build_hydra_defaults(selections=selections, override=True),
+                hydra_defaults=self._build_hydra_defaults(selections=selections, override=True),
             ),
             name=name,
         )
