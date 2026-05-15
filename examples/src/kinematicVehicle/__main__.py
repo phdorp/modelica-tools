@@ -1,6 +1,6 @@
 import hydra
-import kinematicVehicle.kinematicVehicle
 import kinematicVehicle.experiments
+import kinematicVehicle.kinematicVehicle
 
 import sessionConfig
 import simTools
@@ -12,5 +12,5 @@ def main(config: sessionConfig.SimulationRun):
 
 
 if __name__ == "__main__":
-    kinematicVehicle.kinematicVehicle.store.add_to_hydra_store()
+    kinematicVehicle.kinematicVehicle.registry.add_to_hydra_store()
     main()
