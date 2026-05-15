@@ -1,6 +1,6 @@
 import hydra
-import kinematicVehicle.kinematicVehicle
 import kinematicVehicle.experiments
+import kinematicVehicle.kinematicVehicle
 
 import sessionConfig
 import simTools

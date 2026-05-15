@@ -6,7 +6,6 @@ import hydra_zen
 import hydraRegistry
 import sessionConfig
 
-
 registry = hydraRegistry.HydraZenRegistry()
 
 
