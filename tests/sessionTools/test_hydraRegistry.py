@@ -1,71 +1,131 @@
-import hydra_zen
+import dataclasses
+from pathlib import Path
+from typing import Sequence
 
+import hydra_zen
+import pytest
+from hydra import compose, initialize
+from hydra.core.global_hydra import GlobalHydra
+
+import sessionConfig
 from hydraRegistry import HydraZenRegistry
 
 
-def test_register_group_option_creates_store_entry():
-    """Ensure registering a group option stores the config in the group's ZenStore.
-
-    Verifies the stored entry contains the expected package and name metadata.
-    """
-
-    store = hydra_zen.ZenStore()
-    registry = HydraZenRegistry(store=store)
-
-    group_id = registry.register_group_name("pkg.sub", group_name="pkg/sub")
-    registry.register_group_option(group_id=group_id, name="opt1", config={"x": 1})
-
-    # The underlying ZenStore for the group stores the entry
-    group_store = registry._group_stores["pkg.sub"]
-    assert (group_id, "opt1") in group_store._internal_repo
-    entry = group_store._internal_repo[(group_id, "opt1")]
-    assert entry["package"] == "pkg.sub"
-    assert entry["name"] == "opt1"
+@dataclasses.dataclass
+class State:
+    px: float = 0.0
+    py: float = 0.0
+    theta: float = 0.0
 
 
-def test_build_run_config_registers_root_entry():
-    """Ensure build_run_config registers a run config under the registry root.
+@dataclasses.dataclass
+class KinematicVehicle:
+    state_0: State
+    v_norm: float = 10.0
+    phi: float = 0.1
+    l: float = 2.0
 
-    The created run config should be present in the registry's root ZenStore
-    keyed by (None, name).
-    """
 
-    store = hydra_zen.ZenStore()
-    registry = HydraZenRegistry(store=store)
+@dataclasses.dataclass(frozen=True)
+class ComposeCase:
+    name: str
+    overrides: Sequence[str]
+    expected_state_px: float
 
-    # Create minimal base and session config types
-    BaseConf = hydra_zen.make_config("a")
-    SessionConf = hydra_zen.make_config("s")
 
-    registry.build_run_config(
-        base=BaseConf, model_name="modelX", session=SessionConf, selections=None, name="runA"
+@dataclasses.dataclass(frozen=True)
+class RegistryExampleConfig:
+    run_default: type
+
+
+class TestHydraRegistryWithHydraComposition:
+    COMPOSE_CASES = (
+        ComposeCase(name="default", overrides=(), expected_state_px=0.0),
+        ComposeCase(
+            name="group_alias_override",
+            overrides=("parameters/state_0=front_position",),
+            expected_state_px=1.0,
+        ),
+        ComposeCase(
+            name="experiment_override",
+            overrides=("experiment=front_position",),
+            expected_state_px=1.0,
+        ),
     )
 
-    # The run config should be registered at the registry's root store
-    assert (None, "runA") in registry.store._internal_repo
-    entry = registry.store._internal_repo[(None, "runA")]
-    assert entry["name"] == "runA"
+    @pytest.fixture(autouse=True)
+    def _reset_global_hydra(self):
+        GlobalHydra.instance().clear()
+        yield
+        GlobalHydra.instance().clear()
 
+    @pytest.fixture(scope="class")
+    def registry_example(self) -> RegistryExampleConfig:
+        registry = HydraZenRegistry(store=hydra_zen.ZenStore())
 
-def test_register_experiment_creates_experiment_group_entry():
-    """Ensure register_experiment places an experiment config in the experiment group.
+        # Register a package path with a shorter group alias as used in examples.
+        registry.register_group_name("session.parameters.state_0", group_name="parameters/state_0")
+        registry.register_group_option(group_id="parameters/state_0", name="zero_state", config=State())
+        registry.register_group_option(
+            group_id="session.parameters.state_0",
+            name="front_position",
+            config=State(px=1.0),
+        )
 
-    Confirms the entry is added under group 'experiment' with package '_global_'
-    and the expected name.
-    """
+        model_name = "KinematicVehicle"
+        session_default = hydra_zen.make_config(
+            bases=(sessionConfig.Session,),
+            parameters=KinematicVehicle(state_0=State()),
+            model_configurations={
+                model_name: sessionConfig.Model(
+                    time_range=sessionConfig.TimeRange(model_name=model_name, start_time=0.0, stop_time=10.0),
+                    tolerance=sessionConfig.Tolerance(model_name=model_name, tolerance=1e-9),
+                    variable_filter=sessionConfig.VariableFilter(model_name=model_name),
+                )
+            },
+            sim_configurations=sessionConfig.Simulation(solver="rungekutta", output_format="csv"),
+            model=Path("tests/sessionTools/models/kinematicVehicle.mo").resolve(),
+        )
 
-    store = hydra_zen.ZenStore()
-    registry = HydraZenRegistry(store=store)
+        run_default = registry.build_run_config(
+            base=sessionConfig.SimulationRun,
+            model_name=model_name,
+            session=session_default,
+            selections={"parameters/state_0": "zero_state"},
+            include_experiment_group=True,
+            name="default",
+        )
+        registry.register_experiment(
+            name="front_position",
+            base_run_config=run_default,
+            selections={"parameters/state_0": "front_position"},
+        )
+        registry.add_to_hydra_store()
 
-    BaseConf = hydra_zen.make_config("a")
-    SessionConf = hydra_zen.make_config("s")
+        return RegistryExampleConfig(run_default=run_default)
 
-    # create a run config to use as base
-    run_cfg = registry.build_run_config(base=BaseConf, model_name="m", session=SessionConf)
+    @pytest.mark.parametrize("case", COMPOSE_CASES, ids=lambda case: case.name)
+    def test_compose_examples(self, registry_example: RegistryExampleConfig, case: ComposeCase):
+        with initialize(version_base=None, config_path=None):
+            cfg = compose(config_name="default", overrides=list(case.overrides))
 
-    registry.register_experiment(name="exp1", base_run_config=run_cfg, selections={"pkg.sub": "opt1"})
+        assert cfg.model_name == "KinematicVehicle"
+        assert cfg.session.parameters.state_0.px == case.expected_state_px
+        assert cfg.session.model == Path("tests/sessionTools/models/kinematicVehicle.mo").resolve()
 
-    assert ("experiment", "exp1") in registry.store._internal_repo
-    entry = registry.store._internal_repo[("experiment", "exp1")]
-    assert entry["package"] == "_global_"
-    assert entry["name"] == "exp1"
+    def test_multirun_parameter_sweep(self, registry_example: RegistryExampleConfig, tmp_path):
+        job_runs = hydra_zen.launch(
+            registry_example.run_default,
+            lambda cfg: cfg.session.parameters.v_norm,
+            overrides=[
+                "session.parameters.v_norm=10,20",
+                f"hydra.sweep.dir={tmp_path}",
+                "hydra.job.chdir=False",
+            ],
+            multirun=True,
+            version_base=None,
+        )
+
+        run_results = [job.return_value for job in job_runs[0]]
+        expected_results = [job.cfg["session"]["parameters"]["v_norm"] for job in job_runs[0]]
+        assert run_results == expected_results
