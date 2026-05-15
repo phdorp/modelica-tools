@@ -16,9 +16,9 @@ class State:
     py: float = 0.0
     theta: float = 0.0
 
-
-registry.register_group_option("session.parameters.state_0", name="zero_state", config=State())
-registry.register_group_option("session.parameters.state_0", name="front_position", config=State(px=1.0))
+registry.register_group_name("session.parameters.state_0", "parameters/state_0")
+registry.register_group_option("parameters/state_0", name="zero_state", config=State())
+registry.register_group_option("parameters/state_0", name="front_position", config=State(px=1.0))
 
 
 @dataclasses.dataclass
@@ -58,7 +58,7 @@ run_default = registry.build_run_config(
     base=sessionConfig.SimulationRun,
     model_name="KinematicVehicle",
     session=session_default,
-    selections={"session.parameters.state_0": "zero_state"},
+    selections={"parameters/state_0": "zero_state"},
     include_experiment_group=True,
 )
 

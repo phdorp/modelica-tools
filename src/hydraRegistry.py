@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Optional
 
 import hydra_zen
 from hydra_zen import MISSING, ZenStore
@@ -28,7 +28,18 @@ class HydraZenRegistry:
                 ``hydra_zen.ZenStore`` instance is created.
         """
         self._store = store or hydra_zen.ZenStore()
-        self._group_stores: dict[str, Any] = {}
+        self._group_stores: dict[str, hydra_zen.ZenStore] = {}
+        # Map from Hydra group identifier -> normalized package path. This
+        # enables detecting when the same Hydra group name is attempted to
+        # be reused for a different package, which would cause collisions in
+        # Hydra's config store. We enforce uniqueness of group identifiers
+        # across packages below in `register_group_option`.
+        self._group_names: dict[str, str] = {}
+        # Map from normalized package path -> Hydra group identifier. This
+        # must be populated in advance via `register_group_name` so that
+        # options can later be attached to the package using the registered
+        # group identifier as an alias.
+        self._package_to_group: dict[str, str] = {}
 
     @property
     def store(self) -> ZenStore:
@@ -61,7 +72,7 @@ class HydraZenRegistry:
             raise ValueError("hierarchy_path must contain at least one non-empty segment")
         return ".".join(parts)
 
-    def group_name(self, hierarchy_path: str) -> str:
+    def _group_name(self, hierarchy_path: str) -> str:
         """Convert a hierarchy path to Hydra group notation.
 
         Args:
@@ -72,19 +83,84 @@ class HydraZenRegistry:
         """
         return self._normalize_path(hierarchy_path).replace(".", "/")
 
-    def register_group_option(self, hierarchy_path: str, name: str, config: Any):
-        """Register a named option under a hierarchical config group.
+    def register_group_name(self, package: str, group_name: Optional[str] = None) -> str:
+        """Register an explicit Hydra group identifier for a package.
+
+        This method binds a normalized `package` path to a single Hydra
+        group identifier. The mapping must be created before registering
+        options for that package via `register_group_option`.
 
         Args:
-            hierarchy_path: Hierarchical location of the group.
-            name: Name of the option in that group.
-            config: Config object to register.
+            package: Package path in slash or dot notation to register.
+            group_name: Optional explicit Hydra group identifier to use. If
+                omitted, the normalized package path is used as the group
+                identifier.
+
+        Returns:
+            The normalized group identifier that was registered.
+
+        Raises:
+            ValueError: If the chosen `group_name` is already registered to a
+                different package, or if the `package` is already registered
+                to a different group identifier.
         """
-        normalized_path = self._normalize_path(hierarchy_path)
+        normalized_path = self._normalize_path(package)
+        group_id = group_name or normalized_path
+
+        # Check for conflicts: group_id -> package and package -> group_id
+        existing_pkg = self._group_names.get(group_id)
+        if existing_pkg is not None and existing_pkg != normalized_path:
+            raise ValueError(f"Hydra group name '{group_id}' is already registered for package '{existing_pkg}'")
+
+        existing_group = self._package_to_group.get(normalized_path)
+        if existing_group is not None and existing_group != group_id:
+            raise ValueError(f"Package '{normalized_path}' is already registered to group '{existing_group}'")
+
+        # Record the two-way mapping.
+        self._group_names[group_id] = normalized_path
+        self._package_to_group[normalized_path] = group_id
+        return group_id
+
+
+    def register_group_option(self, group_id: str, name: str, config: Any):
+        """Register a named option under a hierarchical config group.
+
+        The ``group_id`` argument may be either:
+        - a previously-registered Hydra group identifier (as returned by
+          ``register_group_name``), or
+        - a package path (slash or dot notation) that was previously bound
+          to a group identifier via ``register_group_name``.
+
+        The method resolves ``group_id`` to the normalized package path and
+        the canonical group identifier. If the provided ``group_id`` cannot
+        be resolved to a registered mapping, ``ValueError`` is raised and
+        the caller should first call ``register_group_name``.
+
+        Args:
+            group_id: Either the Hydra group identifier or the package path
+                corresponding to a previously-registered group.
+            name: Name of the option to register within the group.
+            config: Config object or factory to register in the group's
+                ``ZenStore``.
+        """
+
+        # Prefer interpreting `group_id` as an explicit registered group
+        # identifier. If present, look up the associated package path.
+        if group_id in self._group_names:
+            normalized_path = self._group_names[group_id]
+            canonical_group = group_id
+        else:
+            normalized_path = self._normalize_path(group_id)
+            if normalized_path not in self._package_to_group:
+                self.register_group_name(package=normalized_path, group_name=self._group_name(normalized_path))
+            canonical_group = self._package_to_group[normalized_path]
+
+        # Reuse or create the ZenStore for this package's normalized path.
         group_store = self._group_stores.get(normalized_path)
         if group_store is None:
-            group_store = self._store(group=self.group_name(normalized_path), package=normalized_path)
+            group_store = self._store(group=canonical_group, package=normalized_path)
             self._group_stores[normalized_path] = group_store
+
         group_store(config, name=name)
 
     def build_hydra_defaults(
@@ -106,7 +182,7 @@ class HydraZenRegistry:
             return defaults
 
         for hierarchy_path, choice in selections.items():
-            group = self.group_name(hierarchy_path)
+            group = self._group_name(hierarchy_path)
             key = f"override /{group}" if override else group
             defaults.append({key: choice})
         return defaults
