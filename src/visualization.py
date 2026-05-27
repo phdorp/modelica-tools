@@ -20,7 +20,12 @@ class GraphGridBuilder:
     def _build_row(self, row: int, cols: int):
         return html.Div(
             children=[self._build_cell(row, col) for col in range(cols)],
-            style={"display": "grid", "gridTemplateColumns": f"repeat({cols}, 1fr)", "gap": "12px"},
+            style={
+                "display": "grid",
+                "gridTemplateColumns": f"repeat({cols}, minmax(0, 1fr))",
+                "gap": "12px",
+                "width": "100%",
+            },
         )
 
     def _build_cell(self, row: int, col: int):
@@ -32,9 +37,9 @@ class GraphGridBuilder:
                     value=self._variable_columns[:1],
                     multi=True,
                 ),
-                dcc.Graph(id={"type": "graph", "row": row, "col": col}),
+                dcc.Graph(id={"type": "graph", "row": row, "col": col}, style={"width": "100%"}),
             ],
-            style={"border": "1px solid #ccc", "padding": "8px"},
+            style={"border": "1px solid #ccc", "padding": "8px", "minWidth": 0, "width": "100%"},
         )
 
 
