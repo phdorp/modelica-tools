@@ -1,5 +1,6 @@
 import pandas as pd
-from visualization import DashBuilder
+
+from plotTools import DashBuilder
 
 data = pd.read_csv("/workspaces/modelica-tools/examples/outputs/2026-05-15/13-19-33/KinematicVehicle.csv")
 

@@ -1,9 +1,10 @@
+from typing import List, Sequence
+
 import dash
-from dash import html, dcc, Output, Input, State, ALL
-from dash.html.Base import ComponentSingleType
-from typing import Any, Sequence, List
-import plotly.express as px
 import pandas as pd
+import plotly.express as px
+from dash import ALL, Input, Output, State, dcc, html
+from dash.html.Base import ComponentSingleType
 
 
 class GraphGridBuilder:
