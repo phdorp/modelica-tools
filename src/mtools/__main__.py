@@ -33,8 +33,10 @@ def main() -> None:
 
     selected_result = result_files[0]
 
+    results_dir_path = Path(args.results_dir).resolve()
+    title = results_dir_path.name or results_dir_path.as_posix()
     builder = DashBuilder(__name__)
-    builder.build_title("Kinematic Vehicle Data")
+    builder.build_title(title)
     builder.build_result_select(
         result_files=result_files,
         selected_result=selected_result,
