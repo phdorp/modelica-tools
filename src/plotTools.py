@@ -170,18 +170,26 @@ class ResultSelectBuilder:
         _select: Cached dropdown container built by build_select.
         _result_files: File paths available for selection.
         _selected_result: Default selected file path.
+        _results_root: Root directory used to shorten display labels.
     """
 
-    def __init__(self, result_files: Sequence[str], selected_result: str | None = None):
+    def __init__(
+        self,
+        result_files: Sequence[str],
+        selected_result: str | None = None,
+        results_root: str | Path | None = None,
+    ):
         """Initialize the result select builder.
 
         Args:
             result_files: Sequence of result file paths to list.
             selected_result: Default selected file path.
+            results_root: Root directory to remove from display labels.
         """
 
         self._result_files = result_files
         self._selected_result = selected_result or (result_files[0] if result_files else None)
+        self._results_root = Path(results_root) if results_root is not None else None
         self._select: html.Div | None = None
 
     def build_select(self):
@@ -191,7 +199,10 @@ class ResultSelectBuilder:
             None.
         """
 
-        options = [{"label": result_file, "value": result_file} for result_file in self._result_files]
+        options = [
+            {"label": self._format_label(result_file), "value": result_file}
+            for result_file in self._result_files
+        ]
         self._select = html.Div(
             children=[
                 html.Label("Result File"),
@@ -209,6 +220,14 @@ class ResultSelectBuilder:
 
         return self._select
 
+    def _format_label(self, result_file: str) -> str:
+        if not self._results_root:
+            return result_file
+        try:
+            return str(Path(result_file).relative_to(self._results_root))
+        except ValueError:
+            return result_file
+
 
 class DashBuilder:
     """Builds a Dash app that renders a grid of time-series graphs.
@@ -220,6 +239,7 @@ class DashBuilder:
         _variable_columns: Data columns available for selection, excluding "time".
         _result_files: Result file paths available for selection.
         _selected_result: Default selected result file path.
+        _results_root: Root directory used to shorten display labels.
     """
 
     def __init__(
@@ -228,6 +248,7 @@ class DashBuilder:
         data: pd.DataFrame,
         result_files: Sequence[str],
         selected_result: str | None = None,
+        results_root: str | Path | None = None,
     ):
         """Initialize the Dash app builder.
 
@@ -236,12 +257,14 @@ class DashBuilder:
             data: DataFrame containing a "time" column and value columns to plot.
             result_files: Sequence of result file paths available for selection.
             selected_result: Default selected result file path.
+            results_root: Root directory to remove from display labels.
         """
 
         self._app = dash.Dash(name)
         self._layout: List[ComponentSingleType] = []
         self._result_files = result_files
         self._selected_result = selected_result or (result_files[0] if result_files else None)
+        self._results_root = results_root
         self._set_data(data)
 
     def build_result_select(self):
@@ -372,7 +395,11 @@ class DashBuilder:
             The Dash controls container for result selection.
         """
 
-        result_select = ResultSelectBuilder(self._result_files, self._selected_result)
+        result_select = ResultSelectBuilder(
+            self._result_files,
+            self._selected_result,
+            results_root=self._results_root,
+        )
         result_select.build_select()
         return result_select.get_select()
 

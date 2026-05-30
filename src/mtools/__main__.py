@@ -36,7 +36,13 @@ def main() -> None:
     selected_result = result_files[0]
     data = pd.read_csv(selected_result)
 
-    builder = DashBuilder(__name__, data, result_files=result_files, selected_result=selected_result)
+    builder = DashBuilder(
+        __name__,
+        data,
+        result_files=result_files,
+        selected_result=selected_result,
+        results_root=args.results_dir,
+    )
     builder.build_title("Kinematic Vehicle Data")
     builder.build_result_select()
     builder.build_grid_controls()
