@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import List, Sequence
 
 import dash
@@ -5,6 +6,32 @@ import pandas as pd
 import plotly.express as px
 from dash import ALL, Input, Output, State, dcc, html
 from dash.html.Base import ComponentSingleType
+
+
+def find_results(directory: str | Path) -> List[str]:
+    """Find .csv result files under a directory.
+
+    Args:
+        directory: Root directory to search recursively.
+
+    Returns:
+        List[str]: Sorted list of CSV file paths.
+
+    Raises:
+        FileNotFoundError: If the directory does not exist.
+        NotADirectoryError: If the path is not a directory.
+    """
+
+    directory_path = Path(directory)
+    if not directory_path.exists():
+        raise FileNotFoundError(f"Results directory not found: {directory_path}")
+    if not directory_path.is_dir():
+        raise NotADirectoryError(f"Results path is not a directory: {directory_path}")
+    return sorted(
+        str(path)
+        for path in directory_path.rglob("*.csv")
+        if path.is_file()
+    )
 
 
 class GraphGridBuilder:
@@ -136,6 +163,53 @@ class GridControlBuilder:
         return self._controls
 
 
+class ResultSelectBuilder:
+    """Builds a result file dropdown control for Dash layouts.
+
+    Attributes:
+        _select: Cached dropdown container built by build_select.
+        _result_files: File paths available for selection.
+        _selected_result: Default selected file path.
+    """
+
+    def __init__(self, result_files: Sequence[str], selected_result: str | None = None):
+        """Initialize the result select builder.
+
+        Args:
+            result_files: Sequence of result file paths to list.
+            selected_result: Default selected file path.
+        """
+
+        self._result_files = result_files
+        self._selected_result = selected_result or (result_files[0] if result_files else None)
+        self._select: html.Div | None = None
+
+    def build_select(self):
+        """Build and cache the result select dropdown.
+
+        Returns:
+            None.
+        """
+
+        options = [{"label": result_file, "value": result_file} for result_file in self._result_files]
+        self._select = html.Div(
+            children=[
+                html.Label("Result File"),
+                dcc.Dropdown(options, id="result-select", value=self._selected_result, clearable=False),
+            ],
+            style={"display": "flex", "flexDirection": "column", "gap": "4px"},
+        )
+
+    def get_select(self):
+        """Return the cached result select control.
+
+        Returns:
+            The result dropdown container, or None if it has not been built.
+        """
+
+        return self._select
+
+
 class DashBuilder:
     """Builds a Dash app that renders a grid of time-series graphs.
 
@@ -144,20 +218,40 @@ class DashBuilder:
         _layout: Layout components to render in the app.
         _data: Data source for plots; expects a "time" column.
         _variable_columns: Data columns available for selection, excluding "time".
+        _result_files: Result file paths available for selection.
+        _selected_result: Default selected result file path.
     """
 
-    def __init__(self, name: str, data: pd.DataFrame):
+    def __init__(
+        self,
+        name: str,
+        data: pd.DataFrame,
+        result_files: Sequence[str],
+        selected_result: str | None = None,
+    ):
         """Initialize the Dash app builder.
 
         Args:
             name: App name passed to Dash.
             data: DataFrame containing a "time" column and value columns to plot.
+            result_files: Sequence of result file paths available for selection.
+            selected_result: Default selected result file path.
         """
 
         self._app = dash.Dash(name)
         self._layout: List[ComponentSingleType] = []
-        self._data: pd.DataFrame = data
-        self._variable_columns = [column for column in data.columns if column != "time"]
+        self._result_files = result_files
+        self._selected_result = selected_result or (result_files[0] if result_files else None)
+        self._set_data(data)
+
+    def build_result_select(self):
+        """Add the result file dropdown to the layout.
+
+        Returns:
+            None.
+        """
+
+        self._layout.append(self._build_result_select())
 
     def build_grid_controls(self):
         """Add grid control inputs and a grid container to the layout.
@@ -179,6 +273,7 @@ class DashBuilder:
         self._app.callback(
             Output("graphs-grid", "children"),
             Input("apply-grid", "n_clicks"),
+            Input("result-select", "value"),
             State("rows-input", "value"),
             State("cols-input", "value"),
         )(self._build_graph_grid)
@@ -209,6 +304,28 @@ class DashBuilder:
         self._app.layout = html.Div(children=self._layout)
         return self._app
 
+    def _set_data(self, data: pd.DataFrame):
+        """Store the data and update available variable columns.
+
+        Args:
+            data: DataFrame containing a "time" column and value columns to plot.
+        """
+
+        self._data = data
+        self._variable_columns = [column for column in data.columns if column != "time"]
+
+    def _load_results(self, result_file: str | None):
+        """Load result data from a CSV file and update internal state.
+
+        Args:
+            result_file: CSV file path to load.
+        """
+
+        if not result_file:
+            return
+        self._selected_result = result_file
+        self._set_data(pd.read_csv(result_file))
+
     def _update_graph_callback(self, selected_variables):
         """Build figures for each graph based on selected variables.
 
@@ -230,11 +347,12 @@ class DashBuilder:
             )
         return figures
 
-    def _build_graph_grid(self, _, rows: int, cols: int):
+    def _build_graph_grid(self, _, selected_result: str, rows: int, cols: int):
         """Create a grid of graph containers.
 
         Args:
             _: Unused callback input from Dash.
+            selected_result: Selected result file path.
             rows: Number of grid rows.
             cols: Number of grid columns.
 
@@ -242,9 +360,21 @@ class DashBuilder:
             A list of row containers for the grid.
         """
 
+        self._load_results(selected_result)
         graph_grid = GraphGridBuilder(self._variable_columns)
         graph_grid.build_grid(_, rows, cols)
         return graph_grid.get_grid()
+
+    def _build_result_select(self):
+        """Build the result select container.
+
+        Returns:
+            The Dash controls container for result selection.
+        """
+
+        result_select = ResultSelectBuilder(self._result_files, self._selected_result)
+        result_select.build_select()
+        return result_select.get_select()
 
     @staticmethod
     def _build_grid_controls():
