@@ -4,6 +4,7 @@ from typing import List, Sequence
 import dash
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 from dash import ALL, Input, Output, State, dcc, html
 from dash.html.Base import ComponentSingleType
 
@@ -343,7 +344,10 @@ class DashBuilder:
             return
         self._set_data(pd.read_csv(result_file))
 
-    def _update_graph_callback(self, selected_variables):
+    def _update_graph_callback(
+        self,
+        selected_variables: Sequence[str | Sequence[str] | None],
+    ) -> List[go.Figure]:
         """Build figures for each graph based on selected variables.
 
         Args:
@@ -356,12 +360,19 @@ class DashBuilder:
         figures = []
         for selected_variable in selected_variables:
             if isinstance(selected_variable, str):
-                selected_variable = [selected_variable]
-            figures.append(
-                px.line(self._data, x="time")
-                if not selected_variable
-                else px.line(self._data, x="time", y=selected_variable)
-            )
+                # Dash may pass a single string when only one variable is chosen.
+                selected_variable = [selected_variable] if selected_variable else []
+            elif selected_variable is None:
+                # No selection made for this graph cell.
+                selected_variable = []
+            else:
+                # Multi-select list; filter out empty values from cleared items.
+                selected_variable = [variable for variable in selected_variable if variable]
+
+            if not selected_variable:
+                figures.append(go.Figure())
+            else:
+                figures.append(px.line(self._data, x="time", y=selected_variable))
         return figures
 
     def _build_graph_grid(self, _, selected_result: str, rows: int, cols: int):
