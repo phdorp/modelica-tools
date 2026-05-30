@@ -3,8 +3,6 @@
 import argparse
 from pathlib import Path
 
-import pandas as pd
-
 from plotTools import DashBuilder, find_results
 
 
@@ -34,17 +32,14 @@ def main() -> None:
         raise FileNotFoundError(f"No .csv results found under: {args.results_dir}")
 
     selected_result = result_files[0]
-    data = pd.read_csv(selected_result)
 
-    builder = DashBuilder(
-        __name__,
-        data,
+    builder = DashBuilder(__name__)
+    builder.build_title("Kinematic Vehicle Data")
+    builder.build_result_select(
         result_files=result_files,
         selected_result=selected_result,
         results_root=args.results_dir,
     )
-    builder.build_title("Kinematic Vehicle Data")
-    builder.build_result_select()
     builder.build_grid_controls()
     builder.build_graph_grid()
     app = builder.get_app()

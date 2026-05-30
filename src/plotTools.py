@@ -27,11 +27,7 @@ def find_results(directory: str | Path) -> List[str]:
         raise FileNotFoundError(f"Results directory not found: {directory_path}")
     if not directory_path.is_dir():
         raise NotADirectoryError(f"Results path is not a directory: {directory_path}")
-    return sorted(
-        str(path)
-        for path in directory_path.rglob("*.csv")
-        if path.is_file()
-    )
+    return sorted(str(path) for path in directory_path.rglob("*.csv") if path.is_file())
 
 
 class GraphGridBuilder:
@@ -200,8 +196,7 @@ class ResultSelectBuilder:
         """
 
         options = [
-            {"label": self._format_label(result_file), "value": result_file}
-            for result_file in self._result_files
+            {"label": self._format_label(result_file), "value": result_file} for result_file in self._result_files
         ]
         self._select = html.Div(
             children=[
@@ -237,44 +232,44 @@ class DashBuilder:
         _layout: Layout components to render in the app.
         _data: Data source for plots; expects a "time" column.
         _variable_columns: Data columns available for selection, excluding "time".
-        _result_files: Result file paths available for selection.
-        _selected_result: Default selected result file path.
-        _results_root: Root directory used to shorten display labels.
     """
 
-    def __init__(
-        self,
-        name: str,
-        data: pd.DataFrame,
-        result_files: Sequence[str],
-        selected_result: str | None = None,
-        results_root: str | Path | None = None,
-    ):
+    def __init__(self, name: str):
         """Initialize the Dash app builder.
 
         Args:
             name: App name passed to Dash.
-            data: DataFrame containing a "time" column and value columns to plot.
-            result_files: Sequence of result file paths available for selection.
-            selected_result: Default selected result file path.
-            results_root: Root directory to remove from display labels.
         """
 
         self._app = dash.Dash(name)
         self._layout: List[ComponentSingleType] = []
-        self._result_files = result_files
-        self._selected_result = selected_result or (result_files[0] if result_files else None)
-        self._results_root = results_root
-        self._set_data(data)
+        self._data = pd.DataFrame()
+        self._variable_columns: List[str] = []
 
-    def build_result_select(self):
+    def build_result_select(
+        self,
+        result_files: Sequence[str],
+        selected_result: str | None = None,
+        results_root: str | Path | None = None,
+    ):
         """Add the result file dropdown to the layout.
+
+        Args:
+            result_files: Sequence of result file paths available for selection.
+            selected_result: Default selected result file path.
+            results_root: Root directory to remove from display labels.
 
         Returns:
             None.
         """
 
-        self._layout.append(self._build_result_select())
+        result_select = ResultSelectBuilder(
+            result_files,
+            selected_result,
+            results_root,
+        )
+        result_select.build_select()
+        self._layout.append(result_select.get_select())
 
     def build_grid_controls(self):
         """Add grid control inputs and a grid container to the layout.
@@ -346,7 +341,6 @@ class DashBuilder:
 
         if not result_file:
             return
-        self._selected_result = result_file
         self._set_data(pd.read_csv(result_file))
 
     def _update_graph_callback(self, selected_variables):
@@ -387,21 +381,6 @@ class DashBuilder:
         graph_grid = GraphGridBuilder(self._variable_columns)
         graph_grid.build_grid(_, rows, cols)
         return graph_grid.get_grid()
-
-    def _build_result_select(self):
-        """Build the result select container.
-
-        Returns:
-            The Dash controls container for result selection.
-        """
-
-        result_select = ResultSelectBuilder(
-            self._result_files,
-            self._selected_result,
-            results_root=self._results_root,
-        )
-        result_select.build_select()
-        return result_select.get_select()
 
     @staticmethod
     def _build_grid_controls():
