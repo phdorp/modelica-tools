@@ -5,7 +5,7 @@ from dataclasses import asdict
 from typing import Any, Callable, Dict
 
 import pydantic
-import pydelica
+import pydelica  # type: ignore[import-untyped]
 
 import sessionConfig
 
