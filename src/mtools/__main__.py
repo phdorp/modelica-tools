@@ -20,6 +20,11 @@ def parse_args() -> argparse.Namespace:
         default=str(Path.cwd()),
         help="Directory to search for result CSV files (default: current working directory).",
     )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Run the Dash server in debug mode.",
+    )
     return parser.parse_args()
 
 
@@ -45,7 +50,7 @@ def main() -> None:
     builder.build_grid_controls()
     builder.build_graph_grid()
     app = builder.get_app()
-    app.run(debug=True)
+    app.run(debug=args.debug)
 
 
 if __name__ == "__main__":
