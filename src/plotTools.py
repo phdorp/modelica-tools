@@ -6,7 +6,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from dash import ALL, Input, Output, State, dcc, html
-from dash.html.Base import ComponentSingleType
+from dash.development.base_component import Component
 
 
 def find_results(directory: str | Path) -> List[str]:
@@ -243,7 +243,7 @@ class DashBuilder:
         """
 
         self._app = dash.Dash(name)
-        self._layout: List[ComponentSingleType] = []
+        self._layout: List[Component] = []
         self._data = pd.DataFrame()
         self._variable_columns: List[str] = []
 
@@ -270,7 +270,9 @@ class DashBuilder:
             results_root,
         )
         result_select.build_select()
-        self._layout.append(result_select.get_select())
+        select = result_select.get_select()
+        if select is not None:
+            self._layout.append(select)
 
     def build_grid_controls(self):
         """Add grid control inputs and a grid container to the layout.
@@ -403,4 +405,7 @@ class DashBuilder:
 
         grid_controls = GridControlBuilder()
         grid_controls.build_controls()
-        return grid_controls.get_controls()
+        controls = grid_controls.get_controls()
+        if controls is None:
+            raise RuntimeError("Grid controls were not built.")
+        return controls
