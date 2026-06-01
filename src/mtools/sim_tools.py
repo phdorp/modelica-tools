@@ -2,11 +2,11 @@ import hydra_zen
 import pandas
 from hydra.core.hydra_config import HydraConfig
 
-import mtools.sessionConfig as sessionConfig
-import mtools.internal.sessionTools as sessionTools
+import mtools.session_config as session_config
+import mtools.internal.session_tools as session_tools
 
 
-def simulate(config: sessionConfig.SimulationRun):
+def simulate(config: session_config.SimulationRun):
     """Run a configured simulation session and persist all solution tables.
 
     Args:
@@ -16,7 +16,7 @@ def simulate(config: sessionConfig.SimulationRun):
     Returns:
         Mapping of solution names to simulation result data frames.
     """
-    director: sessionTools.SessionDirector = hydra_zen.instantiate(config.session)
+    director: session_tools.SessionDirector = hydra_zen.instantiate(config.session)
     session = director.make_session()
     session.simulate(model_name=config.model_name)
     solutions = session.get_solutions()

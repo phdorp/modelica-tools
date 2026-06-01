@@ -4,7 +4,7 @@ from typing import Any, ClassVar, Dict, Protocol
 import hydra_zen
 import pydantic
 
-import mtools.internal.sessionTools as sessionTools
+import mtools.internal.session_tools as session_tools
 
 
 @dataclasses.dataclass
@@ -68,7 +68,7 @@ class Simulation:
     output_format: str
 
 
-@hydra_zen.hydrated_dataclass(sessionTools.SessionDirector, populate_full_signature=True, hydra_convert="object", hydra_recursive=None)
+@hydra_zen.hydrated_dataclass(session_tools.SessionDirector, populate_full_signature=True, hydra_convert="object", hydra_recursive=None)
 class Session:
     """Hydra-instantiable session configuration for building a simulation session."""
 

@@ -1,4 +1,4 @@
-from kinematicVehicle.kinematicVehicle import registry, run_default
+from kinematic_vehicle.kinematic_vehicle import registry, run_default
 
 registry.register_experiment(
     name="front_position",

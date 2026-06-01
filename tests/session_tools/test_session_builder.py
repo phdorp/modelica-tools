@@ -4,12 +4,12 @@ import hydra_zen
 import numpy as np
 import pytest
 from _pytest.fixtures import SubRequest
-from models.kinematicVehicle import run_default
+from models.kinematic_vehicle import run_default
 from omegaconf import OmegaConf
 from omegaconf.dictconfig import DictConfig
 
-from mtools.internal.sessionTools import flatten_nested_dict
-from mtools.simTools import simulate
+from mtools.internal.session_tools import flatten_nested_dict
+from mtools.sim_tools import simulate
 
 NO_OVERRIDE: List[str] = []
 OVERRIDE: List[str] = [

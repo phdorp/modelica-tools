@@ -7,7 +7,7 @@ from typing import Any, Callable, Dict
 import pydantic
 import pydelica  # type: ignore[import-untyped]
 
-import mtools.sessionConfig as sessionConfig
+import mtools.session_config as session_config
 
 
 def flatten_nested_dict(data: Dict[str, Any], parent_key: str = "", sep: str = ".") -> Dict[str, Any]:
@@ -112,9 +112,9 @@ class SessionDirector:
     def __init__(
         self,
         model: pydantic.FilePath,
-        parameters: sessionConfig.DataclassType,
-        model_configurations: Dict[str, sessionConfig.Model],
-        sim_configurations: sessionConfig.Simulation,
+        parameters: session_config.DataclassType,
+        model_configurations: Dict[str, session_config.Model],
+        sim_configurations: session_config.Simulation,
         **kwargs,
     ):
         """Prepare normalized configuration for session creation.

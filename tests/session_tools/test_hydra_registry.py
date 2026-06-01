@@ -7,8 +7,8 @@ import pytest
 from hydra import compose, initialize
 from hydra.core.global_hydra import GlobalHydra
 
-import mtools.sessionConfig as sessionConfig
-from mtools.hydraRegistry import HydraZenRegistry
+import mtools.session_config as session_config
+from mtools.hydra_registry import HydraZenRegistry
 
 
 @dataclasses.dataclass
@@ -74,21 +74,21 @@ class TestHydraRegistryWithHydraComposition:
 
         model_name = "KinematicVehicle"
         session_default = hydra_zen.make_config(
-            bases=(sessionConfig.Session,),
+            bases=(session_config.Session,),
             parameters=KinematicVehicle(state_0=State()),
             model_configurations={
-                model_name: sessionConfig.Model(
-                    time_range=sessionConfig.TimeRange(model_name=model_name, start_time=0.0, stop_time=10.0),
-                    tolerance=sessionConfig.Tolerance(model_name=model_name, tolerance=1e-9),
-                    variable_filter=sessionConfig.VariableFilter(model_name=model_name),
+                model_name: session_config.Model(
+                    time_range=session_config.TimeRange(model_name=model_name, start_time=0.0, stop_time=10.0),
+                    tolerance=session_config.Tolerance(model_name=model_name, tolerance=1e-9),
+                    variable_filter=session_config.VariableFilter(model_name=model_name),
                 )
             },
-            sim_configurations=sessionConfig.Simulation(solver="rungekutta", output_format="csv"),
-            model=Path("tests/sessionTools/models/kinematicVehicle.mo").resolve(),
+            sim_configurations=session_config.Simulation(solver="rungekutta", output_format="csv"),
+            model=Path("tests/session_tools/models/kinematic_vehicle.mo").resolve(),
         )
 
         run_default = registry.build_run_config(
-            base=sessionConfig.SimulationRun,
+            base=session_config.SimulationRun,
             model_name=model_name,
             session=session_default,
             selections={"parameters/state_0": "zero_state"},
@@ -111,7 +111,7 @@ class TestHydraRegistryWithHydraComposition:
 
         assert cfg.model_name == "KinematicVehicle"
         assert cfg.session.parameters.state_0.px == case.expected_state_px
-        assert cfg.session.model == Path("tests/sessionTools/models/kinematicVehicle.mo").resolve()
+        assert cfg.session.model == Path("tests/session_tools/models/kinematic_vehicle.mo").resolve()
 
     def test_multirun_parameter_sweep(self, registry_example: RegistryExampleConfig, tmp_path):
         job_runs = hydra_zen.launch(

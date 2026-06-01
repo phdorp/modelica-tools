@@ -3,7 +3,7 @@
 import argparse
 from pathlib import Path
 
-from mtools.internal.plotTools import DashBuilder, find_results
+from mtools.internal.plot_tools import DashBuilder, find_results
 
 
 def parse_args() -> argparse.Namespace:

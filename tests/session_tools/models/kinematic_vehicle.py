@@ -4,7 +4,7 @@ from pathlib import Path
 import hydra_zen
 import pydelica
 
-import mtools.sessionConfig as sessionConfig
+import mtools.session_config as session_config
 
 
 @dataclasses.dataclass
@@ -25,28 +25,28 @@ class KinematicVehicle:
 vehicle_default = KinematicVehicle(state_0=State())
 
 
-def model_default(model_name: str) -> sessionConfig.Model:
-    return sessionConfig.Model(
-        time_range=sessionConfig.TimeRange(model_name=model_name, start_time=0.0, stop_time=10.0),
-        tolerance=sessionConfig.Tolerance(model_name=model_name, tolerance=1e-9),
-        variable_filter=sessionConfig.VariableFilter(model_name=model_name),
+def model_default(model_name: str) -> session_config.Model:
+    return session_config.Model(
+        time_range=session_config.TimeRange(model_name=model_name, start_time=0.0, stop_time=10.0),
+        tolerance=session_config.Tolerance(model_name=model_name, tolerance=1e-9),
+        variable_filter=session_config.VariableFilter(model_name=model_name),
     )
 
 
-simulation_default = sessionConfig.Simulation(
+simulation_default = session_config.Simulation(
     solver="rungekutta",
     output_format="csv",
 )
 
-session_default = sessionConfig.Session(
+session_default = session_config.Session(
     parameters=vehicle_default,
     model_configurations={"KinematicVehicle": model_default("KinematicVehicle")},
     sim_configurations=simulation_default,
-    model=Path("tests/sessionTools/models/kinematicVehicle.mo").resolve(),
+    model=Path("tests/session_tools/models/kinematic_vehicle.mo").resolve(),
 )
 
 run_default = hydra_zen.make_config(
-    bases=(sessionConfig.SimulationRun,),
+    bases=(session_config.SimulationRun,),
     hydra_defaults=["_self_"],
     model_name="KinematicVehicle",
     session=session_default,
