@@ -35,5 +35,16 @@ jobs:
       - name: Install dependencies
         run: uv pip install -e '.[dev]'
 
+      - name: Install examples package
+        run: uv pip install -e ./examples
+
+      - name: Run examples
+        working-directory: examples
+        run: |
+          ../.venv/bin/python -m kinematic_vehicle
+          ../.venv/bin/python -m kinematic_vehicle parameters/state_0=front_position
+          ../.venv/bin/python -m kinematic_vehicle experiment=front_position
+          ../.venv/bin/python -m kinematic_vehicle -m session.parameters.v_norm=10,20
+
       - name: Run tests
         run: uv run pytest
