@@ -4,7 +4,7 @@ from pathlib import Path
 import hydra_zen
 import pydelica
 
-import sessionConfig
+import mtools.sessionConfig as sessionConfig
 
 
 @dataclasses.dataclass

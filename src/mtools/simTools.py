@@ -2,8 +2,8 @@ import hydra_zen
 import pandas
 from hydra.core.hydra_config import HydraConfig
 
-import sessionConfig
-import sessionTools
+import mtools.sessionConfig as sessionConfig
+import mtools.internal.sessionTools as sessionTools
 
 
 def simulate(config: sessionConfig.SimulationRun):

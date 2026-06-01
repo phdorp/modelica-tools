@@ -8,8 +8,8 @@ from models.kinematicVehicle import run_default
 from omegaconf import OmegaConf
 from omegaconf.dictconfig import DictConfig
 
-from sessionTools import flatten_nested_dict
-from simTools import simulate
+from mtools.internal.sessionTools import flatten_nested_dict
+from mtools.simTools import simulate
 
 NO_OVERRIDE: List[str] = []
 OVERRIDE: List[str] = [

@@ -4,7 +4,7 @@ from typing import Any, ClassVar, Dict, Protocol
 import hydra_zen
 import pydantic
 
-import sessionTools
+import mtools.internal.sessionTools as sessionTools
 
 
 @dataclasses.dataclass

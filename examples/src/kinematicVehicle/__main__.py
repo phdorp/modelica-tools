@@ -2,8 +2,8 @@ import hydra
 import kinematicVehicle.experiments
 import kinematicVehicle.kinematicVehicle
 
-import sessionConfig
-import simTools
+import mtools.sessionConfig as sessionConfig
+import mtools.simTools as simTools
 
 
 @hydra.main(config_name="default", version_base=None, config_path=None)

@@ -7,7 +7,7 @@ from typing import Any, Callable, Dict
 import pydantic
 import pydelica  # type: ignore[import-untyped]
 
-import sessionConfig
+import mtools.sessionConfig as sessionConfig
 
 
 def flatten_nested_dict(data: Dict[str, Any], parent_key: str = "", sep: str = ".") -> Dict[str, Any]:

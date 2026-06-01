@@ -3,8 +3,8 @@ from pathlib import Path
 
 import hydra_zen
 
-import hydraRegistry
-import sessionConfig
+import mtools.hydraRegistry as hydraRegistry
+import mtools.sessionConfig as sessionConfig
 
 registry = hydraRegistry.HydraZenRegistry()
 

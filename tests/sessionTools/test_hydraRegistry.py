@@ -7,8 +7,8 @@ import pytest
 from hydra import compose, initialize
 from hydra.core.global_hydra import GlobalHydra
 
-import sessionConfig
-from hydraRegistry import HydraZenRegistry
+import mtools.sessionConfig as sessionConfig
+from mtools.hydraRegistry import HydraZenRegistry
 
 
 @dataclasses.dataclass
