@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from plotTools import find_results
+from mtools.internal.plot_tools import find_results
 
 
 class TestFindResults:
