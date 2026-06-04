@@ -25,13 +25,9 @@ src/kinematic_vehicle/
 The example is part of the `modelica-tools` workspace. Install from the repository root:
 
 ```bash
+git clone https://github.com/phdorp/modelica-tools.git
+cd modelica-tools
 uv sync --dev
-```
-
-Alternatively, install the package with the main project:
-
-```bash
-uv pip install -e '.[dev]'
 ```
 
 ## Run simulation

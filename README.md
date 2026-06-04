@@ -23,6 +23,10 @@ Install [OpenModelica](https://openmodelica.org/) (required by `pydelica`):
   ```bash
   sudo apt-get install -y omc omlibrary
   ```
+- **macOS** (Homebrew):
+  ```bash
+  brew install openmodelica
+  ```
 - **Windows**: Download and run the installer from the [OpenModelica download page](https://openmodelica.org/download/download-windows).
 
 See the [OpenModelica installation guide](https://openmodelica.org/download) for other platforms.
@@ -33,9 +37,11 @@ Requires **Python >= 3.11**.
 
 ### Install the package
 
-The `modelica-tools` package is not yet published on PyPI. Install directly from GitHub:
+The `modelica-tools` package is not yet published on PyPI. Install directly from GitHub — first initialize a project with `uv init` (if you haven't already):
 
 ```bash
+uv init my_simulation
+cd my_simulation
 uv add git+https://github.com/phdorp/modelica-tools.git
 ```
 
