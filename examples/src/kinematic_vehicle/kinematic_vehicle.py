@@ -40,7 +40,7 @@ simulation_default = session_config.Simulation(
 session_default = hydra_zen.make_config(
     bases=(session_config.Session,),
     parameters=vehicle_default,
-    model_configurations={"KinematicVehicle": session_config.Model.default("KinematicVehicle")},
+    model_configurations={"KinematicVehicle": session_config.Model.from_parameters("KinematicVehicle")},
     sim_configurations=simulation_default,
     model=Path("src/kinematic_vehicle/kinematic_vehicle.mo").resolve(),
 )

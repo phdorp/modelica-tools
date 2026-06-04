@@ -32,7 +32,7 @@ simulation_default = session_config.Simulation(
 
 session_default = session_config.Session(
     parameters=vehicle_default,
-    model_configurations={"KinematicVehicle": session_config.Model.default("KinematicVehicle")},
+    model_configurations={"KinematicVehicle": session_config.Model.from_parameters("KinematicVehicle")},
     sim_configurations=simulation_default,
     model=Path("tests/session_tools/models/kinematic_vehicle.mo").resolve(),
 )

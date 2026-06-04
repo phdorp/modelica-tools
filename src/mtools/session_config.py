@@ -1,3 +1,4 @@
+from __future__ import annotations
 import dataclasses
 from typing import Any, ClassVar, Dict, Protocol
 
@@ -58,11 +59,13 @@ class Model:
     variable_filter: VariableFilter
 
     @classmethod
-    def default(cls, model_name: str, start_time: float = 0.0, stop_time: float = 10.0, tolerance: float = 1e-9) -> "Model":
+    def from_parameters(
+        cls, model_name: str, start_time: float = 0.0, stop_time: float = 10.0, tolerance: float = 1e-9
+    ) -> Model:
         return cls(
-            time_range=TimeRange(model_name=model_name, start_time=start_time, stop_time=stop_time),
-            tolerance=Tolerance(model_name=model_name, tolerance=tolerance),
-            variable_filter=VariableFilter(model_name=model_name),
+            TimeRange(model_name, start_time, stop_time),
+            Tolerance(model_name, tolerance),
+            VariableFilter(model_name),
         )
 
 
@@ -76,7 +79,9 @@ class Simulation:
     output_format: str
 
 
-@hydra_zen.hydrated_dataclass(session_tools.SessionDirector, populate_full_signature=True, hydra_convert="object", hydra_recursive=None)
+@hydra_zen.hydrated_dataclass(
+    session_tools.SessionDirector, populate_full_signature=True, hydra_convert="object", hydra_recursive=None
+)
 class Session:
     """Hydra-instantiable session configuration for building a simulation session."""
 
