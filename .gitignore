@@ -16,3 +16,7 @@ multirun
 
 # Extension
 .mypy_cache
+
+# Opencode
+/.ocx
+/.opencode
