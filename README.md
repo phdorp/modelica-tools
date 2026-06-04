@@ -27,6 +27,10 @@ Install [OpenModelica](https://openmodelica.org/) (required by `pydelica`):
 
 See the [OpenModelica installation guide](https://openmodelica.org/download) for other platforms.
 
+### Python version
+
+Requires **Python >= 3.11**.
+
 ### Install the package
 
 The `modelica-tools` package is not yet published on PyPI. Install directly from GitHub:
@@ -42,6 +46,16 @@ git clone https://github.com/phdorp/modelica-tools.git
 cd modelica-tools
 uv sync --all-extras --dev
 ```
+
+A [devcontainer](.devcontainer/) is provided for contributors — it installs OpenModelica, Python 3.11, and all dependencies automatically.
+
+## Testing
+
+```bash
+uv run pytest
+```
+
+Tests require OpenModelica installed (see prerequisites) and compile actual Modelica models via `pydelica`.
 
 ## Usage
 
