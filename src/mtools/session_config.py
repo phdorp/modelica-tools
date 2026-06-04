@@ -57,6 +57,14 @@ class Model:
     #: Output variable filtering settings for the model.
     variable_filter: VariableFilter
 
+    @classmethod
+    def default(cls, model_name: str, start_time: float = 0.0, stop_time: float = 10.0, tolerance: float = 1e-9) -> "Model":
+        return cls(
+            time_range=TimeRange(model_name=model_name, start_time=start_time, stop_time=stop_time),
+            tolerance=Tolerance(model_name=model_name, tolerance=tolerance),
+            variable_filter=VariableFilter(model_name=model_name),
+        )
+
 
 @dataclasses.dataclass
 class Simulation:
