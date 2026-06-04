@@ -15,6 +15,11 @@ src/kinematic_vehicle/
 └── experiments.py           # Named experiment registration
 ```
 
+## Prerequisites
+
+- [OpenModelica](https://openmodelica.org/) installed (`omc` and `omlibrary` packages on Debian/Ubuntu)
+- **Python >= 3.11** with [uv](https://docs.astral.sh/uv/)
+
 ## Installation
 
 The example is part of the `modelica-tools` workspace. Install from the repository root:
