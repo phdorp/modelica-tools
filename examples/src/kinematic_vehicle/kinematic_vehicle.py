@@ -31,14 +31,6 @@ class KinematicVehicle:
 vehicle_default = KinematicVehicle(state_0=State())
 
 
-def model_default(model_name: str) -> session_config.Model:
-    return session_config.Model(
-        time_range=session_config.TimeRange(model_name=model_name, start_time=0.0, stop_time=10.0),
-        tolerance=session_config.Tolerance(model_name=model_name, tolerance=1e-9),
-        variable_filter=session_config.VariableFilter(model_name=model_name),
-    )
-
-
 simulation_default = session_config.Simulation(
     solver="rungekutta",
     output_format="csv",
@@ -48,7 +40,7 @@ simulation_default = session_config.Simulation(
 session_default = hydra_zen.make_config(
     bases=(session_config.Session,),
     parameters=vehicle_default,
-    model_configurations={"KinematicVehicle": model_default("KinematicVehicle")},
+    model_configurations={"KinematicVehicle": session_config.Model.from_parameters("KinematicVehicle")},
     sim_configurations=simulation_default,
     model=Path("src/kinematic_vehicle/kinematic_vehicle.mo").resolve(),
 )
