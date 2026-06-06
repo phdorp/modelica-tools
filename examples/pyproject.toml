@@ -8,5 +8,8 @@ dependencies = [
   "modelica-tools",
 ]
 
+[project.optional-dependencies]
+test = ["pytest>=9.0.0", "pandas>=3.0.0"]
+
 [tool.uv.sources]
 modelica-tools = { workspace = true }
