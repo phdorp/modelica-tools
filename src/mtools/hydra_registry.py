@@ -240,7 +240,14 @@ class HydraZenRegistry:
         """
         self._store(run_config, name=name)
 
-    def register_experiment(self, *, name: str, base_run_config: Any, selections: Mapping[str, str]):
+    def register_experiment(
+        self,
+        *,
+        name: str,
+        base_run_config: Any,
+        selections: Mapping[str, str] | None = None,
+        overrides: Mapping[str, Any] | None = None,
+    ):
         """Register an experiment config under the ``experiment`` group.
 
         The experiment config derives from ``base_run_config`` and overrides
@@ -250,14 +257,28 @@ class HydraZenRegistry:
             name: Experiment name to register.
             base_run_config: Base run config to extend.
             selections: Mapping of hierarchy path to selected option names.
+            overrides: Mapping of hierarchy path to direct config instances
+                or values to override inline, without pre-registration.
         """
+        hydra_defaults = self._build_hydra_defaults(selections=selections, override=True)
+        if overrides:
+            for hierarchy_path, config_instance in overrides.items():
+                group = self._group_name(hierarchy_path)
+                internal_name = f"_{name}_{hierarchy_path.replace('/', '_')}"
+                self.register_group_option(
+                    group_id=hierarchy_path,
+                    name=internal_name,
+                    config=config_instance,
+                )
+                hydra_defaults.append({f"override /{group}": internal_name})
+
         experiment_store = self._store(group="experiment", package="_global_")
         experiment_store(
             hydra_zen.make_config(
                 bases=(base_run_config,),
                 model_name=MISSING,
                 session=MISSING,
-                hydra_defaults=self._build_hydra_defaults(selections=selections, override=True),
+                hydra_defaults=hydra_defaults,
             ),
             name=name,
         )
