@@ -240,6 +240,26 @@ class HydraZenRegistry:
         """
         self._store(run_config, name=name)
 
+    def _register_overrides(
+        self, name: str, overrides: Mapping[str, Any], hydra_defaults: list[Any]
+    ) -> None:
+        """Register override configs as group options and append to defaults.
+
+        Args:
+            name: Experiment name used to derive internal option names.
+            overrides: Mapping of hierarchy path to config instances.
+            hydra_defaults: Defaults list to append override entries to.
+        """
+        for hierarchy_path, config_instance in overrides.items():
+            group = self._group_name(hierarchy_path)
+            internal_name = f"_{name}_{hierarchy_path.replace('/', '_')}"
+            self.register_group_option(
+                group_id=hierarchy_path,
+                name=internal_name,
+                config=config_instance,
+            )
+            hydra_defaults.append({f"override /{group}": internal_name})
+
     def register_experiment(
         self,
         *,
@@ -262,15 +282,7 @@ class HydraZenRegistry:
         """
         hydra_defaults = self._build_hydra_defaults(selections=selections, override=True)
         if overrides:
-            for hierarchy_path, config_instance in overrides.items():
-                group = self._group_name(hierarchy_path)
-                internal_name = f"_{name}_{hierarchy_path.replace('/', '_')}"
-                self.register_group_option(
-                    group_id=hierarchy_path,
-                    name=internal_name,
-                    config=config_instance,
-                )
-                hydra_defaults.append({f"override /{group}": internal_name})
+            self._register_overrides(name, overrides, hydra_defaults)
 
         experiment_store = self._store(group="experiment", package="_global_")
         experiment_store(
