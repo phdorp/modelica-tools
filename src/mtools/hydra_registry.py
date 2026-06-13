@@ -250,15 +250,26 @@ class HydraZenRegistry:
             overrides: Mapping of hierarchy path to config instances.
             hydra_defaults: Defaults list to append override entries to.
         """
+        existing_groups = set()
+        for entry in hydra_defaults:
+            if isinstance(entry, dict):
+                key = next(iter(entry.keys()))
+                if key.startswith("override /"):
+                    existing_groups.add(self._normalize_path(key[len("override /"):]))
+            else:
+                existing_groups.add(self._normalize_path(str(entry)))
+
         for hierarchy_path, config_instance in overrides.items():
-            group = self._group_name(hierarchy_path)
-            internal_name = f"_{name}_{hierarchy_path.replace('/', '_')}"
+            canonical_group = self._normalize_path(hierarchy_path).replace(".", "/")
+            internal_name = f"_{name}_{self._normalize_path(hierarchy_path).replace('.', '_')}"
             self.register_group_option(
                 group_id=hierarchy_path,
                 name=internal_name,
                 config=config_instance,
             )
-            hydra_defaults.append({f"override /{group}": internal_name})
+            if canonical_group not in existing_groups:
+                existing_groups.add(canonical_group)
+                hydra_defaults.append({f"override /{canonical_group}": internal_name})
 
     def register_experiment(
         self,
