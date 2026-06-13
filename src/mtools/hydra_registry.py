@@ -277,8 +277,8 @@ class HydraZenRegistry:
             name: Experiment name to register.
             base_run_config: Base run config to extend.
             selections: Mapping of hierarchy path to selected option names.
-            overrides: Mapping of hierarchy path to direct config instances
-                or values to override inline, without pre-registration.
+            overrides: Mapping of hierarchy path to dataclass config instances
+                to use as override targets.
         """
         hydra_defaults = self._build_hydra_defaults(selections=selections, override=True)
         if overrides:
