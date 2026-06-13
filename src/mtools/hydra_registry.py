@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING, Any, Optional
 import hydra_zen
 from hydra_zen import MISSING, ZenStore
 
+from hydra_zen.typing._implementations import DefaultsList
+
 if TYPE_CHECKING:
     from hydra_zen.typing._implementations import DataClass
 
@@ -165,7 +167,7 @@ class HydraZenRegistry:
 
     def _build_hydra_defaults(
         self, selections: Mapping[str, str] | None = None, include_self: bool = True, override: bool = False
-    ) -> list[Any]:
+    ) -> DefaultsList:
         """Build a Hydra defaults list from group selections.
 
         Args:
@@ -177,7 +179,7 @@ class HydraZenRegistry:
             A Hydra defaults list containing ``"_self_"`` (optional) and
             selection mappings.
         """
-        defaults: list[Any] = ["_self_"] if include_self else []
+        defaults: DefaultsList = ["_self_"] if include_self else []
         if not selections:
             return defaults
 
@@ -240,7 +242,68 @@ class HydraZenRegistry:
         """
         self._store(run_config, name=name)
 
-    def register_experiment(self, *, name: str, base_run_config: Any, selections: Mapping[str, str]):
+    def _get_default_groups(self, hydra_defaults: DefaultsList) -> set[str]:
+        """Extract group paths that already have entries in ``hydra_defaults``.
+
+        Scans each entry in the defaults list and collects the normalized
+        hierarchy path for both plain string entries (e.g. ``"group/subgroup"``)
+        and dict-style override entries (e.g. ``{"override /group/subgroup": "name"}``).
+
+        Args:
+            hydra_defaults: A Hydra defaults list to inspect.
+
+        Returns:
+            A set of normalized dot-delimited group paths found in the list.
+        """
+        existing_groups = set()
+        for entry in hydra_defaults:
+            if isinstance(entry, dict):
+                key = next(iter(entry.keys()))
+                if key.startswith("override /"):
+                    existing_groups.add(self._normalize_path(key[len("override /"):]))
+            else:
+                existing_groups.add(self._normalize_path(str(entry)))
+
+        return existing_groups
+
+    def _register_overrides(
+        self, name: str, overrides: Mapping[str, DataClass], hydra_defaults: DefaultsList
+    ) -> None:
+        """Register override configs as group options and append to defaults.
+
+        Args:
+            name: Experiment name used to derive internal option names.
+            overrides: Mapping of hierarchy path to config instances.
+            hydra_defaults: Defaults list to append override entries to.
+
+        Note:
+            If a hierarchy path in ``overrides`` already has an entry in
+            ``hydra_defaults``, the existing defaults entry takes precedence
+            and no duplicate is added. The override config is still registered
+            under its group so it can be selected by other defaults entries.
+        """
+        existing_groups = self._get_default_groups(hydra_defaults)
+
+        for hierarchy_path, config_instance in overrides.items():
+            canonical_group = self._normalize_path(hierarchy_path).replace(".", "/")
+            internal_name = f"_{name}_{self._normalize_path(hierarchy_path).replace('.', '_')}"
+            self.register_group_option(
+                group_id=hierarchy_path,
+                name=internal_name,
+                config=config_instance,
+            )
+            if canonical_group not in existing_groups:
+                existing_groups.add(canonical_group)
+                hydra_defaults.append({f"override /{canonical_group}": internal_name})
+
+    def register_experiment(
+        self,
+        *,
+        name: str,
+        base_run_config: Any,
+        selections: Mapping[str, str] | None = None,
+        overrides: Mapping[str, DataClass] | None = None,
+    ):
         """Register an experiment config under the ``experiment`` group.
 
         The experiment config derives from ``base_run_config`` and overrides
@@ -250,14 +313,20 @@ class HydraZenRegistry:
             name: Experiment name to register.
             base_run_config: Base run config to extend.
             selections: Mapping of hierarchy path to selected option names.
+            overrides: Mapping of hierarchy path to dataclass config instances
+                to use as override targets.
         """
+        hydra_defaults = self._build_hydra_defaults(selections=selections, override=True)
+        if overrides:
+            self._register_overrides(name, overrides, hydra_defaults)
+
         experiment_store = self._store(group="experiment", package="_global_")
         experiment_store(
             hydra_zen.make_config(
                 bases=(base_run_config,),
                 model_name=MISSING,
                 session=MISSING,
-                hydra_defaults=self._build_hydra_defaults(selections=selections, override=True),
+                hydra_defaults=hydra_defaults,
             ),
             name=name,
         )

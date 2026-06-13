@@ -51,6 +51,16 @@ class TestHydraRegistryWithHydraComposition:
             overrides=("experiment=front_position",),
             expected_state_px=1.0,
         ),
+        ComposeCase(
+            name="experiment_with_direct_instance_override",
+            overrides=("experiment=direct_instance_override",),
+            expected_state_px=42.0,
+        ),
+        ComposeCase(
+            name="experiment_with_mixed_selections_and_overrides",
+            overrides=("experiment=mixed_selections_and_overrides",),
+            expected_state_px=1.0,
+        ),
     )
 
     @pytest.fixture(autouse=True)
@@ -99,6 +109,17 @@ class TestHydraRegistryWithHydraComposition:
             name="front_position",
             base_run_config=run_default,
             selections={"parameters/state_0": "front_position"},
+        )
+        registry.register_experiment(
+            name="direct_instance_override",
+            base_run_config=run_default,
+            overrides={"parameters/state_0": State(px=42.0)},
+        )
+        registry.register_experiment(
+            name="mixed_selections_and_overrides",
+            base_run_config=run_default,
+            selections={"parameters/state_0": "front_position"},
+            overrides={"parameters/state_0": State(px=1.0)},
         )
         registry.add_to_hydra_store()
 
