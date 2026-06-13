@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING, Any, Optional
 import hydra_zen
 from hydra_zen import MISSING, ZenStore
 
+from hydra_zen.typing._implementations import DefaultsList
+
 if TYPE_CHECKING:
     from hydra_zen.typing._implementations import DataClass
 
@@ -165,7 +167,7 @@ class HydraZenRegistry:
 
     def _build_hydra_defaults(
         self, selections: Mapping[str, str] | None = None, include_self: bool = True, override: bool = False
-    ) -> list[Any]:
+    ) -> DefaultsList:
         """Build a Hydra defaults list from group selections.
 
         Args:
@@ -177,7 +179,7 @@ class HydraZenRegistry:
             A Hydra defaults list containing ``"_self_"`` (optional) and
             selection mappings.
         """
-        defaults: list[Any] = ["_self_"] if include_self else []
+        defaults: DefaultsList = ["_self_"] if include_self else []
         if not selections:
             return defaults
 
@@ -241,7 +243,7 @@ class HydraZenRegistry:
         self._store(run_config, name=name)
 
     def _register_overrides(
-        self, name: str, overrides: Mapping[str, DataClass], hydra_defaults: list[Any]
+        self, name: str, overrides: Mapping[str, DataClass], hydra_defaults: DefaultsList
     ) -> None:
         """Register override configs as group options and append to defaults.
 
