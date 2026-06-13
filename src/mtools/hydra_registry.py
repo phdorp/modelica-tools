@@ -242,15 +242,18 @@ class HydraZenRegistry:
         """
         self._store(run_config, name=name)
 
-    def _register_overrides(
-        self, name: str, overrides: Mapping[str, DataClass], hydra_defaults: DefaultsList
-    ) -> None:
-        """Register override configs as group options and append to defaults.
+    def _get_default_groups(self, hydra_defaults: DefaultsList) -> set[str]:
+        """Extract group paths that already have entries in ``hydra_defaults``.
+
+        Scans each entry in the defaults list and collects the normalized
+        hierarchy path for both plain string entries (e.g. ``"group/subgroup"``)
+        and dict-style override entries (e.g. ``{"override /group/subgroup": "name"}``).
 
         Args:
-            name: Experiment name used to derive internal option names.
-            overrides: Mapping of hierarchy path to config instances.
-            hydra_defaults: Defaults list to append override entries to.
+            hydra_defaults: A Hydra defaults list to inspect.
+
+        Returns:
+            A set of normalized dot-delimited group paths found in the list.
         """
         existing_groups = set()
         for entry in hydra_defaults:
@@ -260,6 +263,26 @@ class HydraZenRegistry:
                     existing_groups.add(self._normalize_path(key[len("override /"):]))
             else:
                 existing_groups.add(self._normalize_path(str(entry)))
+
+        return existing_groups
+
+    def _register_overrides(
+        self, name: str, overrides: Mapping[str, DataClass], hydra_defaults: DefaultsList
+    ) -> None:
+        """Register override configs as group options and append to defaults.
+
+        Args:
+            name: Experiment name used to derive internal option names.
+            overrides: Mapping of hierarchy path to config instances.
+            hydra_defaults: Defaults list to append override entries to.
+
+        Note:
+            If a hierarchy path in ``overrides`` already has an entry in
+            ``hydra_defaults``, the existing defaults entry takes precedence
+            and no duplicate is added. The override config is still registered
+            under its group so it can be selected by other defaults entries.
+        """
+        existing_groups = self._get_default_groups(hydra_defaults)
 
         for hierarchy_path, config_instance in overrides.items():
             canonical_group = self._normalize_path(hierarchy_path).replace(".", "/")
