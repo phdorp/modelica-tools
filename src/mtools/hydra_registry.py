@@ -241,7 +241,7 @@ class HydraZenRegistry:
         self._store(run_config, name=name)
 
     def _register_overrides(
-        self, name: str, overrides: Mapping[str, Any], hydra_defaults: list[Any]
+        self, name: str, overrides: Mapping[str, DataClass], hydra_defaults: list[Any]
     ) -> None:
         """Register override configs as group options and append to defaults.
 
@@ -277,7 +277,7 @@ class HydraZenRegistry:
         name: str,
         base_run_config: Any,
         selections: Mapping[str, str] | None = None,
-        overrides: Mapping[str, Any] | None = None,
+        overrides: Mapping[str, DataClass] | None = None,
     ):
         """Register an experiment config under the ``experiment`` group.
 
