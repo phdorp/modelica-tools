@@ -135,17 +135,11 @@ class TestStraightDriving:
             parameters=KinematicVehicle(state_0=State(), v_norm=10.0, phi=0.0),
         )
         df = get_solution_df(solutions)
-        time_col = df["time"]
-        px_col = df["state.px"]
-        py_col = df["state.py"]
-        dt = time_col.diff().values[1:-1]
-        dpx = px_col.values[2:] - px_col.values[:-2]
-        dpy = py_col.values[2:] - py_col.values[:-2]
-        speed = np.sqrt(dpx**2 + dpy**2) / dt
+        px_dot = df["der(state.px)"]
+        py_dot = df["der(state.py)"]
+        vel = np.sqrt(px_dot**2 + py_dot**2)
         expected_speed = 10.0
-        assert all(
-            abs(s - expected_speed) / expected_speed < SPEED_TOL for s in speed
-        ), f"speed should be ~{expected_speed} within {SPEED_TOL*100}%"
+        assert all((vel - expected_speed) / expected_speed < SPEED_TOL), f"speed should be ~{expected_speed} within {SPEED_TOL*100}%"
 
 
 class TestTurnLeft:
