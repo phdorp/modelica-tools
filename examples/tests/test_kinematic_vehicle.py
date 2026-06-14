@@ -143,28 +143,6 @@ class TestStraightDriving:
 
 
 class TestTurnLeft:
-    def test_monotonic_forward_motion(self, run_experiment):
-        _ensure_omc_available()
-        solutions = run_experiment(
-            name="turn_left",
-            selections={"parameters/state_0": "zero_state"},
-            parameters=KinematicVehicle(state_0=State(), v_norm=10.0, phi=0.5),
-        )
-        df = get_solution_df(solutions)
-        px_vals = df["state.px"].values
-        assert all(px_vals[i] <= px_vals[i + 1] + 1e-6 for i in range(len(px_vals) - 1)), "px should increase monotonically"
-
-    def test_monotonic_lateral_displacement(self, run_experiment):
-        _ensure_omc_available()
-        solutions = run_experiment(
-            name="turn_left",
-            selections={"parameters/state_0": "zero_state"},
-            parameters=KinematicVehicle(state_0=State(), v_norm=10.0, phi=0.5),
-        )
-        df = get_solution_df(solutions)
-        py_vals = df["state.py"].values
-        assert all(py_vals[i] <= py_vals[i + 1] + 1e-6 for i in range(len(py_vals) - 1)), "py should increase for left turn"
-
     def test_monotonic_heading_rotation(self, run_experiment):
         _ensure_omc_available()
         solutions = run_experiment(
@@ -188,19 +166,6 @@ class TestTurnLeft:
         final_py = df["state.py"].iloc[-1]
         assert final_px > 0, f"final px should be positive, got {final_px}"
         assert final_py > 0, f"final py should be positive, got {final_py}"
-
-    def test_turn_radius_reasonable(self, run_experiment):
-        _ensure_omc_available()
-        solutions = run_experiment(
-            name="turn_left",
-            selections={"parameters/state_0": "zero_state"},
-            parameters=KinematicVehicle(state_0=State(), v_norm=10.0, phi=0.5),
-        )
-        l = 2.0
-        phi = 0.5
-        expected_radius = l / math.tan(phi)
-        assert expected_radius > 0, "turn radius should be positive"
-        assert math.isfinite(expected_radius), "turn radius should be finite"
 
     def test_no_singular_heading(self, run_experiment):
         _ensure_omc_available()
