@@ -7,7 +7,7 @@ import pytest
 import mtools.session_config as session_config
 from kinematic_vehicle.kinematic_vehicle import KinematicVehicle, State, run_default, simulation_default
 
-from conftest import get_solution_df, _openmodelica_available
+from tests.conftest import get_solution_df, _openmodelica_available
 
 
 POSITION_TOL = 1e-2
