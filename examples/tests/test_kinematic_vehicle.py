@@ -1,6 +1,7 @@
 import math
 
 import numpy as np
+import mtools.hydra_registry as hydra_registry
 import pytest
 
 import mtools.session_config as session_config
@@ -31,6 +32,7 @@ def run_experiment():
         include_experiment_group=True,
         name="test",
     ):
+        registry = hydra_registry.HydraZenRegistry()
         if selections is None:
             selections = {"parameters/state_0": "zero_state"}
 
