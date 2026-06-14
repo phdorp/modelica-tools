@@ -148,7 +148,7 @@ class TestTurnLeft:
         solutions = run_experiment(
             name="turn_left",
             selections={"parameters/state_0": "zero_state"},
-            parameters=KinematicVehicle(state_0=State(), v_norm=10.0, phi=0.5),
+            parameters=KinematicVehicle(state_0=State(), v_norm=10.0, phi=float(np.deg2rad(0.5))),
         )
         df = get_solution_df(solutions)
         theta_vals = df["state.theta"].values
@@ -159,7 +159,7 @@ class TestTurnLeft:
         solutions = run_experiment(
             name="turn_left",
             selections={"parameters/state_0": "zero_state"},
-            parameters=KinematicVehicle(state_0=State(), v_norm=10.0, phi=0.5),
+            parameters=KinematicVehicle(state_0=State(), v_norm=10.0, phi=float(np.deg2rad(0.5))),
         )
         df = get_solution_df(solutions)
         final_px = df["state.px"].iloc[-1]
@@ -172,7 +172,7 @@ class TestTurnLeft:
         solutions = run_experiment(
             name="turn_left",
             selections={"parameters/state_0": "zero_state"},
-            parameters=KinematicVehicle(state_0=State(), v_norm=10.0, phi=0.5),
+            parameters=KinematicVehicle(state_0=State(), v_norm=10.0, phi=float(np.deg2rad(0.5))),
         )
         df = get_solution_df(solutions)
         final_theta = abs(df["state.theta"].iloc[-1])
