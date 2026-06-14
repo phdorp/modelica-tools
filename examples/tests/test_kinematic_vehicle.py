@@ -1,13 +1,12 @@
 import math
 
 import numpy as np
-import mtools.hydra_registry as hydra_registry
+import mtools.sim_tools as sim_tools
 import pytest
 
-import mtools.session_config as session_config
-from kinematic_vehicle.kinematic_vehicle import KinematicVehicle, State, run_default, simulation_default
-
 from tests.conftest import get_solution_df, _openmodelica_available
+from hydra import compose, initialize
+import tests.experiments
 
 
 POSITION_TOL = 1e-2
@@ -23,48 +22,13 @@ def _ensure_omc_available():
 
 @pytest.fixture
 def run_experiment():
-    import hydra_zen
-    import mtools.sim_tools as sim_tools
 
     def _run_experiment(
-        selections=None,
-        parameters=None,
-        include_experiment_group=True,
-        name="test",
+        experiment
     ):
-        registry = hydra_registry.HydraZenRegistry()
-        if selections is None:
-            selections = {"parameters/state_0": "zero_state"}
-
-        if parameters is None:
-            base_params = run_default.session.parameters
-            parameters = KinematicVehicle(
-                state_0=base_params.state_0 if hasattr(base_params, "state_0") else State(),
-                v_norm=10.0,
-                phi=0.0,
-            )
-
-        session_default = hydra_zen.make_config(
-            bases=(session_config.Session,),
-            parameters=parameters,
-            model_configurations={
-                "KinematicVehicle": session_config.Model.from_parameters("KinematicVehicle")
-            },
-            sim_configurations=simulation_default,
-            model=run_default.session.model,
-        )
-
-        run_config = registry.build_run_config(
-            base=session_config.SimulationRun,
-            model_name="KinematicVehicle",
-            session=session_default,
-            selections=selections,
-            include_experiment_group=include_experiment_group,
-            name=name,
-        )
-
-        solutions = sim_tools.simulate(run_config)
-        return solutions
+        with initialize(version_base=None, config_path=None):
+            solutions = sim_tools.simulate(compose(config_name="default", overrides=list({f"experiment={experiment}"})))
+            return solutions
 
     return _run_experiment
 
@@ -72,11 +36,7 @@ def run_experiment():
 class TestStandstill:
     def test_position_unchanged(self, run_experiment):
         _ensure_omc_available()
-        solutions = run_experiment(
-            name="standstill",
-            selections={"parameters/state_0": "zero_state"},
-            parameters=KinematicVehicle(state_0=State(), v_norm=0.0, phi=0.0),
-        )
+        solutions = run_experiment("standstill")
         df = get_solution_df(solutions)
         assert df["state.px"].abs().max() < POSITION_TOL, "px should remain ~0.0"
         assert df["state.py"].abs().max() < POSITION_TOL, "py should remain ~0.0"
@@ -86,22 +46,14 @@ class TestStandstill:
 class TestStraightDriving:
     def test_monotonic_forward_motion(self, run_experiment):
         _ensure_omc_available()
-        solutions = run_experiment(
-            name="straight_driving",
-            selections={"parameters/state_0": "zero_state"},
-            parameters=KinematicVehicle(state_0=State(), v_norm=10.0, phi=0.0),
-        )
+        solutions = run_experiment("straight_driving")
         df = get_solution_df(solutions)
         px_vals = df["state.px"].values
         assert all(px_vals[i] <= px_vals[i + 1] + 1e-6 for i in range(len(px_vals) - 1)), "px should increase monotonically"
 
     def test_final_position_matches_velocity(self, run_experiment):
         _ensure_omc_available()
-        solutions = run_experiment(
-            name="straight_driving",
-            selections={"parameters/state_0": "zero_state"},
-            parameters=KinematicVehicle(state_0=State(), v_norm=10.0, phi=0.0),
-        )
+        solutions = run_experiment("straight_driving")
         df = get_solution_df(solutions)
         expected_px = 10.0 * DEFAULT_STOP_TIME
         final_px = df["state.px"].iloc[-1]
@@ -109,31 +61,19 @@ class TestStraightDriving:
 
     def test_no_lateral_drift(self, run_experiment):
         _ensure_omc_available()
-        solutions = run_experiment(
-            name="straight_driving",
-            selections={"parameters/state_0": "zero_state"},
-            parameters=KinematicVehicle(state_0=State(), v_norm=10.0, phi=0.0),
-        )
+        solutions = run_experiment("straight_driving")
         df = get_solution_df(solutions)
         assert df["state.py"].abs().max() < POSITION_TOL, "py should remain near 0.0 with zero steering"
 
     def test_heading_unchanged(self, run_experiment):
         _ensure_omc_available()
-        solutions = run_experiment(
-            name="straight_driving",
-            selections={"parameters/state_0": "zero_state"},
-            parameters=KinematicVehicle(state_0=State(), v_norm=10.0, phi=0.0),
-        )
+        solutions = run_experiment("straight_driving")
         df = get_solution_df(solutions)
         assert df["state.theta"].abs().max() < ANGLE_TOL, "theta should remain near 0.0 with zero steering"
 
     def test_speed_matches_v_norm(self, run_experiment):
         _ensure_omc_available()
-        solutions = run_experiment(
-            name="straight_driving",
-            selections={"parameters/state_0": "zero_state"},
-            parameters=KinematicVehicle(state_0=State(), v_norm=10.0, phi=0.0),
-        )
+        solutions = run_experiment("straight_driving")
         df = get_solution_df(solutions)
         px_dot = df["der(state.px)"]
         py_dot = df["der(state.py)"]
@@ -145,22 +85,14 @@ class TestStraightDriving:
 class TestTurnLeft:
     def test_monotonic_heading_rotation(self, run_experiment):
         _ensure_omc_available()
-        solutions = run_experiment(
-            name="turn_left",
-            selections={"parameters/state_0": "zero_state"},
-            parameters=KinematicVehicle(state_0=State(), v_norm=10.0, phi=float(np.deg2rad(0.5))),
-        )
+        solutions = run_experiment("turn_left")
         df = get_solution_df(solutions)
         theta_vals = df["state.theta"].values
-        assert all(theta_vals[i] <= theta_vals[i + 1] + 1e-6 for i in range(len(theta_vals) - 1)), "theta should increase for left turn"
+        assert all(theta_vals[i] < theta_vals[i + 1] + 1e-6 for i in range(len(theta_vals) - 1)), "theta should increase for left turn"
 
     def test_final_position_first_quadrant(self, run_experiment):
         _ensure_omc_available()
-        solutions = run_experiment(
-            name="turn_left",
-            selections={"parameters/state_0": "zero_state"},
-            parameters=KinematicVehicle(state_0=State(), v_norm=10.0, phi=float(np.deg2rad(0.5))),
-        )
+        solutions = run_experiment("turn_left")
         df = get_solution_df(solutions)
         final_px = df["state.px"].iloc[-1]
         final_py = df["state.py"].iloc[-1]
@@ -169,11 +101,7 @@ class TestTurnLeft:
 
     def test_no_singular_heading(self, run_experiment):
         _ensure_omc_available()
-        solutions = run_experiment(
-            name="turn_left",
-            selections={"parameters/state_0": "zero_state"},
-            parameters=KinematicVehicle(state_0=State(), v_norm=10.0, phi=float(np.deg2rad(0.5))),
-        )
+        solutions = run_experiment("turn_left")
         df = get_solution_df(solutions)
         final_theta = abs(df["state.theta"].iloc[-1])
         assert final_theta < math.pi / 2, f"final heading |theta| should be < pi/2, got {final_theta}"

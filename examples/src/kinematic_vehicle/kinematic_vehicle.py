@@ -6,7 +6,7 @@ import hydra_zen
 import mtools.hydra_registry as hydra_registry
 import mtools.session_config as session_config
 
-registry = hydra_registry.HydraZenRegistry()
+registry = hydra_registry.HydraZenRegistry(store=hydra_zen.ZenStore())
 
 
 @dataclasses.dataclass
@@ -30,6 +30,8 @@ class KinematicVehicle:
 
 vehicle_default = KinematicVehicle(state_0=State())
 
+registry.register_group_name("session.parameters", "parameters")
+registry.register_group_option("parameters", "default", vehicle_default)
 
 simulation_default = session_config.Simulation(
     solver="rungekutta",
@@ -50,7 +52,8 @@ run_default = registry.build_run_config(
     base=session_config.SimulationRun,
     model_name="KinematicVehicle",
     session=session_default,
-    selections={"parameters/state_0": "zero_state"},
+    selections={"parameters/state_0": "zero_state", "parameters": "default"},
     include_experiment_group=True,
     name="default",
 )
+registry.add_to_hydra_store()

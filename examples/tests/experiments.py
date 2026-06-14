@@ -1,4 +1,5 @@
-from kinematic_vehicle.kinematic_vehicle import KinematicVehicle, State, registry, run_default
+from kinematic_vehicle.kinematic_vehicle import KinematicVehicle, State, run_default, registry
+import numpy as np
 
 registry.register_experiment(
     name="standstill",
@@ -6,7 +7,7 @@ registry.register_experiment(
     selections={
         "parameters/state_0": "zero_state",
     },
-    parameters=KinematicVehicle(state_0=State(), v_norm=0.0, phi=0.0),
+    overrides={"parameters": KinematicVehicle(state_0=State(), v_norm=.0, phi=0)},
 )
 
 registry.register_experiment(
@@ -15,7 +16,7 @@ registry.register_experiment(
     selections={
         "parameters/state_0": "zero_state",
     },
-    parameters=KinematicVehicle(state_0=State(), v_norm=10.0, phi=0.0),
+    overrides={"parameters": KinematicVehicle(state_0=State(), v_norm=10.0, phi=0.0)},
 )
 
 registry.register_experiment(
@@ -24,5 +25,6 @@ registry.register_experiment(
     selections={
         "parameters/state_0": "zero_state",
     },
-    parameters=KinematicVehicle(state_0=State(), v_norm=10.0, phi=0.5),
+    overrides={"parameters": KinematicVehicle(state_0=State(), v_norm=10.0, phi=float(np.deg2rad(0.5)))},
 )
+registry.add_to_hydra_store()
