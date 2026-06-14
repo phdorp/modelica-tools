@@ -1,12 +1,32 @@
 import math
+import subprocess
 
 import numpy as np
+from hydra import compose, initialize
 import mtools.sim_tools as sim_tools
 import pytest
 
-from tests.conftest import get_solution_df, _openmodelica_available
-from hydra import compose, initialize
-import tests.experiments
+
+def _openmodelica_available() -> bool:
+    try:
+        result = subprocess.run(
+            ["omc", "--version"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        return result.returncode == 0
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+
+
+def get_solution_df(solutions, name="KinematicVehicle"):
+    if name in solutions:
+        return solutions[name]
+    for key in solutions:
+        if "state" in key.lower() or "Kinematic" in key:
+            return solutions[key]
+    raise ValueError(f"Could not find solution dataframe in {list(solutions.keys())}")
 
 
 POSITION_TOL = 1e-2
