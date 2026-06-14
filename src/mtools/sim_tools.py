@@ -20,7 +20,6 @@ def simulate(config: session_config.SimulationRun):
     session = director.make_session()
     session.simulate(model_name=config.model_name)
     solutions = session.get_solutions()
-    save_solutions(solutions, HydraConfig.get().runtime.output_dir)
     return solutions
 
 def save_solutions(solutions: dict[str, pandas.DataFrame], output_path: str):
