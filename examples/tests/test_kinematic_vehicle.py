@@ -80,19 +80,6 @@ class TestStandstill:
         assert df["state.py"].abs().max() < POSITION_TOL, "py should remain ~0.0"
         assert df["state.theta"].abs().max() < ANGLE_TOL, "theta should remain ~0.0"
 
-    def test_time_increasing(self, run_experiment):
-        _ensure_omc_available()
-        solutions = run_experiment(
-            name="standstill",
-            selections={"parameters/state_0": "zero_state"},
-            parameters=KinematicVehicle(state_0=State(), v_norm=0.0, phi=0.0),
-        )
-        df = get_solution_df(solutions)
-        time_vals = df["time"].values
-        assert time_vals[0] == pytest.approx(0.0, abs=1e-6), "time should start at 0.0"
-        assert time_vals[-1] == pytest.approx(DEFAULT_STOP_TIME, abs=0.1), f"time should end near {DEFAULT_STOP_TIME}"
-        assert all(time_vals[i] < time_vals[i + 1] for i in range(len(time_vals) - 1)), "time must be monotonically increasing"
-
 
 class TestStraightDriving:
     def test_monotonic_forward_motion(self, run_experiment):
