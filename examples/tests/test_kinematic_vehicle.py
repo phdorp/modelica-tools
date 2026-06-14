@@ -5,7 +5,7 @@ import mtools.hydra_registry as hydra_registry
 import pytest
 
 import mtools.session_config as session_config
-from kinematic_vehicle.kinematic_vehicle import KinematicVehicle, State, registry, run_default, simulation_default
+from kinematic_vehicle.kinematic_vehicle import KinematicVehicle, State, run_default, simulation_default
 
 from conftest import get_solution_df, _openmodelica_available
 
