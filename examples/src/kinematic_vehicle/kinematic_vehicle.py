@@ -15,7 +15,10 @@ class State:
     py: float = 0.0
     theta: float = 0.0
 
+
+# Register a group of name "parameters/state_0" to override parameters at "session.parameters.state_0".
 registry.register_group_name("session.parameters.state_0", "parameters/state_0")
+# Register group options that can be referenced to override "session.parameters.state_0".
 registry.register_group_option("parameters/state_0", name="zero_state", config=State())
 registry.register_group_option("parameters/state_0", name="front_position", config=State(px=1.0))
 
@@ -30,8 +33,9 @@ class KinematicVehicle:
 
 vehicle_default = KinematicVehicle(state_0=State())
 
-registry.register_group_name("session.parameters", "parameters")
-registry.register_group_option("parameters", "default", vehicle_default)
+# Register `vehicle_default` as group option for `session.parameters` and add it to the defaults list.
+# The default list entry can be overridden by an experiment.
+registry.register_group_option("session/parameters", "default", vehicle_default, default=True)
 
 simulation_default = session_config.Simulation(
     solver="rungekutta",
@@ -52,7 +56,6 @@ run_default = registry.build_run_config(
     base=session_config.SimulationRun,
     model_name="KinematicVehicle",
     session=session_default,
-    selections={"parameters/state_0": "zero_state", "parameters": "default"},
     include_experiment_group=True,
     name="default",
 )

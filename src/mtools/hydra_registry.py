@@ -42,6 +42,7 @@ class HydraZenRegistry:
         # options can later be attached to the package using the registered
         # group identifier as an alias.
         self._package_to_group: dict[str, str] = {}
+        self._hydra_defaults: dict[str, str] = {}
 
     @property
     def store(self) -> ZenStore:
@@ -124,7 +125,7 @@ class HydraZenRegistry:
         return group_id
 
 
-    def register_group_option(self, group_id: str, name: str, config: Any):
+    def register_group_option(self, group_id: str, name: str, config: Any, default: bool = False):
         """Register a named option under a hierarchical config group.
 
         The ``group_id`` argument may be either:
@@ -144,6 +145,7 @@ class HydraZenRegistry:
             name: Name of the option to register within the group.
             config: Config object or factory to register in the group's
                 ``ZenStore``.
+            default: Adds option to the hydra default list.
         """
 
         # Prefer interpreting `group_id` as an explicit registered group
@@ -164,6 +166,12 @@ class HydraZenRegistry:
             self._group_stores[normalized_path] = group_store
 
         group_store(config, name=name)
+
+        if default:
+            if canonical_group in self._hydra_defaults:
+                raise ValueError(f"The `group_id` {canonical_group} is already present in the defaults list.")
+            else:
+                self._hydra_defaults[canonical_group] = name
 
     def _build_hydra_defaults(
         self, selections: Mapping[str, str] | None = None, include_self: bool = True, override: bool = False
@@ -215,15 +223,19 @@ class HydraZenRegistry:
         Returns:
             A config type created by ``hydra_zen.make_config``.
         """
-        defaults = self._build_hydra_defaults(selections=selections)
+        selected_defaults = self._hydra_defaults
+        if selections:
+            selected_defaults.update(selections)
+        default = self._build_hydra_defaults(selections=selected_defaults)
+
         if include_experiment_group:
-            defaults.append({"experiment": None})
+            default.append({"experiment": None})
 
         run_config = hydra_zen.make_config(
             bases=(base,),
             model_name=model_name,
             session=session,
-            hydra_defaults=defaults,
+            hydra_defaults=default,
         )
 
         # If a name is provided, register the created run config in the
