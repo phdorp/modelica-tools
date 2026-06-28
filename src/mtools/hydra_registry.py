@@ -111,13 +111,11 @@ class HydraZenRegistry:
         group_id = group_name or self._group_name(normalized_path)
 
         # Check for conflicts: group_id -> package and package -> group_id
-        existing_pkg = self._group_names.get(group_id)
-        if existing_pkg is not None and existing_pkg != normalized_path:
-            raise ValueError(f"Hydra group name '{group_id}' is already registered for package '{existing_pkg}'")
+        if group_id in self._group_names:
+            raise ValueError(f"Hydra group name '{group_id}' is already registered")
 
-        existing_group = self._package_to_group.get(normalized_path)
-        if existing_group is not None and existing_group != group_id:
-            raise ValueError(f"Package '{normalized_path}' is already registered to group '{existing_group}'")
+        if normalized_path in self._package_to_group:
+            raise ValueError(f"Hydra package name '{package}' is already registered")
 
         # Record the two-way mapping.
         self._group_names[group_id] = normalized_path
