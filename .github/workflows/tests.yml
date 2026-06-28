@@ -43,11 +43,11 @@ jobs:
       - name: Run examples
         working-directory: examples
         run: |
-          ../.venv/bin/python -m kinematic_vehicle
-          ../.venv/bin/python -m kinematic_vehicle parameters/state_0=front_position
-          ../.venv/bin/python -m kinematic_vehicle experiment=front_position
-          ../.venv/bin/python -m kinematic_vehicle -m session.parameters.v_norm=10,20
+          uv run --active python -m kinematic_vehicle
+          uv run --active python -m kinematic_vehicle parameters/state_0=front_position
+          uv run --active python -m kinematic_vehicle experiment=front_position
+          uv run --active python -m kinematic_vehicle -m session.parameters.v_norm=10,20
 
       - name: Run examples tests
         working-directory: examples
-        run: pytest
+        run: uv run --active pytest tests
