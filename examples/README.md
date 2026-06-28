@@ -12,7 +12,11 @@ src/kinematic_vehicle/
 ├── __main__.py              # Hydra entry point: composes config and runs simulation
 ├── kinematic_vehicle.mo     # Modelica model
 ├── kinematic_vehicle.py     # Config dataclasses, registry setup, group options
-└── experiments.py           # Named experiment registration
+└── experiments.py           # Named experiment registration (e.g. front_position)
+tests/
+├── __init__.py
+├── experiments.py           # Test-specific experiment registrations
+└── test_kinematic_vehicle.py  # Plausibility tests via parameterized experiments
 ```
 
 ## Prerequisites
@@ -56,7 +60,9 @@ Selects the `front_position` config group, which sets `state_0.px=1.0`. The grou
 uv run python -m kinematic_vehicle experiment=front_position
 ```
 
-Applies the `front_position` experiment defined in `experiments.py`, which overrides the `parameters/state_0` group to `front_position`.
+Applies the `front_position` experiment defined in `src/kinematic_vehicle/experiments.py`, which overrides the `parameters/state_0` group to `front_position`.
+
+Experiments are registered via `registry.register_experiment()` and compose their configs using Hydra's `override /group` defaults syntax.
 
 ### Parameter sweep
 
@@ -65,6 +71,15 @@ uv run python -m kinematic_vehicle -m session.parameters.v_norm=10,20
 ```
 
 Launches a multirun sweep over `v_norm` values 10 and 20. Hydra runs separate simulations for each value and stores results in separate output directories.
+
+## Tests
+
+Plausibility tests verify kinematic vehicle behavior (standstill, straight driving, turn left) against expected physical properties. Tests require OpenModelica and the optional test dependencies:
+
+```bash
+uv sync --group test
+uv run pytest
+```
 
 ## Results
 
