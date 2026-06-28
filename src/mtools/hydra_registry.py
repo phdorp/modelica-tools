@@ -196,7 +196,8 @@ class HydraZenRegistry:
         for hierarchy_path in sorted_groups.keys():
             group = self._group_name(hierarchy_path)
             key = f"override /{group}" if override else group
-            defaults.append({key: selections[hierarchy_path]})
+            if hierarchy_path in selections:
+                defaults.append({key: selections[hierarchy_path]})
         return defaults
 
     def build_run_config(
