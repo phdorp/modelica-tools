@@ -21,7 +21,8 @@ jobs:
         run: sudo bash .devcontainer/install_dependencies.sh
 
       - name: Install uv
-        run: python -m pip install --user pipx && python -m pipx install uv
+        run: |
+          pip install uv
 
       - name: Create virtual environment
         run: uv venv
@@ -32,22 +33,17 @@ jobs:
       - name: Run tests
         run: uv run pytest tests
 
-      - name: Create examples virtual environment
-        working-directory: examples
-        run: uv venv
-
       - name: Install examples package
-        working-directory: examples
-        run: uv pip install -e '.[test]'
+        run: uv pip install -e 'examples[test]'
 
       - name: Run examples
         working-directory: examples
         run: |
-          uv run --active python -m kinematic_vehicle
-          uv run --active python -m kinematic_vehicle parameters/state_0=front_position
-          uv run --active python -m kinematic_vehicle experiment=front_position
-          uv run --active python -m kinematic_vehicle -m session.parameters.v_norm=10,20
+          uv run python -m kinematic_vehicle
+          uv run python -m kinematic_vehicle parameters/state_0=front_position
+          uv run python -m kinematic_vehicle experiment=front_position
+          uv run python -m kinematic_vehicle -m session.parameters.v_norm=10,20
 
       - name: Run examples tests
         working-directory: examples
-        run: uv run --active pytest tests
+        run: uv run pytest tests
