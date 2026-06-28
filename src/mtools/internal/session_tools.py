@@ -9,6 +9,30 @@ import pydelica  # type: ignore[import-untyped]
 
 import mtools.session_config as session_config
 
+_OMC_PASSTHROUGH_FILTER_INSTALLED: bool = False
+
+
+class _OmcPassthroughFilter(logging.Filter):
+    """Suppress known non-error OMC compiler output logged at ERROR level."""
+
+    _patterns = ("Notification: Automatically loaded package",)
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.levelno >= logging.ERROR:
+            msg = record.getMessage()
+            if any(pattern in msg for pattern in self._patterns):
+                return False
+        return True
+
+
+def _install_omc_logging_filter() -> None:
+    global _OMC_PASSTHROUGH_FILTER_INSTALLED
+    if _OMC_PASSTHROUGH_FILTER_INSTALLED:
+        return
+    _OMC_PASSTHROUGH_FILTER_INSTALLED = True
+    compiler_logger = logging.getLogger("PyDelica.Compiler")
+    compiler_logger.addFilter(_OmcPassthroughFilter())
+
 
 def flatten_nested_dict(data: Dict[str, Any], parent_key: str = "", sep: str = ".") -> Dict[str, Any]:
     """Flatten a nested dictionary into dotted-key paths.
@@ -61,6 +85,9 @@ class SessionBuilder:
             build_options: Optional keyword arguments for model building.
         """
         build_options = build_options or {}
+        build_options.setdefault("omc_build_flags", {"-q": None})
+
+        _install_omc_logging_filter()
 
         self._session = pydelica.Session(log_level)
         self._session.build_model(source_file, **build_options)
