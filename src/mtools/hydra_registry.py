@@ -189,10 +189,14 @@ class HydraZenRegistry:
         if not selections:
             return defaults
 
-        for hierarchy_path, choice in selections.items():
+        # Sort group names for packages so parameter overrides are not caused by order of group option registration.
+        # Group options with packages deeper in the hierarchy could be overridden by options higher in hierarchiy otherwise.
+        sorted_groups = dict(sorted(self._group_names.items(), key=lambda x: str(x[1])))
+
+        for hierarchy_path in sorted_groups.keys():
             group = self._group_name(hierarchy_path)
             key = f"override /{group}" if override else group
-            defaults.append({key: choice})
+            defaults.append({key: selections[hierarchy_path]})
         return defaults
 
     def build_run_config(
