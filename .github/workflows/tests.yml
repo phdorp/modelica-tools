@@ -32,8 +32,13 @@ jobs:
       - name: Run tests
         run: uv run pytest tests
 
+      - name: Create examples virtual environment
+        working-directory: examples
+        run: uv venv
+
       - name: Install examples package
-        run: uv pip install -e ./examples[test]
+        working-directory: examples
+        run: uv pip install -e '.[test]'
 
       - name: Run examples
         working-directory: examples
