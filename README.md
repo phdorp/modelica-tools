@@ -105,6 +105,7 @@ In `__main__.py`, import the config module and call `registry.add_to_hydra_store
 
 ```python
 import hydra
+from hydra.core.hydra_config import HydraConfig
 import my_simulation.config  # noqa: F401 - registers Hydra configs
 import mtools.session_config as session_config
 import mtools.sim_tools as sim_tools
@@ -112,7 +113,7 @@ import mtools.sim_tools as sim_tools
 
 @hydra.main(config_name="default", version_base=None, config_path=None)
 def main(config: session_config.SimulationRun):
-    return sim_tools.simulate(config)
+    sim_tools.save_solutions(sim_tools.simulate(config), HydraConfig.get().runtime.output_dir)
 
 
 if __name__ == "__main__":
