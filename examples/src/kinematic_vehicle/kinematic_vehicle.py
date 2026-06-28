@@ -19,7 +19,7 @@ class State:
 # Register a group of name "parameters/state_0" to override parameters at "session.parameters.state_0".
 registry.register_group_name("session.parameters.state_0", "parameters/state_0")
 # Register group options that can be referenced to override "session.parameters.state_0".
-registry.register_group_option("parameters/state_0", name="zero_state", config=State())
+registry.register_group_option("parameters/state_0", name="zero_state", config=State(), default=True)
 registry.register_group_option("parameters/state_0", name="front_position", config=State(px=1.0))
 
 
