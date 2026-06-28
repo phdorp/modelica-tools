@@ -3,8 +3,10 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, Optional
 
+import hydra
 import hydra_zen
 from hydra_zen import MISSING, ZenStore
+from hydra.core.global_hydra import GlobalHydra
 
 from hydra_zen.typing._implementations import DefaultsList
 
@@ -346,6 +348,32 @@ class HydraZenRegistry:
             name=name,
         )
 
-    def add_to_hydra_store(self):
-        """Add all registered entries to Hydra's global config store."""
-        self._store.add_to_hydra_store()
+    def add_to_hydra_store(self, overwrite_ok: bool | None = None):
+        """Add all registered entries to Hydra's global config store.
+
+        Args:
+            overwrite_ok: If True, existing entries in Hydra's config store
+                may be overwritten. Defaults to the store's setting.
+        """
+        self._store.add_to_hydra_store(overwrite_ok=overwrite_ok)
+
+    def compose(
+        self, config_name: str, overrides: list[str] | None = None
+    ) -> Any:
+        """Compose a config from the local store using Hydra's compose.
+
+        This method temporarily adds all stored entries to Hydra's global
+        config store (if not already present), initializes Hydra, composes
+        the requested config, and returns the composed result.
+
+        Args:
+            config_name: Name of the primary config to compose.
+            overrides: Optional list of Hydra override strings.
+
+        Returns:
+            The composed configuration as a DictConfig.
+        """
+        self._store.add_to_hydra_store(overwrite_ok=True)
+        GlobalHydra.instance().clear()
+        with hydra.initialize(version_base=None, config_path=None):
+            return hydra.compose(config_name=config_name, overrides=overrides)
