@@ -33,7 +33,7 @@ jobs:
         run: uv run pytest tests
 
       - name: Install examples package
-        run: uv pip install -e ./examples
+        run: uv pip install -e ./examples[test]
 
       - name: Run examples
         working-directory: examples
