@@ -3,8 +3,10 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, Optional
 
+import hydra
 import hydra_zen
 from hydra_zen import MISSING, ZenStore
+from hydra.core.global_hydra import GlobalHydra
 
 from hydra_zen.typing._implementations import DefaultsList
 
@@ -42,6 +44,7 @@ class HydraZenRegistry:
         # options can later be attached to the package using the registered
         # group identifier as an alias.
         self._package_to_group: dict[str, str] = {}
+        self._hydra_defaults: dict[str, str] = {}
 
     @property
     def store(self) -> ZenStore:
@@ -110,13 +113,11 @@ class HydraZenRegistry:
         group_id = group_name or self._group_name(normalized_path)
 
         # Check for conflicts: group_id -> package and package -> group_id
-        existing_pkg = self._group_names.get(group_id)
-        if existing_pkg is not None and existing_pkg != normalized_path:
-            raise ValueError(f"Hydra group name '{group_id}' is already registered for package '{existing_pkg}'")
+        if group_id in self._group_names:
+            raise ValueError(f"Hydra group name '{group_id}' is already registered")
 
-        existing_group = self._package_to_group.get(normalized_path)
-        if existing_group is not None and existing_group != group_id:
-            raise ValueError(f"Package '{normalized_path}' is already registered to group '{existing_group}'")
+        if normalized_path in self._package_to_group:
+            raise ValueError(f"Hydra package name '{package}' is already registered")
 
         # Record the two-way mapping.
         self._group_names[group_id] = normalized_path
@@ -124,7 +125,7 @@ class HydraZenRegistry:
         return group_id
 
 
-    def register_group_option(self, group_id: str, name: str, config: Any):
+    def register_group_option(self, group_id: str, name: str, config: Any, default: bool = False):
         """Register a named option under a hierarchical config group.
 
         The ``group_id`` argument may be either:
@@ -144,6 +145,7 @@ class HydraZenRegistry:
             name: Name of the option to register within the group.
             config: Config object or factory to register in the group's
                 ``ZenStore``.
+            default: Adds option to the hydra default list.
         """
 
         # Prefer interpreting `group_id` as an explicit registered group
@@ -165,6 +167,12 @@ class HydraZenRegistry:
 
         group_store(config, name=name)
 
+        if default:
+            if canonical_group in self._hydra_defaults:
+                raise ValueError(f"The `group_id` {canonical_group} is already present in the defaults list.")
+            else:
+                self._hydra_defaults[canonical_group] = name
+
     def _build_hydra_defaults(
         self, selections: Mapping[str, str] | None = None, include_self: bool = True, override: bool = False
     ) -> DefaultsList:
@@ -183,10 +191,15 @@ class HydraZenRegistry:
         if not selections:
             return defaults
 
-        for hierarchy_path, choice in selections.items():
+        # Sort group names for packages so parameter overrides are not caused by order of group option registration.
+        # Group options with packages deeper in the hierarchy could be overridden by options higher in hierarchiy otherwise.
+        sorted_groups = dict(sorted(self._group_names.items(), key=lambda x: str(x[1])))
+
+        for hierarchy_path in sorted_groups.keys():
             group = self._group_name(hierarchy_path)
             key = f"override /{group}" if override else group
-            defaults.append({key: choice})
+            if hierarchy_path in selections:
+                defaults.append({key: selections[hierarchy_path]})
         return defaults
 
     def build_run_config(
@@ -215,15 +228,19 @@ class HydraZenRegistry:
         Returns:
             A config type created by ``hydra_zen.make_config``.
         """
-        defaults = self._build_hydra_defaults(selections=selections)
+        selected_defaults = self._hydra_defaults
+        if selections:
+            selected_defaults.update(selections)
+        default = self._build_hydra_defaults(selections=selected_defaults)
+
         if include_experiment_group:
-            defaults.append({"experiment": None})
+            default.append({"experiment": None})
 
         run_config = hydra_zen.make_config(
             bases=(base,),
             model_name=model_name,
             session=session,
-            hydra_defaults=defaults,
+            hydra_defaults=default,
         )
 
         # If a name is provided, register the created run config in the
@@ -331,6 +348,32 @@ class HydraZenRegistry:
             name=name,
         )
 
-    def add_to_hydra_store(self):
-        """Add all registered entries to Hydra's global config store."""
-        self._store.add_to_hydra_store()
+    def add_to_hydra_store(self, overwrite_ok: bool | None = None):
+        """Add all registered entries to Hydra's global config store.
+
+        Args:
+            overwrite_ok: If True, existing entries in Hydra's config store
+                may be overwritten. Defaults to the store's setting.
+        """
+        self._store.add_to_hydra_store(overwrite_ok=overwrite_ok)
+
+    def compose(
+        self, config_name: str, overrides: list[str] | None = None
+    ) -> Any:
+        """Compose a config from the local store using Hydra's compose.
+
+        This method temporarily adds all stored entries to Hydra's global
+        config store (if not already present), initializes Hydra, composes
+        the requested config, and returns the composed result.
+
+        Args:
+            config_name: Name of the primary config to compose.
+            overrides: Optional list of Hydra override strings.
+
+        Returns:
+            The composed configuration as a DictConfig.
+        """
+        self._store.add_to_hydra_store(overwrite_ok=True)
+        GlobalHydra.instance().clear()
+        with hydra.initialize(version_base=None, config_path=None):
+            return hydra.compose(config_name=config_name, overrides=overrides)

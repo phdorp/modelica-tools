@@ -1,4 +1,5 @@
 import hydra
+from hydra.core.hydra_config import HydraConfig
 import kinematic_vehicle.experiments
 import kinematic_vehicle.kinematic_vehicle
 
@@ -8,7 +9,7 @@ import mtools.sim_tools as sim_tools
 
 @hydra.main(config_name="default", version_base=None, config_path=None)
 def main(config: session_config.SimulationRun):
-    return sim_tools.simulate(config)
+    sim_tools.save_solutions(sim_tools.simulate(config), HydraConfig.get().runtime.output_dir)
 
 
 if __name__ == "__main__":

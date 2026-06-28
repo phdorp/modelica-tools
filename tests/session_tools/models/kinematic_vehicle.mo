@@ -15,7 +15,7 @@ model KinematicVehicle
   parameter Real l = 2 "wheelbase";
   parameter State state_0 = State(px=0, py=0, theta=0) "initial state";
 
-  State state(px(start=state_0.px), py(start=state_0.py), theta(start=state_0.theta));
+  State state(px(start=state_0.px, fixed=true), py(start=state_0.py, fixed=true), theta(start=state_0.theta, fixed=true));
   Input control(v_norm=v_norm, phi=phi);
 equation
   der(state.px) = v_norm * cos(state.theta);
