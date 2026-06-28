@@ -1,31 +1,34 @@
 import mtools.sim_tools as sim_tools
 import numpy as np
 import pytest
-from hydra import compose, initialize
+from abc import ABC, abstractmethod
 
-import tests.experiments
+from tests.experiments import registry
 
 
-class Experiment:
+class Experiment(ABC):
     result = "KinematicVehicle"
     tol_position = 1e-2
     tol_angle = 1e-2
     tol_speed = 0.05
     stop_time = 10.0
 
+    @property
+    @abstractmethod
+    def name(self): ...
+
     @pytest.fixture(autouse=True)
     def run_experiment(self):
-        try:
-            with initialize(version_base=None, config_path=None):
-                self.solutions = sim_tools.simulate(
-                    compose(config_name="default", overrides=list({f"experiment={self.name}"}))
-                )[self.result]
-        except RuntimeError as error:
-            raise error
+        self.solutions = sim_tools.simulate(
+            registry.compose(config_name="default", overrides=[f"experiment={self.name}"])
+        )[self.result]
 
 
 class TestStandstill(Experiment):
-    name = "standstill"
+
+    @property
+    def name(self):
+        return "standstill"
 
     def test_position_unchanged(self):
         assert self.solutions["state.px"].abs().max() < self.tol_position, "px should remain ~0.0"
@@ -34,7 +37,10 @@ class TestStandstill(Experiment):
 
 
 class TestStraightDriving(Experiment):
-    name = "straight_driving"
+
+    @property
+    def name(self):
+        return "straight_driving"
 
     def test_monotonic_forward_motion(self):
         px_vals = self.solutions["state.px"].values
@@ -70,7 +76,10 @@ class TestStraightDriving(Experiment):
 
 
 class TestTurnLeft(Experiment):
-    name = "turn_left"
+
+    @property
+    def name(self):
+        return "turn_left"
 
     def test_monotonic_heading_rotation(self):
         theta_vals = self.solutions["state.theta"].values
