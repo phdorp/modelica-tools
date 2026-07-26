@@ -142,6 +142,7 @@ class SessionDirector:
         parameters: session_config.DataclassType,
         model_configurations: Dict[str, session_config.Model],
         sim_configurations: session_config.Simulation,
+        build_options: dict | None = None,
         **kwargs,
     ):
         """Prepare normalized configuration for session creation.
@@ -157,7 +158,7 @@ class SessionDirector:
         self._model_configurations = {name: asdict(config) for name, config in model_configurations.items()}
         self._sim_configurations = asdict(sim_configurations)
         self._configuration = kwargs
-        self._session_builder = SessionBuilder(model)
+        self._session_builder = SessionBuilder(model, build_options=build_options)
 
     def make_session(self) -> pydelica.Session:
         """Build, configure, and return a ready-to-simulate session."""
