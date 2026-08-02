@@ -75,7 +75,11 @@ class SessionBuilder:
         return self._session
 
     def __init__(
-        self, source_file: pydantic.FilePath, log_level: int | str = logging.INFO, build_options: dict | None = None
+        self,
+        source_file: pydantic.FilePath,
+        log_level: int | str = logging.INFO,
+        build_options: dict | None = None,
+        libraries: list[dict[str, str]] | None = None,
     ):
         """Create a session and build the model from the given source file.
 
@@ -83,6 +87,7 @@ class SessionBuilder:
             source_file: Path to the Modelica model source file.
             log_level: Logging level forwarded to ``pydelica.Session``.
             build_options: Optional keyword arguments for model building.
+            libraries: List of library configurations for model building.
         """
         build_options = build_options or {}
         build_options.setdefault("omc_build_flags", {"-q": None})
@@ -90,6 +95,8 @@ class SessionBuilder:
         _install_omc_logging_filter()
 
         self._session = pydelica.Session(log_level)
+        if libraries:
+            self._session.use_libraries(libraries)
         self._session.build_model(source_file, **build_options)
 
     def configure_parameters(self, parameters: Dict[str, Any]):
@@ -143,6 +150,7 @@ class SessionDirector:
         model_configurations: Dict[str, session_config.Model],
         sim_configurations: session_config.Simulation,
         build_options: dict | None = None,
+        libraries: list[dict[str, str]] | None = None,
         **kwargs,
     ):
         """Prepare normalized configuration for session creation.
@@ -158,7 +166,7 @@ class SessionDirector:
         self._model_configurations = {name: asdict(config) for name, config in model_configurations.items()}
         self._sim_configurations = asdict(sim_configurations)
         self._configuration = kwargs
-        self._session_builder = SessionBuilder(model, build_options=build_options)
+        self._session_builder = SessionBuilder(model, build_options=build_options, libraries=libraries)
 
     def make_session(self) -> pydelica.Session:
         """Build, configure, and return a ready-to-simulate session."""
