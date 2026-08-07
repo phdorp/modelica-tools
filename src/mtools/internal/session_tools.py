@@ -8,6 +8,7 @@ import pydantic
 import pydelica  # type: ignore[import-untyped]
 
 import mtools.session_config as session_config
+from mtools.internal.pydelica_patch import install_pydelica_patch
 
 _OMC_PASSTHROUGH_FILTER_INSTALLED: bool = False
 
@@ -32,6 +33,10 @@ def _install_omc_logging_filter() -> None:
     _OMC_PASSTHROUGH_FILTER_INSTALLED = True
     compiler_logger = logging.getLogger("PyDelica.Compiler")
     compiler_logger.addFilter(_OmcPassthroughFilter())
+
+
+def _install_pydelica_runtime_patch() -> None:
+    install_pydelica_patch()
 
 
 def flatten_nested_dict(data: Dict[str, Any], parent_key: str = "", sep: str = ".") -> Dict[str, Any]:
@@ -93,6 +98,7 @@ class SessionBuilder:
         build_options.setdefault("omc_build_flags", {"-q": None})
 
         _install_omc_logging_filter()
+        _install_pydelica_runtime_patch()
 
         self._session = pydelica.Session(log_level)
         if libraries:
