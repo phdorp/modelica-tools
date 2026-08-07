@@ -1,6 +1,5 @@
 import mtools.sim_tools as sim_tools
 import numpy as np
-import pandas as pd
 import pytest
 from abc import ABC, abstractmethod
 
