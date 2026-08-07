@@ -1,5 +1,8 @@
 {
-  "name": "Debian",
-  "build": { "dockerfile": "Dockerfile" },
+  "name": "open-modelica",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
   "postCreateCommand": "pipx install uv && uv venv && uv pip install -e '.[dev]'"
 }
