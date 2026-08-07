@@ -105,13 +105,36 @@ class SessionBuilder:
             self._session.use_libraries(libraries)
         self._session.build_model(source_file, **build_options)
 
+    @staticmethod
+    def _convert_parameters(parameters: Dict[str, Any]) -> Dict[str, Any]:
+        """Convert parameter values to a format suitable for the session.
+
+        Conversion rules:
+        - Scalar values are passed through unchanged.
+        - List or tuple values are converted to indexed parameter names (1-based).
+
+        Args:
+            parameters: Mapping of parameter names to values.
+
+        Returns:
+            A dictionary of converted parameter values.
+        """
+        parameters_converted: Dict[str, Any] = {}
+        for name, value in parameters.items():
+            if isinstance(value, (list, tuple)):
+                for idx, element in enumerate(value):
+                    parameters_converted[f"{name}[{idx + 1}]"] = element
+            else:
+                parameters_converted[name] = value
+        return parameters_converted
+
     def configure_parameters(self, parameters: Dict[str, Any]):
         """Apply parameter values to the underlying session.
 
         Args:
             parameters: Mapping of parameter names to values.
         """
-        for name, value in parameters.items():
+        for name, value in self._convert_parameters(parameters).items():
             self._session.set_parameter(str(name), value)
 
     def configure_models(self, configurations: Dict[str, Dict[str, Any]]):
