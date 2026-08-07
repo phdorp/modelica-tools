@@ -45,7 +45,7 @@ class TestStraightDriving(Experiment):
     def test_monotonic_forward_motion(self):
         px_vals = self.solutions["state.px"].values
         assert all(
-            px_vals[i] <= px_vals[i + 1] + 1e-6 for i in range(len(px_vals) - 1)
+            px_vals[i] <= px_vals[i + 1] for i in range(len(px_vals) - 1)
         ), "px should increase monotonically"
 
     def test_final_position_matches_velocity(self):
@@ -84,7 +84,7 @@ class TestTurnLeft(Experiment):
     def test_monotonic_heading_rotation(self):
         theta_vals = self.solutions["state.theta"].values
         assert all(
-            theta_vals[i] < theta_vals[i + 1] + 1e-6 for i in range(len(theta_vals) - 1)
+            theta_vals[i] <= theta_vals[i + 1] for i in range(len(theta_vals) - 1)
         ), "theta should increase for left turn"
 
     def test_final_position_first_quadrant(self):
