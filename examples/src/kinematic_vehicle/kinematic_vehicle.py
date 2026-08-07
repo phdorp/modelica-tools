@@ -7,6 +7,7 @@ import mtools.hydra_registry as hydra_registry
 import mtools.session_config as session_config
 
 registry = hydra_registry.HydraZenRegistry(store=hydra_zen.ZenStore())
+MODEL_NAME = "kinematic_vehicle.KinematicVehicle"
 
 
 @dataclasses.dataclass
@@ -46,15 +47,16 @@ simulation_default = session_config.Simulation(
 session_default = hydra_zen.make_config(
     bases=(session_config.Session,),
     parameters=vehicle_default,
-    model_configurations={"KinematicVehicle": session_config.Model.from_parameters("KinematicVehicle")},
+    model_configurations={MODEL_NAME: session_config.Model.from_parameters(MODEL_NAME)},
     sim_configurations=simulation_default,
-    model=Path("src/kinematic_vehicle/kinematic_vehicle.mo").resolve(),
+    model=Path("src/kinematic_vehicle/package.mo").resolve(),
+    build_options={"model_addr": MODEL_NAME},
 )
 
 # Create and register the run config in one step.
 run_default = registry.build_run_config(
     base=session_config.SimulationRun,
-    model_name="KinematicVehicle",
+    model_name=MODEL_NAME,
     session=session_default,
     include_experiment_group=True,
     name="default",

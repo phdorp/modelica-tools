@@ -1,13 +1,4 @@
-record State
-  Real px;
-  Real py;
-  Real theta;
-end State;
-
-record Input
-  Real v_norm;
-  Real phi;
-end Input;
+within kinematic_vehicle;
 
 model KinematicVehicle
   parameter Real v_norm = 10 "velocity";

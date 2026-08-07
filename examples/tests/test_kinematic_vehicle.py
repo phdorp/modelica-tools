@@ -3,11 +3,12 @@ import numpy as np
 import pytest
 from abc import ABC, abstractmethod
 
+from kinematic_vehicle.kinematic_vehicle import MODEL_NAME
 from tests.experiments import registry
 
 
 class Experiment(ABC):
-    result = "KinematicVehicle"
+    result = MODEL_NAME
     tol_position = 1e-2
     tol_angle = 1e-2
     tol_speed = 0.05
