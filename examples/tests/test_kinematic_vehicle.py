@@ -1,5 +1,6 @@
 import mtools.sim_tools as sim_tools
 import numpy as np
+import pandas as pd
 import pytest
 from abc import ABC, abstractmethod
 
@@ -8,6 +9,7 @@ from tests.experiments import registry
 
 class Experiment(ABC):
     result = MODEL_NAME
+    solutions: pd.DataFrame
     tol_position = 1e-2
     tol_angle = 1e-2
     tol_speed = 0.05
@@ -17,9 +19,9 @@ class Experiment(ABC):
     @abstractmethod
     def name(self): ...
 
-    @pytest.fixture(autouse=True)
-    def run_experiment(self):
-        self.solutions = sim_tools.simulate(
+    @pytest.fixture(autouse=True, scope="class")
+    def run_experiment(self, request):
+        request.cls.solutions = sim_tools.simulate(
             registry.compose(config_name="default", overrides=[f"experiment={self.name}"])
         )[self.result]
 
