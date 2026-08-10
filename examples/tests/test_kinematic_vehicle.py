@@ -10,27 +10,23 @@ from tests.experiments import registry
 class Experiment(ABC):
     result = MODEL_NAME
     solutions: pd.DataFrame
+    name: str
     tol_position = 1e-2
     tol_angle = 1e-2
     tol_speed = 0.05
     stop_time = 10.0
 
-    @property
-    @abstractmethod
-    def name(self): ...
-
     @pytest.fixture(autouse=True, scope="class")
-    def run_experiment(self, request):
+    @classmethod
+    def run_experiment(cls, request):
         request.cls.solutions = sim_tools.simulate(
-            registry.compose(config_name="default", overrides=[f"experiment={self.name}"])
-        )[self.result]
+            registry.compose(config_name="default", overrides=[f"experiment={cls.name}"])
+        )[cls.result]
 
 
 class TestStandstill(Experiment):
 
-    @property
-    def name(self):
-        return "standstill"
+    name = "standstill"
 
     def test_position_unchanged(self):
         assert self.solutions["state.px"].abs().max() < self.tol_position, "px should remain ~0.0"
@@ -40,9 +36,7 @@ class TestStandstill(Experiment):
 
 class TestStraightDriving(Experiment):
 
-    @property
-    def name(self):
-        return "straight_driving"
+    name = "straight_driving"
 
     def test_monotonic_forward_motion(self):
         px_vals = self.solutions["state.px"].values
@@ -79,9 +73,7 @@ class TestStraightDriving(Experiment):
 
 class TestTurnLeft(Experiment):
 
-    @property
-    def name(self):
-        return "turn_left"
+    name = "turn_left"
 
     def test_monotonic_heading_rotation(self):
         theta_vals = self.solutions["state.theta"].values
