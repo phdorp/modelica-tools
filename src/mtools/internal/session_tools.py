@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import logging
 from dataclasses import asdict
-from typing import Any, Callable, Dict
+from typing import TYPE_CHECKING, Any, Callable, Dict
 
 import pydantic
 import pydelica  # type: ignore[import-untyped]
 
-import mtools.session_config as session_config
 from mtools.internal.pydelica_patch import install_pydelica_patch
+
+if TYPE_CHECKING:
+    import mtools.session_config as session_config
 
 _OMC_PASSTHROUGH_FILTER_INSTALLED: bool = False
 
