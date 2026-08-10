@@ -7,6 +7,14 @@ destroys the sibling ``.mo`` files / ``Resources/`` layout that OMC needs to res
 ``within`` members across multiple files. This variant points OMC at the original source
 path so the relative layout is preserved.
 
+Note on resource resolution: because the source is compiled in place, relative references
+in external C code and ``modelica://`` / ``loadResource``-style paths resolve against the
+*workspace* location of the model, not the temporary build directory. The C sources are
+still mirrored into ``<temp_build_dir>/Resources/Include`` because OMC's generated makefile
+is run with ``cwd=<temp_build_dir>`` and may reference them relative to that directory. The
+two copies are identical, so both roots resolve consistently as long as the model's
+``Resources/Include`` directory remains next to the ``.mo`` file in the workspace.
+
 The patch is validated against pydelica 0.6.x (see ``_SUPPORTED_PYDELICA_MAJOR_MINOR``);
 ``install_pydelica_patch`` refuses to install against other versions so the copy cannot
 drift silently on upgrades.
@@ -70,6 +78,12 @@ def _compile_without_source_copy(
     modelica_source_file = modelica_source_file.absolute()
 
     if c_source_dir:
+        # Stage the C sources into the build dir for the makefile step (run with
+        # cwd=<temp_build_dir>). Unlike upstream, the .mo is compiled in place, so
+        # modelica:// / loadResource-style paths and relative references in the C
+        # code resolve against the workspace Resources/ tree, not this copy. The
+        # two copies are identical, so both roots agree as long as Resources/Include
+        # stays next to the source file.
         _prepare_c_incls(self._logger, f"{c_source_dir}", f"{_temp_build_dir}")
 
     if not modelica_source_file.exists():
