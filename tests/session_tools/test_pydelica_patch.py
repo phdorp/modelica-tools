@@ -130,5 +130,5 @@ def test_session_builder_installs_patch_before_session_creation(monkeypatch, tmp
     session_tools.SessionBuilder(model_path)
 
     assert calls[0] == "installed"
-    assert calls[1] == "session:20"
+    assert calls[1] == f"session:{logging.INFO}"
     assert calls[2] == f"build_model:{model_path}"
