@@ -52,9 +52,10 @@ def _normalize_solution_keys(
             )
         return {model_name: solutions[matching_keys[0]]}
 
-    if len(solutions) == 1:
-        only_key, only_value = next(iter(solutions.items()))
-        return {model_name: only_value}
+    if len(matching_keys) == 0:
+        raise ValueError(
+            f"No solution matches the requested model '{model_name}'. "
+        )
 
     return solutions
 

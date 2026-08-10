@@ -1,6 +1,7 @@
 import mtools.sim_tools as sim_tools
 
 import pandas as pd
+import pytest
 
 
 def test_normalize_solution_match():
@@ -15,7 +16,5 @@ def test_normalize_solution_match():
 def test_normalize_solution_no_match():
     solutions = {"backend_generated_result": pd.DataFrame({"time": [0.0, 1.0]})}
 
-    normalized = sim_tools._normalize_solution_keys(solutions, model_name="some.package.ModelName")
-
-    assert list(normalized.keys()) == ["some.package.ModelName"]
-    assert normalized["some.package.ModelName"].equals(solutions["backend_generated_result"])
+    with pytest.raises(ValueError, match="No solution matches the requested model"):
+        sim_tools._normalize_solution_keys(solutions, model_name="some.package.ModelName")
