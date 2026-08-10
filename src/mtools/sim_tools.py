@@ -3,9 +3,12 @@ import re
 import hydra_zen
 import pandas
 from hydra.core.hydra_config import HydraConfig
+import logging
 
 import mtools.session_config as session_config
 import mtools.internal.session_tools as session_tools
+
+logger = logging.getLogger(__name__)
 
 
 def _canonical_name(name: str) -> str:
@@ -37,7 +40,16 @@ def _normalize_solution_keys(
         or _canonical_name(key) == _canonical_name(model_name.split(".")[-1])
     ]
 
+    # Drops solutions if multiple models are in solutions.
+    # Current API does only support simulation of a single model at at time.
+    # TODO: Modify `pydelica` to not alter model names.
     if len(matching_keys) == 1:
+        if len(solutions) > 1:
+            logger.warning(
+                "Simulation returned multiple solutions; only '%s' matches the "
+                "requested model. Other solutions are discarded.",
+                matching_keys[0],
+            )
         return {model_name: solutions[matching_keys[0]]}
 
     if len(solutions) == 1:
