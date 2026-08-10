@@ -96,7 +96,7 @@ class SessionBuilder:
             build_options: Optional keyword arguments for model building.
             libraries: List of library configurations for model building.
         """
-        build_options = build_options or {}
+        build_options = dict(build_options or {})
         build_options.setdefault("omc_build_flags", {"-q": None})
 
         _install_omc_logging_filter()
