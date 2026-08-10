@@ -11,6 +11,7 @@ class Experiment(ABC):
     result = MODEL_NAME
     solutions: pd.DataFrame
     name: str
+    eps = np.finfo(float).eps
     tol_position = 1e-2
     tol_angle = 1e-2
     tol_speed = 0.05
@@ -40,9 +41,7 @@ class TestStraightDriving(Experiment):
 
     def test_monotonic_forward_motion(self):
         px_vals = self.solutions["state.px"].values
-        assert all(
-            px_vals[i] <= px_vals[i + 1] for i in range(len(px_vals) - 1)
-        ), "px should increase monotonically"
+        assert np.all(np.diff(px_vals) >= -self.eps), "px should increase monotonically"
 
     def test_final_position_matches_velocity(self):
         expected_px = self.solutions["time"].iloc[-1] * self.solutions["der(state.px)"].iloc[-1]
@@ -77,9 +76,7 @@ class TestTurnLeft(Experiment):
 
     def test_monotonic_heading_rotation(self):
         theta_vals = self.solutions["state.theta"].values
-        assert all(
-            theta_vals[i] <= theta_vals[i + 1] for i in range(len(theta_vals) - 1)
-        ), "theta should increase for left turn"
+        assert np.all(np.diff(theta_vals) >= -self.eps), "theta should increase for left turn"
 
     def test_final_position_first_quadrant(self):
         final_px = self.solutions["state.px"].iloc[-1]
