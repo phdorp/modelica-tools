@@ -62,6 +62,40 @@ def flatten_nested_dict(data: Dict[str, Any], parent_key: str = "", sep: str = "
     return flattened
 
 
+def _is_array_like(value: Any) -> bool:
+    """Return whether ``value`` should be expanded into per-element parameters.
+
+    Array-like values are iterables (list, tuple, ``numpy.ndarray``, ...) other
+    than ``str``/``bytes``/``dict``.
+    """
+    return hasattr(value, "__iter__") and not isinstance(value, (str, bytes, dict))
+
+
+def _expand_array_parameter(name: str, value: Any) -> Dict[str, Any]:
+    """Expand an array-like ``value`` into per-element indexed parameter names.
+
+    Indexes follow Modelica's 1-based convention, with dimensions separated by
+    commas in row-major order (e.g. ``name[1, 1]`` for a 2-D array).
+    """
+    if len(value) == 0:
+        raise ValueError(f"Parameter '{name}' has an empty array value; nothing to set")
+    return _expand_array_elements(name, (), value)
+
+
+def _expand_array_elements(name: str, indices: tuple[int, ...], value: Any) -> Dict[str, Any]:
+    if len(value) == 0:
+        raise ValueError(f"Parameter '{name}' has an empty array value; nothing to set")
+    expanded: Dict[str, Any] = {}
+    for idx, element in enumerate(value):
+        element_indices = indices + (idx + 1,)
+        if _is_array_like(element):
+            expanded.update(_expand_array_elements(name, element_indices, element))
+        else:
+            index_suffix = ", ".join(str(i) for i in element_indices)
+            expanded[f"{name}[{index_suffix}]"] = element
+    return expanded
+
+
 class SessionBuilder:
     """Build and configure a ``pydelica.Session`` from structured settings."""
 
@@ -113,19 +147,34 @@ class SessionBuilder:
 
         Conversion rules:
         - Scalar values are passed through unchanged.
-        - List or tuple values are converted to indexed parameter names (1-based).
+        - Array-like values (list, tuple, ``numpy.ndarray`` or any other
+          iterable that is not ``str``/``bytes``/``dict``) are expanded into
+          per-element parameter names using Modelica's 1-based indexing.
+          Indexes are appended to the parameter name as ``[i]`` for 1-D arrays
+          and as comma-separated, row-major ``[i, j]`` for 2-D (and ``[i, j,
+          k]`` for N-D) arrays: ``x = [a, b]`` becomes ``x[1] = a``, ``x[2] =
+          b`` and ``m = [[a, b], [c, d]]`` becomes ``m[1,1] = a``, ``m[1,2] =
+          b``, ``m[2,1] = c``, ``m[2,2] = d``.
+        - Empty array-like values raise ``ValueError`` instead of silently
+          producing no entries.
+        - Dictionary values are passed through unchanged (the session rejects
+          them with its own error).
 
         Args:
             parameters: Mapping of parameter names to values.
 
         Returns:
             A dictionary of converted parameter values.
+
+        Raises:
+            ValueError: If an array-like parameter value has no elements.
         """
         parameters_converted: Dict[str, Any] = {}
         for name, value in parameters.items():
-            if isinstance(value, (list, tuple)):
-                for idx, element in enumerate(value):
-                    parameters_converted[f"{name}[{idx + 1}]"] = element
+            if isinstance(value, dict):
+                parameters_converted[name] = value
+            elif _is_array_like(value):
+                parameters_converted.update(_expand_array_parameter(name, value))
             else:
                 parameters_converted[name] = value
         return parameters_converted
