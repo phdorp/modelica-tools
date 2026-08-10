@@ -1,3 +1,17 @@
+"""Workaround for pydelica multi-file compilation.
+
+``_compile_without_source_copy`` is a copy of ``pydelica.compiler.Compiler.compile``
+(pydelica 0.6.3) with only the temp-source-staging step removed: upstream copies the
+single ``.mo`` file (and ``extra_models``) flat into its own temporary directory, which
+destroys the sibling ``.mo`` files / ``Resources/`` layout that OMC needs to resolve
+``within`` members across multiple files. This variant points OMC at the original source
+path so the relative layout is preserved.
+
+The patch is validated against pydelica 0.6.x (see ``_SUPPORTED_PYDELICA_MAJOR_MINOR``);
+``install_pydelica_patch`` refuses to install against other versions so the copy cannot
+drift silently on upgrades.
+"""
+
 from __future__ import annotations
 
 import glob
@@ -8,6 +22,7 @@ import platform
 import shutil
 import subprocess
 import tempfile
+from importlib import metadata
 
 import pydantic
 
@@ -15,7 +30,14 @@ import pydelica.exception as pde
 from pydelica.options import LibrarySetup
 
 
+_SUPPORTED_PYDELICA_MAJOR_MINOR = "0.6"
+
 _PATCH_INSTALLED = False
+
+
+def _pydelica_version() -> str:
+    """Return the installed pydelica version from package metadata."""
+    return metadata.version("pydelica")
 
 
 def _prepare_c_incls(logger: logging.Logger, c_source_dir: str, temp_dir: str) -> None:
@@ -56,6 +78,10 @@ def _compile_without_source_copy(
             " file does not exist"
         )
 
+    # Deviation from upstream: pydelica 0.6.3 stages the source (and extra_models) by
+    # copying them flat into a temp dir and compiling from there, which drops sibling
+    # .mo files / Resources/ and breaks 'within' resolution. We instead compile the
+    # original file in place so the relative layout is preserved.
     _args = [self._omc_binary, "-s", str(modelica_source_file)]
 
     if extra_models:
@@ -214,6 +240,15 @@ def install_pydelica_patch() -> None:
     global _PATCH_INSTALLED
     if _PATCH_INSTALLED:
         return
+
+    _version = _pydelica_version()
+    if not _version.startswith(_SUPPORTED_PYDELICA_MAJOR_MINOR):
+        raise RuntimeError(
+            f"install_pydelica_patch was validated against pydelica "
+            f"{_SUPPORTED_PYDELICA_MAJOR_MINOR}.x but pydelica {_version} is installed. "
+            "Update pydelica_patch._compile_without_source_copy to match the upstream "
+            "pydelica.compiler.Compiler.compile of the installed version."
+        )
 
     import pydelica.compiler as pydelica_compiler
 
