@@ -58,7 +58,7 @@ A [devcontainer](.devcontainer/) is provided for contributors — it installs Op
 ## Testing
 
 ```bash
-uv run pytest
+uv run pytest tests
 ```
 
 Tests require OpenModelica installed (see prerequisites) and compile actual Modelica models via `pydelica`.

@@ -1,34 +1,33 @@
 import mtools.sim_tools as sim_tools
 import numpy as np
+import pandas as pd
 import pytest
 from abc import ABC, abstractmethod
 
+from kinematic_vehicle.kinematic_vehicle import MODEL_NAME
 from tests.experiments import registry
 
-
 class Experiment(ABC):
-    result = "KinematicVehicle"
+    result = MODEL_NAME
+    solutions: pd.DataFrame
+    name: str
+    eps = np.finfo(float).eps
     tol_position = 1e-2
     tol_angle = 1e-2
     tol_speed = 0.05
     stop_time = 10.0
 
-    @property
-    @abstractmethod
-    def name(self): ...
-
-    @pytest.fixture(autouse=True)
-    def run_experiment(self):
-        self.solutions = sim_tools.simulate(
-            registry.compose(config_name="default", overrides=[f"experiment={self.name}"])
-        )[self.result]
+    @pytest.fixture(autouse=True, scope="class")
+    @classmethod
+    def run_experiment(cls, request):
+        request.cls.solutions = sim_tools.simulate(
+            registry.compose(config_name="default", overrides=[f"experiment={cls.name}"])
+        )[cls.result]
 
 
 class TestStandstill(Experiment):
 
-    @property
-    def name(self):
-        return "standstill"
+    name = "standstill"
 
     def test_position_unchanged(self):
         assert self.solutions["state.px"].abs().max() < self.tol_position, "px should remain ~0.0"
@@ -38,15 +37,11 @@ class TestStandstill(Experiment):
 
 class TestStraightDriving(Experiment):
 
-    @property
-    def name(self):
-        return "straight_driving"
+    name = "straight_driving"
 
     def test_monotonic_forward_motion(self):
         px_vals = self.solutions["state.px"].values
-        assert all(
-            px_vals[i] <= px_vals[i + 1] + 1e-6 for i in range(len(px_vals) - 1)
-        ), "px should increase monotonically"
+        assert np.all(np.diff(px_vals) >= -self.eps), "px should increase monotonically"
 
     def test_final_position_matches_velocity(self):
         expected_px = self.solutions["time"].iloc[-1] * self.solutions["der(state.px)"].iloc[-1]
@@ -77,15 +72,11 @@ class TestStraightDriving(Experiment):
 
 class TestTurnLeft(Experiment):
 
-    @property
-    def name(self):
-        return "turn_left"
+    name = "turn_left"
 
     def test_monotonic_heading_rotation(self):
         theta_vals = self.solutions["state.theta"].values
-        assert all(
-            theta_vals[i] < theta_vals[i + 1] + 1e-6 for i in range(len(theta_vals) - 1)
-        ), "theta should increase for left turn"
+        assert np.all(np.diff(theta_vals) >= -self.eps), "theta should increase for left turn"
 
     def test_final_position_first_quadrant(self):
         final_px = self.solutions["state.px"].iloc[-1]

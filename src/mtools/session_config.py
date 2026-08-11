@@ -93,6 +93,8 @@ class Session:
     model: pydantic.FilePath
     #: Per-model configuration blocks keyed by model name.
     model_configurations: Dict[str, Model] = dataclasses.field(default_factory=dict)
+    build_options: dict | None = None
+    libraries: list[dict[str, str]] | None = None
 
 
 @dataclasses.dataclass

@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import logging
 from dataclasses import asdict
-from typing import Any, Callable, Dict
+from typing import TYPE_CHECKING, Any, Callable, Dict
 
 import pydantic
 import pydelica  # type: ignore[import-untyped]
 
-import mtools.session_config as session_config
+from mtools.internal.pydelica_patch import install_pydelica_patch
+
+if TYPE_CHECKING:
+    import mtools.session_config as session_config
 
 _OMC_PASSTHROUGH_FILTER_INSTALLED: bool = False
 
@@ -34,6 +37,10 @@ def _install_omc_logging_filter() -> None:
     compiler_logger.addFilter(_OmcPassthroughFilter())
 
 
+def _install_pydelica_runtime_patch() -> None:
+    install_pydelica_patch()
+
+
 def flatten_nested_dict(data: Dict[str, Any], parent_key: str = "", sep: str = ".") -> Dict[str, Any]:
     """Flatten a nested dictionary into dotted-key paths.
 
@@ -53,6 +60,40 @@ def flatten_nested_dict(data: Dict[str, Any], parent_key: str = "", sep: str = "
         else:
             flattened[new_key] = value
     return flattened
+
+
+def _is_array_like(value: Any) -> bool:
+    """Return whether ``value`` should be expanded into per-element parameters.
+
+    Array-like values are iterables (list, tuple, ``numpy.ndarray``, ...) other
+    than ``str``/``bytes``/``dict``.
+    """
+    return hasattr(value, "__iter__") and not isinstance(value, (str, bytes, dict))
+
+
+def _expand_array_parameter(name: str, value: Any) -> Dict[str, Any]:
+    """Expand an array-like ``value`` into per-element indexed parameter names.
+
+    Indexes follow Modelica's 1-based convention, with dimensions separated by
+    commas in row-major order (e.g. ``name[1, 1]`` for a 2-D array).
+    """
+    if len(value) == 0:
+        raise ValueError(f"Parameter '{name}' has an empty array value; nothing to set")
+    return _expand_array_elements(name, (), value)
+
+
+def _expand_array_elements(name: str, indices: tuple[int, ...], value: Any) -> Dict[str, Any]:
+    if len(value) == 0:
+        raise ValueError(f"Parameter '{name}' has an empty array value; nothing to set")
+    expanded: Dict[str, Any] = {}
+    for idx, element in enumerate(value):
+        element_indices = indices + (idx + 1,)
+        if _is_array_like(element):
+            expanded.update(_expand_array_elements(name, element_indices, element))
+        else:
+            index_suffix = ", ".join(str(i) for i in element_indices)
+            expanded[f"{name}[{index_suffix}]"] = element
+    return expanded
 
 
 class SessionBuilder:
@@ -75,7 +116,11 @@ class SessionBuilder:
         return self._session
 
     def __init__(
-        self, source_file: pydantic.FilePath, log_level: int | str = logging.INFO, build_options: dict | None = None
+        self,
+        source_file: pydantic.FilePath,
+        log_level: int | str = logging.INFO,
+        build_options: dict | None = None,
+        libraries: list[dict[str, str]] | None = None,
     ):
         """Create a session and build the model from the given source file.
 
@@ -83,14 +128,56 @@ class SessionBuilder:
             source_file: Path to the Modelica model source file.
             log_level: Logging level forwarded to ``pydelica.Session``.
             build_options: Optional keyword arguments for model building.
+            libraries: List of library configurations for model building.
         """
-        build_options = build_options or {}
+        build_options = dict(build_options or {})
         build_options.setdefault("omc_build_flags", {"-q": None})
 
         _install_omc_logging_filter()
+        _install_pydelica_runtime_patch()
 
         self._session = pydelica.Session(log_level)
+        if libraries:
+            self._session.use_libraries(libraries)
         self._session.build_model(source_file, **build_options)
+
+    @staticmethod
+    def _convert_parameters(parameters: Dict[str, Any]) -> Dict[str, Any]:
+        """Convert parameter values to a format suitable for the session.
+
+        Conversion rules:
+        - Scalar values are passed through unchanged.
+        - Array-like values (list, tuple, ``numpy.ndarray`` or any other
+          iterable that is not ``str``/``bytes``/``dict``) are expanded into
+          per-element parameter names using Modelica's 1-based indexing.
+          Indexes are appended to the parameter name as ``[i]`` for 1-D arrays
+          and as comma-separated, row-major ``[i, j]`` for 2-D (and ``[i, j,
+          k]`` for N-D) arrays: ``x = [a, b]`` becomes ``x[1] = a``, ``x[2] =
+          b`` and ``m = [[a, b], [c, d]]`` becomes ``m[1,1] = a``, ``m[1,2] =
+          b``, ``m[2,1] = c``, ``m[2,2] = d``.
+        - Empty array-like values raise ``ValueError`` instead of silently
+          producing no entries.
+        - Dictionary values are passed through unchanged (the session rejects
+          them with its own error).
+
+        Args:
+            parameters: Mapping of parameter names to values.
+
+        Returns:
+            A dictionary of converted parameter values.
+
+        Raises:
+            ValueError: If an array-like parameter value has no elements.
+        """
+        parameters_converted: Dict[str, Any] = {}
+        for name, value in parameters.items():
+            if isinstance(value, dict):
+                parameters_converted[name] = value
+            elif _is_array_like(value):
+                parameters_converted.update(_expand_array_parameter(name, value))
+            else:
+                parameters_converted[name] = value
+        return parameters_converted
 
     def configure_parameters(self, parameters: Dict[str, Any]):
         """Apply parameter values to the underlying session.
@@ -98,7 +185,7 @@ class SessionBuilder:
         Args:
             parameters: Mapping of parameter names to values.
         """
-        for name, value in parameters.items():
+        for name, value in self._convert_parameters(parameters).items():
             self._session.set_parameter(str(name), value)
 
     def configure_models(self, configurations: Dict[str, Dict[str, Any]]):
@@ -142,6 +229,8 @@ class SessionDirector:
         parameters: session_config.DataclassType,
         model_configurations: Dict[str, session_config.Model],
         sim_configurations: session_config.Simulation,
+        build_options: dict | None = None,
+        libraries: list[dict[str, str]] | None = None,
         **kwargs,
     ):
         """Prepare normalized configuration for session creation.
@@ -157,7 +246,7 @@ class SessionDirector:
         self._model_configurations = {name: asdict(config) for name, config in model_configurations.items()}
         self._sim_configurations = asdict(sim_configurations)
         self._configuration = kwargs
-        self._session_builder = SessionBuilder(model)
+        self._session_builder = SessionBuilder(model, build_options=build_options, libraries=libraries)
 
     def make_session(self) -> pydelica.Session:
         """Build, configure, and return a ready-to-simulate session."""
