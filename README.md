@@ -53,7 +53,33 @@ cd modelica-tools
 uv sync --all-extras --dev
 ```
 
-A [devcontainer](.devcontainer/) is provided for contributors — it installs OpenModelica, Python 3.11, and all dependencies automatically.
+### Development container
+
+A [devcontainer](.devcontainer/) is provided for contributors — it installs OpenModelica, Python 3.11, and all dependencies automatically, so no manual setup is required.
+
+**Prerequisites**
+
+- [Docker](https://docs.docker.com/get-docker/)
+- A devcontainer-compatible editor or CLI, e.g. [VS Code](https://code.visualstudio.com/docs/devcontainers/containers) with the [Dev Containers extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers), or the `devcontainer` CLI from the [devcontainer-cli](https://github.com/devcontainers/cli) project.
+
+**Setup**
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/phdorp/modelica-tools.git
+   cd modelica-tools
+   ```
+2. Open the folder in a devcontainer environment:
+   - **VS Code**: run the **Dev Containers: Reopen in Container** command (or **Rebuild and Reopen in Container** after changing the devcontainer config).
+   - **CLI**: `devcontainer build --workspace-folder . && devcontainer up --workspace-folder .`
+3. Launch a bash shell inside the running container:
+   ```bash
+   devcontainer exec --workspace-folder . bash
+   ```
+
+The container builds from [`.devcontainer/Dockerfile`](.devcontainer/Dockerfile), which installs `omc` and `omlibrary` from the OpenModelica APT repository via [`.devcontainer/install_dependencies.sh`](.devcontainer/install_dependencies.sh). On first start, the [postCreateCommand](.devcontainer/devcontainer.json) installs `uv` via `pipx`, creates a virtual environment, and runs `uv pip install -e '.[dev]'` to install the package with all development dependencies.
+
+The workspace is mounted into the container, so edits on your host are reflected immediately, and any Python version manager or OpenModelica installation on the host is not needed.
 
 ## Testing
 
