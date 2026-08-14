@@ -143,3 +143,50 @@ class TestHydraRegistryWithHydraComposition:
         expected_results = [job.cfg["session"]["parameters"]["v_norm"] for job in job_runs[0]]
         assert run_results == expected_results
 
+
+class TestCreateRun:
+    @pytest.fixture(autouse=True)
+    def _reset_global_hydra(self):
+        GlobalHydra.instance().clear()
+        yield
+        GlobalHydra.instance().clear()
+
+    def test_create_run_derives_model_configurations_and_build_options(self):
+        registry = HydraZenRegistry(store=hydra_zen.ZenStore())
+        model_name = "KinematicVehicle"
+        model_path = Path("tests/session_tools/models/kinematic_vehicle.mo").resolve()
+        simulation = session_config.Simulation(solver="rungekutta", output_format="csv")
+        parameters = KinematicVehicle(state_0=State())
+
+        derived = registry.create_run(
+            model_name=model_name,
+            parameters=parameters,
+            simulation=simulation,
+            model_path=model_path,
+            name="derived",
+        )
+        explicit = registry.create_run(
+            model_name=model_name,
+            parameters=parameters,
+            simulation=simulation,
+            model_path=model_path,
+            build_options={"model_addr": model_name},
+            model_configurations={model_name: session_config.Model.from_parameters(model_name)},
+            name="explicit",
+        )
+        registry.add_to_hydra_store()
+
+        with initialize(version_base=None, config_path=None):
+            derived_cfg = compose(config_name="derived")
+            explicit_cfg = compose(config_name="explicit")
+
+        assert OmegaConf.to_container(derived_cfg.session.build_options, resolve=True) == {
+            "model_addr": model_name
+        }
+        assert OmegaConf.to_container(derived_cfg.session.model_configurations, resolve=True) == OmegaConf.to_container(
+            explicit_cfg.session.model_configurations, resolve=True
+        )
+        assert OmegaConf.to_container(derived_cfg.session.build_options, resolve=True) == OmegaConf.to_container(
+            explicit_cfg.session.build_options, resolve=True
+        )
+
