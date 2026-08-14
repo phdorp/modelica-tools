@@ -113,7 +113,7 @@ class TestHydraRegistryWithHydraComposition:
             selections={"parameters/state_0": "front_position"},
             overrides={"parameters/state_0": State(px=1.0)},
         )
-        registry.add_to_hydra_store(overwrite_ok=True)
+        registry.add_to_hydra_store()
 
         return RegistryExampleConfig(run_default=run_default)
 
