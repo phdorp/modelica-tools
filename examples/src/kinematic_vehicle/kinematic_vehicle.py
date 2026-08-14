@@ -43,21 +43,12 @@ simulation_default = session_config.Simulation(
     output_format="csv",
 )
 
-
-session_default = hydra_zen.make_config(
-    bases=(session_config.Session,),
-    parameters=vehicle_default,
-    model_configurations={MODEL_NAME: session_config.Model.from_parameters(MODEL_NAME)},
-    sim_configurations=simulation_default,
-    model=Path("src/kinematic_vehicle/package.mo").resolve(),
-    build_options={"model_addr": MODEL_NAME},
-)
-
 # Create and register the run config in one step.
-run_default = registry.build_run_config(
-    base=session_config.SimulationRun,
+run_default = registry.create_run(
     model_name=MODEL_NAME,
-    session=session_default,
+    parameters=vehicle_default,
+    simulation=simulation_default,
+    model_path=Path("src/kinematic_vehicle/package.mo").resolve(),
     include_experiment_group=True,
     name="default",
 )

@@ -5,10 +5,12 @@ from typing import TYPE_CHECKING, Any, Optional
 
 import hydra
 import hydra_zen
-from hydra_zen import MISSING, ZenStore
+import pydantic
 from hydra.core.global_hydra import GlobalHydra
+from hydra_zen import MISSING, ZenStore
+from hydra_zen.typing._implementations import _MISSING_TYPE, DefaultsList
 
-from hydra_zen.typing._implementations import DefaultsList
+import mtools.session_config as session_config
 
 if TYPE_CHECKING:
     from hydra_zen.typing._implementations import DataClass
@@ -249,6 +251,73 @@ class HydraZenRegistry:
             self.register_run_config(name=name, run_config=run_config)
 
         return run_config
+
+    def create_run(
+        self,
+        *,
+        model_name: str,
+        parameters: session_config.DataclassType | _MISSING_TYPE = MISSING,
+        simulation: session_config.Simulation,
+        model_path: pydantic.FilePath,
+        build_options: dict | None = None,
+        model_configurations: dict[str, session_config.Model] | None = None,
+        libraries: list[dict[str, str]] | None = None,
+        selections: Mapping[str, str] | None = None,
+        include_experiment_group: bool = False,
+        name: Optional[str] = None,
+    ) -> type:
+        """Create and register a run config from raw session inputs.
+
+        This is a convenience wrapper around ``build_run_config`` that builds
+        the session config from individual inputs, avoiding repeated provision
+        of the model name.
+
+        Args:
+            model_name: Model name used for the run config, the model
+                configurations, and the default build options.
+            parameters: Dataclass object containing model parameter values.
+                Defaults to ``hydra_zen.MISSING``.
+            simulation: Simulation-wide runtime configuration.
+            model_path: Path to the model source file to build.
+            build_options: Optional keyword arguments for model building.
+                Defaults to ``{"model_addr": model_name}``.
+            model_configurations: Per-model configuration blocks keyed by model
+                name. Defaults to
+                ``{model_name: Model.from_parameters(model_name)}``.
+            libraries: Optional library configurations for model building.
+            selections: Optional mapping of hierarchy path to selected option.
+            include_experiment_group: Whether to include ``{"experiment": None}``
+                in defaults to allow experiment overrides.
+            name: Optional name to register the created run config under the
+                root store. If provided, the config is registered via
+                ``register_run_config`` before being returned.
+
+        Returns:
+            A config type created by ``hydra_zen.make_config``.
+        """
+        if model_configurations is None:
+            model_configurations = {model_name: session_config.Model.from_parameters(model_name)}
+        if build_options is None:
+            build_options = {"model_addr": model_name}
+
+        session_config_type = hydra_zen.make_config(
+            bases=(session_config.Session,),
+            parameters=parameters,
+            model_configurations=model_configurations,
+            sim_configurations=simulation,
+            model=model_path,
+            build_options=build_options,
+            libraries=libraries,
+        )
+
+        return self.build_run_config(
+            base=session_config.SimulationRun,
+            model_name=model_name,
+            session=session_config_type,
+            selections=selections,
+            include_experiment_group=include_experiment_group,
+            name=name,
+        )
 
     def register_run_config(self, name: str, run_config: Any):
         """Register a run config in the root store.
