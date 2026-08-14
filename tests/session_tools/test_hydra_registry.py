@@ -94,7 +94,8 @@ class TestHydraRegistryWithHydraComposition:
             model_path=model_path,
             selections={"parameters/state_0": "zero_state"},
             include_experiment_group=True,
-            name="default")
+            name="default",
+        )
 
         registry.register_experiment(
             name="front_position",
