@@ -8,7 +8,7 @@ import hydra_zen
 import pydantic
 from hydra.core.global_hydra import GlobalHydra
 from hydra_zen import MISSING, ZenStore
-from hydra_zen.typing._implementations import DefaultsList
+from hydra_zen.typing._implementations import _MISSING_TYPE, DefaultsList
 
 import mtools.session_config as session_config
 
@@ -256,7 +256,7 @@ class HydraZenRegistry:
         self,
         *,
         model_name: str,
-        parameters: Any = MISSING,
+        parameters: session_config.DataclassType | _MISSING_TYPE = MISSING,
         simulation: session_config.Simulation,
         model_path: pydantic.FilePath,
         build_options: dict | None = None,
