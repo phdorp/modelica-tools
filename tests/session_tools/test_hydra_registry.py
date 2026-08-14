@@ -71,8 +71,7 @@ class TestHydraRegistryWithHydraComposition:
         GlobalHydra.instance().clear()
 
     @pytest.fixture(scope="class")
-    @classmethod
-    def registry_example(cls, request) -> RegistryExampleConfig:
+    def registry_example(self) -> RegistryExampleConfig:
         registry = HydraZenRegistry(store=hydra_zen.ZenStore())
 
         # Register a package path with a shorter group alias as used in examples.
