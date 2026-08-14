@@ -256,7 +256,7 @@ class HydraZenRegistry:
         self,
         *,
         model_name: str,
-        parameters: session_config.DataclassType = MISSING,
+        parameters: Any = MISSING,
         simulation: session_config.Simulation,
         model_path: pydantic.FilePath,
         build_options: dict | None = None,
