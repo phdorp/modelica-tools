@@ -1,0 +1,6 @@
+FROM mcr.microsoft.com/windows/servercore:ltsc2022
+
+SHELL ["powershell", "-Command", "$ErrorActionPreference = 'Stop'; $ProgressPreference = 'SilentlyContinue';"]
+
+COPY .devcontainer/windows/install_dependencies.ps1 C:/tmp/install_dependencies.ps1
+RUN powershell -ExecutionPolicy Bypass -File C:/tmp/install_dependencies.ps1; Remove-Item -Force C:/tmp/install_dependencies.ps1

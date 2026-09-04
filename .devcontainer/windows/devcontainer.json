@@ -1,0 +1,16 @@
+{
+  "name": "open-modelica (windows)",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": "../.."
+  },
+  "postCreateCommand": "pipx install uv && (uv venv --allow-existing 2>/dev/null || uv venv) && uv pip install -e '.[dev]'",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance"
+      ]
+    }
+  }
+}

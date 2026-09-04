@@ -55,11 +55,11 @@ uv sync --all-extras --dev
 
 ### Development container
 
-A [devcontainer](.devcontainer/) is provided for contributors — it installs OpenModelica, Python 3.11, and all dependencies automatically, so no manual setup is required.
+Devcontainers are provided for contributors — they install OpenModelica, Python 3.11, and all dependencies automatically, so no manual setup is required.
 
 **Prerequisites**
 
-- [Docker](https://docs.docker.com/get-docker/)
+- [Docker](https://docs.docker.com/get-docker/) — on Windows, enable [Windows containers](https://docs.docker.com/desktop/setup/vm/containers/) to use the Windows container.
 - A devcontainer-compatible editor or CLI, e.g. [VS Code](https://code.visualstudio.com/docs/devcontainers/containers) with the [Dev Containers extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers), or the `devcontainer` CLI from the [devcontainer-cli](https://github.com/devcontainers/cli) project.
 
 **Setup**
@@ -71,13 +71,24 @@ A [devcontainer](.devcontainer/) is provided for contributors — it installs Op
    ```
 2. Open the folder in a devcontainer environment:
    - **VS Code**: run the **Dev Containers: Reopen in Container** command (or **Rebuild and Reopen in Container** after changing the devcontainer config).
-   - **CLI**: `devcontainer build --workspace-folder . && devcontainer up --workspace-folder .`
-3. Launch a bash shell inside the running container:
+     VS Code will prompt you to choose between the **Linux** (`open-modelica`) and **Windows** (`open-modelica (windows)`) configurations when both are available.
+   - **CLI (Linux container)**: `devcontainer build --workspace-folder . && devcontainer up --workspace-folder .`
+   - **CLI (Windows container)**: `devcontainer build --workspace-folder . --config .devcontainer/windows/devcontainer.json && devcontainer up --workspace-folder . --config .devcontainer/windows/devcontainer.json`
+3. Launch a shell inside the running container:
    ```bash
+   # Linux container
    devcontainer exec --workspace-folder . bash
+   # Windows container
+   devcontainer exec --workspace-folder . --config .devcontainer/windows/devcontainer.json powershell
    ```
 
-The container builds from [`.devcontainer/Dockerfile`](.devcontainer/Dockerfile), which installs `omc` and `omlibrary` from the OpenModelica APT repository via [`.devcontainer/install_dependencies.sh`](.devcontainer/install_dependencies.sh). On first start, the [postCreateCommand](.devcontainer/devcontainer.json) installs `uv` via `pipx`, creates a virtual environment, and runs `uv pip install -e '.[dev]'` to install the package with all development dependencies.
+**Linux container**
+
+The Linux container builds from [`.devcontainer/Dockerfile`](.devcontainer/Dockerfile), which installs `omc` and `omlibrary` from the OpenModelica APT repository via [`.devcontainer/install_dependencies.sh`](.devcontainer/install_dependencies.sh). On first start, the [postCreateCommand](.devcontainer/devcontainer.json) installs `uv` via `pipx`, creates a virtual environment, and runs `uv pip install -e '.[dev]'` to install the package with all development dependencies.
+
+**Windows container**
+
+The Windows container builds from [`.devcontainer/windows/Dockerfile`](.devcontainer/windows/Dockerfile) (`mcr.microsoft.com/windows/servercore:ltsc2022`), which installs Python 3.11, Git, pipx, and OpenModelica (omc + Modelica Standard Library) via [`.devcontainer/windows/install_dependencies.ps1`](.devcontainer/windows/install_dependencies.ps1) using Chocolatey / winget / the official OpenModelica installer. After installation it contains the same dependencies as the Linux container. On first start, the [postCreateCommand](.devcontainer/windows/devcontainer.json) runs the PowerShell equivalent of `pipx install uv; uv venv; uv pip install -e '.[dev]'`.
 
 The workspace is mounted into the container, so edits on your host are reflected immediately, and any Python version manager or OpenModelica installation on the host is not needed.
 
