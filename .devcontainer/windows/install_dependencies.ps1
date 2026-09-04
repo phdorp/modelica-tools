@@ -90,8 +90,18 @@ if ($omcAvailable) {
         Write-Host "Attempting OpenModelica install via winget..."
         try {
             winget install --id OpenModelica.OpenModelica -e --silent --accept-package-agreements --accept-source-agreements
-            $installedViaWinget = $true
-            Write-Host "OpenModelica installed via winget."
+            if ($LASTEXITCODE -eq 0) {
+                # Verify omc actually appeared (winget returns 0 even when package not found in some versions)
+                Start-Sleep -Seconds 2
+                if (Test-CommandAvailable "omc" -or (Get-ChildItem -Path "C:\Program Files" -Filter "omc.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1)) {
+                    $installedViaWinget = $true
+                    Write-Host "OpenModelica installed via winget."
+                } else {
+                    Write-Host "winget exit 0 but omc not found, falling back to direct download."
+                }
+            } else {
+                Write-Host "winget install failed with exit code $LASTEXITCODE, falling back to direct download."
+            }
         } catch {
             Write-Host "winget install failed, falling back to direct download: $_"
         }
@@ -165,6 +175,24 @@ if ($omcAvailable) {
             [Environment]::SetEnvironmentVariable("PATH", "$omBin;$machinePath", "Machine")
         }
         Write-Host "Added $omBin to PATH"
+        # Persist for GitHub Actions (survives step boundary)
+        if ($env:GITHUB_PATH) {
+            Add-Content -Path $env:GITHUB_PATH -Value $omBin
+            Write-Host "Added $omBin to GITHUB_PATH"
+        }
+        # Derive OPENMODELICAHOME (parent of bin)
+        $omHome = Split-Path $omBin -Parent
+        if (Test-Path "$omHome\bin\omc.exe") {
+            $env:OPENMODELICAHOME = $omHome
+            [Environment]::SetEnvironmentVariable("OPENMODELICAHOME", $omHome, "Machine")
+            if ($env:GITHUB_ENV) {
+                Add-Content -Path $env:GITHUB_ENV -Value "OPENMODELICAHOME=$omHome"
+                Add-Content -Path $env:GITHUB_ENV -Value "PATH=$omBin;$env:PATH"
+            }
+            Write-Host "Set OPENMODELICAHOME=$omHome"
+        }
+    } else {
+        Write-Host "WARNING: omc.exe not found after install - verification will fail. Check installer logs at C:\ProgramData\chocolatey\logs or TEMP."
     }
 }
 

@@ -60,6 +60,13 @@ def test_install_pydelica_patch_succeeds_on_supported_version(monkeypatch):
 def test_compile_without_source_copy_compiles_in_place_and_stages_c_sources(
     monkeypatch, tmp_path
 ):
+    # Make LibrarySetup Windows-safe: ensure OPENMODELICAHOME/USERPROFILE exist
+    # so the test does not depend on a real OMC installation (Windows reads both).
+    monkeypatch.setenv("OPENMODELICAHOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    # Force Linux make-branch to avoid requiring mingw*-make.exe inside OPENMODELICAHOME
+    monkeypatch.setattr(pydelica_patch.platform, "system", lambda: "Linux")
+
     model = tmp_path / "model.mo"
     model.write_text("model Example\nend Example;\n")
     include = tmp_path / "Resources" / "Include"

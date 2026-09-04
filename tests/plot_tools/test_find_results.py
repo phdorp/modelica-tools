@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 import pytest
@@ -30,7 +31,7 @@ class TestFindResults:
 
         missing_directory = tmp_path / "missing"
 
-        with pytest.raises(FileNotFoundError, match=str(missing_directory)):
+        with pytest.raises(FileNotFoundError, match=re.escape(str(missing_directory))):
             find_results(missing_directory)
 
     def test_non_directory_path(self, tmp_path: Path):
@@ -42,7 +43,7 @@ class TestFindResults:
 
         result_file = self._write_csv(tmp_path / "results.csv", 1)
 
-        with pytest.raises(NotADirectoryError, match=str(result_file)):
+        with pytest.raises(NotADirectoryError, match=re.escape(str(result_file))):
             find_results(result_file)
 
     def test_discovers_csv_files(self, tmp_path: Path):
