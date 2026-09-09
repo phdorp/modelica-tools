@@ -2,27 +2,45 @@ import mtools.sim_tools as sim_tools
 import numpy as np
 import pandas as pd
 import pytest
-from abc import ABC, abstractmethod
+from abc import ABC
 
 from kinematic_vehicle.kinematic_vehicle import MODEL_NAME
 from tests.experiments import registry
 
-class Experiment(ABC):
+class ExperimentBase(ABC):
     result = MODEL_NAME
-    solutions: pd.DataFrame
-    name: str
     eps = np.finfo(float).eps
     tol_position = 1e-2
     tol_angle = 1e-2
     tol_speed = 0.05
     stop_time = 10.0
 
+class Experiment(ExperimentBase):
+
+    name: str
+    solutions: pd.DataFrame
+
     @pytest.fixture(autouse=True, scope="class")
     @classmethod
     def run_experiment(cls, request):
-        request.cls.solutions = sim_tools.simulate(
+        cls.solutions = sim_tools.simulate(
             registry.compose(config_name="default", overrides=[f"experiment={cls.name}"])
         )[cls.result]
+
+class Experiments(ExperimentBase):
+
+    name: str | list[str]
+    solutions: dict[str, pd.DataFrame] = {}
+
+    @pytest.fixture(autouse=True, scope="class")
+    @classmethod
+    def run_experiment(cls, request):
+        for name in cls.name:
+            cls.solutions[name] = sim_tools.simulate(
+                registry.compose(config_name="default", overrides=[f"experiment={name}"])
+            )[cls.result]
+
+
 
 
 class TestStandstill(Experiment):
@@ -41,6 +59,7 @@ class TestStraightDriving(Experiment):
 
     def test_monotonic_forward_motion(self):
         px_vals = self.solutions["state.px"].values
+        assert isinstance(px_vals, np.ndarray)
         assert np.all(np.diff(px_vals) >= -self.eps), "px should increase monotonically"
 
     def test_final_position_matches_velocity(self):
@@ -76,6 +95,7 @@ class TestTurnLeft(Experiment):
 
     def test_monotonic_heading_rotation(self):
         theta_vals = self.solutions["state.theta"].values
+        assert isinstance(theta_vals, np.ndarray)
         assert np.all(np.diff(theta_vals) >= -self.eps), "theta should increase for left turn"
 
     def test_final_position_first_quadrant(self):
@@ -87,3 +107,13 @@ class TestTurnLeft(Experiment):
     def test_no_singular_heading(self):
         final_theta = abs(self.solutions["state.theta"].iloc[-1])
         assert final_theta < np.pi / 2, f"final heading |theta| should be < pi/2, got {final_theta}"
+
+
+class TestVelocityIncrease(Experiments):
+
+    name = ["standstill", "straight_driving"]
+
+    def test_monotonic_speed_increase(self):
+        standstill = self.solutions["standstill"]
+        straight_driving = self.solutions["straight_driving"]
+        assert np.all(straight_driving["der(state.px)"].values - standstill["der(state.px)"].values >= 0.0), "speed should increase monotonically"
