@@ -3,9 +3,11 @@ import numpy as np
 import pandas as pd
 import pytest
 from abc import ABC
+from typing import ClassVar
 
 from kinematic_vehicle.kinematic_vehicle import MODEL_NAME
 from tests.experiments import registry
+
 
 class ExperimentBase(ABC):
     result = MODEL_NAME
@@ -15,32 +17,33 @@ class ExperimentBase(ABC):
     tol_speed = 0.05
     stop_time = 10.0
 
+
 class Experiment(ExperimentBase):
 
-    name: str
-    solutions: pd.DataFrame
+    name: ClassVar[str]
+    solutions: ClassVar[pd.DataFrame]
 
     @pytest.fixture(autouse=True, scope="class")
     @classmethod
-    def run_experiment(cls, request):
+    def run_experiment(cls):
         cls.solutions = sim_tools.simulate(
             registry.compose(config_name="default", overrides=[f"experiment={cls.name}"])
         )[cls.result]
 
+
 class Experiments(ExperimentBase):
 
-    name: str | list[str]
-    solutions: dict[str, pd.DataFrame] = {}
+    name: ClassVar[str | list[str]]
+    solutions: ClassVar[dict[str, pd.DataFrame]]
 
     @pytest.fixture(autouse=True, scope="class")
     @classmethod
-    def run_experiment(cls, request):
+    def run_experiment(cls):
+        cls.solutions = {}
         for name in cls.name:
             cls.solutions[name] = sim_tools.simulate(
                 registry.compose(config_name="default", overrides=[f"experiment={name}"])
             )[cls.result]
-
-
 
 
 class TestStandstill(Experiment):
@@ -111,9 +114,11 @@ class TestTurnLeft(Experiment):
 
 class TestVelocityIncrease(Experiments):
 
-    name = ["standstill", "straight_driving"]
+    name: ClassVar[list[str]] = ["standstill", "straight_driving"]
 
     def test_monotonic_speed_increase(self):
         standstill = self.solutions["standstill"]
         straight_driving = self.solutions["straight_driving"]
-        assert np.all(straight_driving["der(state.px)"].values - standstill["der(state.px)"].values >= 0.0), "speed should increase monotonically"
+        assert np.all(
+            straight_driving["der(state.px)"].to_numpy() - standstill["der(state.px)"].to_numpy() >= 0.0
+        ), "speed should increase monotonically"
