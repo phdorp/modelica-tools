@@ -1,12 +1,10 @@
-import dataclasses
 from abc import ABC
-from typing import ClassVar, Literal
+from typing import ClassVar
 
 import numpy as np
 import pandas as pd
 import pytest
-from kinematic_vehicle.kinematic_vehicle import (MODEL_NAME, KinematicVehicle,
-                                                 run_default)
+from kinematic_vehicle.kinematic_vehicle import MODEL_NAME, run_default
 from tests.experiments import registry
 
 import mtools.sim_tools as sim_tools
@@ -52,8 +50,7 @@ class Experiments(ExperimentBase):
 class ExperimentSweep(ExperimentBase):
 
     name: ClassVar[str]
-    parameters_cls: ClassVar[type]
-    sweep_field: ClassVar[str]
+    sweep_param: ClassVar[str]
     sweep_values: ClassVar[list[float]]
     results: ClassVar[dict[float, pd.DataFrame]] = {}
     base_run = run_default
@@ -61,13 +58,10 @@ class ExperimentSweep(ExperimentBase):
     @pytest.fixture(autouse=True, scope="class")
     @classmethod
     def run_sweep(cls, tmp_path_factory):
-        assert any(field.name == cls.sweep_field for field in dataclasses.fields(cls.parameters_cls)), (
-            f"sweep_field {cls.sweep_field!r} is not a field of {cls.parameters_cls.__name__}"
-        )
         sweep = ",".join(str(value) for value in cls.sweep_values)
         sweep_results = sim_tools.simulate(
             cls.base_run,
-            overrides=[f"experiment={cls.name}", f"session.parameters.{cls.sweep_field}={sweep}"],
+            overrides=[f"experiment={cls.name}", f"session.parameters.{cls.sweep_param}={sweep}"],
             multirun=True,
             sweep_dir=str(tmp_path_factory.mktemp(f"{cls.name}_sweep")),
         )
@@ -89,48 +83,57 @@ class TestStandstill(Experiment):
         assert self.solutions["state.theta"].abs().max() < self.tol_angle, "theta should remain ~0.0"
 
 
-class TestStraightDriving(Experiment):
+class TestStraightDriving(ExperimentSweep):
 
     name = "straight_driving"
+    sweep_param = "state_0.px"
+    sweep_values: ClassVar[list[float]] = [0.0, 1.0, 2.0]
+
+    def test_sweep_covers_all_positions(self):
+        assert list(self.results.keys()) == self.sweep_values
 
     def test_monotonic_forward_motion(self):
-        px_vals = self.solutions["state.px"].values
-        assert isinstance(px_vals, np.ndarray)
-        assert np.all(np.diff(px_vals) >= -self.eps), "px should increase monotonically"
+        for solutions in self.results.values():
+            px_vals = solutions["state.px"].values
+            assert isinstance(px_vals, np.ndarray)
+            assert np.all(np.diff(px_vals) >= -self.eps), "px should increase monotonically"
 
     def test_final_position_matches_velocity(self):
-        expected_px = self.solutions["time"].iloc[-1] * self.solutions["der(state.px)"].iloc[-1]
-        final_px = self.solutions["state.px"].iloc[-1]
-        assert final_px == pytest.approx(
-            expected_px, rel=self.tol_speed
-        ), f"px should be ~{expected_px}, got {final_px}"
+        for px0, solutions in self.results.items():
+            expected_px = px0 + solutions["time"].iloc[-1] * solutions["der(state.px)"].iloc[-1]
+            final_px = solutions["state.px"].iloc[-1]
+            assert final_px == pytest.approx(
+                expected_px, rel=self.tol_speed
+            ), f"px should be ~{expected_px}, got {final_px}"
 
     def test_no_lateral_drift(self):
-        assert (
-            self.solutions["state.py"].abs().max() < self.tol_position
-        ), "py should remain near 0.0 with zero steering"
+        for solutions in self.results.values():
+            assert (
+                solutions["state.py"].abs().max() < self.tol_position
+            ), "py should remain near 0.0 with zero steering"
 
     def test_heading_unchanged(self):
-        assert (
-            self.solutions["state.theta"].abs().max() < self.tol_angle
-        ), "theta should remain near 0.0 with zero steering"
+        for solutions in self.results.values():
+            assert (
+                solutions["state.theta"].abs().max() < self.tol_angle
+            ), "theta should remain near 0.0 with zero steering"
 
     def test_speed_matches_v_norm(self):
-        px_dot = self.solutions["der(state.px)"]
-        py_dot = self.solutions["der(state.py)"]
-        vel = np.sqrt(px_dot**2 + py_dot**2)
-        expected_speed = 10.0
-        assert all(
-            (vel - expected_speed) / expected_speed < self.tol_speed
-        ), f"speed should be ~{expected_speed} within {self.tol_speed*100}%"
+        for solutions in self.results.values():
+            px_dot = solutions["der(state.px)"]
+            py_dot = solutions["der(state.py)"]
+            vel = np.sqrt(px_dot**2 + py_dot**2)
+            expected_speed = 10.0
+            assert all(
+                (vel - expected_speed) / expected_speed < self.tol_speed
+            ), f"speed should be ~{expected_speed} within {self.tol_speed*100}%"
 
 
 class TestTurnLeft(ExperimentSweep):
 
     name = "turn_left"
-    parameters_cls = KinematicVehicle
-    sweep_field: ClassVar[Literal["phi"]] = "phi"
-    sweep_values = [np.deg2rad(0.1), np.deg2rad(0.5), np.deg2rad(1.0)]
+    sweep_param = "phi"
+    sweep_values: ClassVar[list[float]] = [np.deg2rad(0.1), np.deg2rad(0.5), np.deg2rad(1.0)]
 
     def test_sweep_covers_all_angles(self):
         assert list(self.results.keys()) == self.sweep_values
