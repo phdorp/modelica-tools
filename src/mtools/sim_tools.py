@@ -1,12 +1,16 @@
+import dataclasses
+import logging
 import re
+from pathlib import Path
+from typing import Literal, overload
 
 import hydra_zen
 import pandas
 from hydra.core.hydra_config import HydraConfig
-import logging
+from hydra.core.utils import JobReturn
 
-import mtools.session_config as session_config
 import mtools.internal.session_tools as session_tools
+import mtools.session_config as session_config
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +64,7 @@ def _normalize_solution_keys(
     return solutions
 
 
-def simulate(config: session_config.SimulationRun):
+def simulate_run(config: session_config.SimulationRun):
     """Run a configured simulation session and persist all solution tables.
 
     Args:
@@ -75,6 +79,74 @@ def simulate(config: session_config.SimulationRun):
     session.simulate(model_name=config.model_name)
     solutions = session.get_solutions()
     return _normalize_solution_keys(solutions, model_name=config.model_name)
+
+
+@dataclasses.dataclass
+class SweepResult:
+    """Per-job result of a multirun sweep launched via :func:`simulate`."""
+
+    #: Composed job config for this sweep point.
+    config: session_config.SimulationRun
+    #: Simulation solutions for this sweep point.
+    solutions: dict[str, pandas.DataFrame]
+
+
+@overload
+def simulate(config: session_config.SimulationRun) -> dict[str, pandas.DataFrame]: ...
+
+
+@overload
+def simulate(
+    config: type[session_config.SimulationRun],
+    *,
+    overrides: list[str],
+    multirun: Literal[True],
+    sweep_dir: str | Path | None = None,
+) -> list[SweepResult]: ...
+
+
+def simulate(
+    config: session_config.SimulationRun | type[session_config.SimulationRun],
+    *,
+    overrides: list[str] | None = None,
+    multirun: bool = False,
+    sweep_dir: str | Path | None = None,
+) -> dict[str, pandas.DataFrame] | list[SweepResult]:
+    """Run a single simulation or a multirun sweep.
+
+    Single-run: ``simulate(composed_config)`` instantiates the session and
+    returns solution tables.
+
+    Multirun: ``simulate(run_config_type, overrides=[...], multirun=True)``
+    fans out via ``hydra_zen.launch``; each job runs the single-run path.
+
+    Args:
+        config: Composed run config (single-run) or run config type
+            (multirun, e.g. ``run_default`` from the registry).
+        overrides: Sweep overrides for multirun (e.g.
+            ``["session.parameters.phi=0.1,0.2"]``). Required if multirun.
+        multirun: Whether to launch a Hydra multirun sweep.
+        sweep_dir: Optional ``hydra.sweep.dir`` value for the sweep.
+
+    Returns:
+        Single-run solution mapping, or a list of per-job sweep results.
+    """
+    if not multirun:
+        return simulate_run(config)  # type: ignore[arg-type]
+    if overrides is None:
+        raise ValueError("Multirun simulate() requires 'overrides' with sweep values.")
+    full_overrides = list(overrides)
+    if sweep_dir is not None:
+        full_overrides.append(f"hydra.sweep.dir={sweep_dir}")
+    full_overrides.append("hydra.job.chdir=False")
+
+    launched = hydra_zen.launch(
+        config, lambda config: simulate_run(config), overrides=full_overrides, multirun=True, version_base=None
+    )
+    first = launched[0]
+    job_iter = first if isinstance(first, (list, tuple)) else launched
+    return [SweepResult(config=job.cfg, solutions=job.return_value) for job in job_iter]
+
 
 def save_solutions(solutions: dict[str, pandas.DataFrame], output_path: str):
     """Write each solution data frame to CSV in the configured output path.

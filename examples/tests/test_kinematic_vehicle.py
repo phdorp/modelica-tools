@@ -1,12 +1,13 @@
-import mtools.sim_tools as sim_tools
-import numpy as np
-import pandas as pd
-import pytest
 from abc import ABC
 from typing import ClassVar
 
-from kinematic_vehicle.kinematic_vehicle import MODEL_NAME
+import numpy as np
+import pandas as pd
+import pytest
+from kinematic_vehicle.kinematic_vehicle import MODEL_NAME, run_default
 from tests.experiments import registry
+
+import mtools.sim_tools as sim_tools
 
 
 class ExperimentBase(ABC):
@@ -92,24 +93,49 @@ class TestStraightDriving(Experiment):
         ), f"speed should be ~{expected_speed} within {self.tol_speed*100}%"
 
 
-class TestTurnLeft(Experiment):
+class TestTurnLeft(ExperimentBase):
 
     name = "turn_left"
+    phis = [np.deg2rad(0.1), np.deg2rad(0.5), np.deg2rad(1.0)]
+    results: ClassVar[list] = []
+
+    @pytest.fixture(autouse=True, scope="class")
+    @classmethod
+    def run_sweep(cls, tmp_path_factory):
+        sweep = ",".join(str(phi) for phi in cls.phis)
+        cls.results = sim_tools.simulate(
+            run_default,
+            overrides=[f"experiment={cls.name}", f"session.parameters.phi={sweep}"],
+            multirun=True,
+            sweep_dir=str(tmp_path_factory.mktemp("turn_sweep")),
+        )
+        cls.results = sorted(cls.results, key=lambda r: r.config["session"]["parameters"]["phi"])
+
+    def test_sweep_covers_all_angles(self):
+        assert [r.config["session"]["parameters"]["phi"] for r in self.results] == pytest.approx(self.phis)
 
     def test_monotonic_heading_rotation(self):
-        theta_vals = self.solutions["state.theta"].values
-        assert isinstance(theta_vals, np.ndarray)
-        assert np.all(np.diff(theta_vals) >= -self.eps), "theta should increase for left turn"
+        for r in self.results:
+            theta_vals = r.solutions[self.result]["state.theta"].values
+            assert isinstance(theta_vals, np.ndarray)
+            assert np.all(np.diff(theta_vals) >= -self.eps), "theta should increase for left turn"
 
     def test_final_position_first_quadrant(self):
-        final_px = self.solutions["state.px"].iloc[-1]
-        final_py = self.solutions["state.py"].iloc[-1]
-        assert final_px > 0, f"final px should be positive, got {final_px}"
-        assert final_py > 0, f"final py should be positive, got {final_py}"
+        for r in self.results:
+            final_px = r.solutions[self.result]["state.px"].iloc[-1]
+            final_py = r.solutions[self.result]["state.py"].iloc[-1]
+            assert final_px > 0, f"final px should be positive, got {final_px}"
+            assert final_py > 0, f"final py should be positive, got {final_py}"
 
     def test_no_singular_heading(self):
-        final_theta = abs(self.solutions["state.theta"].iloc[-1])
-        assert final_theta < np.pi / 2, f"final heading |theta| should be < pi/2, got {final_theta}"
+        for r in self.results:
+            final_theta = abs(r.solutions[self.result]["state.theta"].iloc[-1])
+            assert final_theta < np.pi / 2, f"final heading |theta| should be < pi/2, got {final_theta}"
+
+    def test_monotonic_turn_with_phi(self):
+        thetas = [r.solutions[self.result]["state.theta"].iloc[-1] for r in self.results]
+        assert thetas == sorted(thetas), f"final theta should increase with phi, got {thetas}"
+        assert len(set(thetas)) == len(thetas), "each phi should give a distinct final theta"
 
 
 class TestVelocityIncrease(Experiments):
