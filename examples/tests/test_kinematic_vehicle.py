@@ -31,8 +31,10 @@ class TestStandstill(Experiment):
 class TestStraightDriving(ExperimentSweep):
 
     name = "straight_driving"
-    sweep_param = "state_0.px"
-    sweep_values: ClassVar[list[float]] = [0.0, 1.0, 2.0]
+    sweep_params: ClassVar[dict[str, list[float]]] = {
+        "state_0.px": [0.0, 1.0, 2.0],
+        "state_0.py": [0.0, 1.0, 2.0],
+    }
 
     def test_monotonic_forward_motion(self):
         for solutions in self.results.values():
@@ -40,14 +42,16 @@ class TestStraightDriving(ExperimentSweep):
             assert np.all(np.diff(px_vals) >= -self.eps), "px should increase monotonically"
 
     def test_final_position_matches_velocity(self):
-        for px0, solutions in self.results.items():
+        for (px0, _py0), solutions in self.results.items():
             expected_px = px0 + solutions["time"].iloc[-1] * solutions["der(state.px)"].iloc[-1]
             np.testing.assert_allclose(solutions["state.px"].iloc[-1], expected_px)
 
     def test_no_lateral_drift(self):
-        for solutions in self.results.values():
+        for (_px0, py0), solutions in self.results.items():
             np.testing.assert_array_less(
-                solutions["state.py"].abs(), self.eps, "py should remain near 0.0 with zero steering"
+                (solutions["state.py"] - py0).abs(),
+                self.eps,
+                f"py should remain near {py0} with zero steering",
             )
 
     def test_heading_unchanged(self):
@@ -64,8 +68,9 @@ class TestStraightDriving(ExperimentSweep):
 class TestTurnLeft(ExperimentSweep):
 
     name = "turn_left"
-    sweep_param = "phi"
-    sweep_values: ClassVar[list[float]] = [np.deg2rad(0.1), np.deg2rad(0.5), np.deg2rad(1.0)]
+    sweep_params: ClassVar[dict[str, list[float]]] = {
+        "phi": [np.deg2rad(0.1), np.deg2rad(0.5), np.deg2rad(1.0)]
+    }
 
     def test_monotonic_heading_rotation(self):
         for solutions in self.results.values():
