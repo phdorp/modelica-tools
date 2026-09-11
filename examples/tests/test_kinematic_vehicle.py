@@ -1,79 +1,26 @@
-from abc import ABC
-from typing import ClassVar, Generic, TypeVar, cast
+from typing import ClassVar
 
 import numpy as np
-import pandas as pd
 import pytest
 from kinematic_vehicle.kinematic_vehicle import MODEL_NAME, run_default
-from tests.experiments import registry
+from tests.experiments import registry as kinematic_registry
 
-from mtools import sim_tools
-
-NameType = TypeVar("NameType", bound="str | list[str]")
-ResultType = TypeVar("ResultType")
-SweepResultType = TypeVar("SweepResultType")
+from mtools.testing import Experiment, Experiments, ExperimentSweep
 
 
-class ExperimentBase(ABC):
-    result = MODEL_NAME
-    eps = np.finfo(float).eps
+@pytest.fixture(scope="module")
+def model_name():
+    return MODEL_NAME
 
 
-class ExperimentT(ExperimentBase, Generic[NameType, ResultType]):
-
-    name: NameType
-    results: ResultType
-
-    @pytest.fixture(autouse=True, scope="class")
-    @classmethod
-    def run_experiment(cls):
-        names = [cls.name] if isinstance(cls.name, str) else cls.name
-        results = {
-            name: sim_tools.simulate(
-                registry.compose(config_name="default", overrides=[f"experiment={name}"])
-            )[cls.result]
-            for name in names
-        }
-        cls.results = cast(ResultType, results[cls.name] if isinstance(cls.name, str) else results)
+@pytest.fixture(scope="module")
+def registry():
+    return kinematic_registry
 
 
-Experiment = ExperimentT[str, pd.DataFrame]
-Experiments = ExperimentT[list[str], dict[str,pd.DataFrame]]
-
-
-class ExperimentSweepT(ExperimentBase, Generic[NameType, SweepResultType]):
-
-    name: NameType
-    sweep_param: ClassVar[str]
-    sweep_values: ClassVar[list[float]]
-    results: SweepResultType
-    base_run = run_default
-
-    @classmethod
-    def run_single_sweep(cls, name, tmp_path_factory):
-        sweep = ",".join(str(value) for value in cls.sweep_values)
-        sweep_results = sim_tools.simulate(
-            cls.base_run,
-            overrides=[f"experiment={name}", f"session.parameters.{cls.sweep_param}={sweep}"],
-            multirun=True,
-            sweep_dir=str(tmp_path_factory.mktemp(f"{name}_sweep")),
-        )
-        assert len(sweep_results) == len(cls.sweep_values), (
-            f"expected {len(cls.sweep_values)} sweep results, got {len(sweep_results)}"
-        )
-        return dict(
-            zip(cls.sweep_values, (result.solutions[cls.result] for result in sweep_results), strict=True)
-        )
-
-    @pytest.fixture(autouse=True, scope="class")
-    @classmethod
-    def run_sweep(cls, tmp_path_factory):
-        names = [cls.name] if isinstance(cls.name, str) else cls.name
-        results = {name: cls.run_single_sweep(name, tmp_path_factory) for name in names}
-        cls.results = cast(SweepResultType, results[cls.name] if isinstance(cls.name, str) else results)
-
-ExperimentSweep = ExperimentSweepT[str, dict[float, pd.DataFrame]]
-ExperimentSweeps = ExperimentSweepT[list[str], dict[str, dict[float, pd.DataFrame]]]
+@pytest.fixture(scope="module")
+def base_run():
+    return run_default
 
 
 class TestStandstill(Experiment):
