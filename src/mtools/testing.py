@@ -33,13 +33,17 @@ Experiments are resolved by name: single runs compose via
 
 from __future__ import annotations
 
+import json
 from abc import ABC
+from collections.abc import Hashable, Mapping
 from itertools import product
-from typing import TYPE_CHECKING, Any, ClassVar, Generic, TypeVar, cast
+from typing import (TYPE_CHECKING, Any, ClassVar, Generic, TypeAlias, TypeVar,
+                    cast)
 
 import numpy as np
 import pandas as pd
 import pytest
+from omegaconf import OmegaConf
 
 from mtools import sim_tools
 from mtools.hydra_registry import EXPERIMENT_GROUP
@@ -52,11 +56,128 @@ __all__ = [
     "ExperimentSweep",
     "ExperimentSweeps",
     "Experiments",
+    "SweepScalar",
+    "SweepValue",
 ]
+
+#: Scalar types expressible as Hydra override primitives.
+SweepScalar: TypeAlias = bool | int | float | str | None
+#: All sweep value types expressible in Hydra override grammar: scalars,
+#: lists/tuples (list containers), and string-keyed dicts (dict containers).
+SweepValue: TypeAlias = SweepScalar | list["SweepValue"] | tuple["SweepValue", ...] | dict[str, "SweepValue"]
 
 NameType = TypeVar("NameType", bound="str | list[str]")
 ResultType = TypeVar("ResultType")
 SweepResultType = TypeVar("SweepResultType")
+
+
+def _to_hydra_value(value: SweepValue) -> str:
+    """Serialize a sweep value to Hydra override grammar.
+
+    Args:
+        value: Sweep value; one of ``bool``, ``int``, ``float``, ``str``,
+            ``None``, ``list``/``tuple`` (list container), or ``dict``
+            (dict container, values serialized recursively).
+
+    Returns:
+        Hydra override value string (e.g. ``true``, ``5``, ``[0.0,0.0]``,
+        ``{px:0.0,py:0.0}``).
+
+    Raises:
+        TypeError: If the value type is not expressible in Hydra overrides.
+    """
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, str):
+        return json.dumps(value)
+    if isinstance(value, (list, tuple)):
+        return f"[{','.join(_to_hydra_value(item) for item in value)}]"
+    if isinstance(value, dict):
+        return f"{{{','.join(f'{key}:{_to_hydra_value(item)}' for key, item in value.items())}}}"
+    raise TypeError(f"sweep value of type {type(value).__name__!r} is not supported by Hydra overrides")
+
+
+def _freeze_value(value: SweepValue) -> Hashable:
+    """Return a hashable form of a sweep value for use in result keys.
+
+    ``list``/``tuple`` become ``tuple`` (recursively frozen); ``dict``
+    becomes a sorted tuple of ``(key, frozen value)`` pairs; other values
+    are returned unchanged.
+    """
+    if isinstance(value, dict):
+        return tuple(sorted(((key, _freeze_value(item)) for key, item in value.items()), key=str))
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_value(item) for item in value)
+    return value
+
+
+def _resolve_field_names(registry: Any, experiment_name: str, param: str, prefix: str) -> list[str] | None:
+    """Return the config keys of the node targeted by a sweep param, if mapping-like.
+
+    Used to map positional ``tuple`` sweep values onto field names (e.g.
+    ``(px, py, theta)`` onto ``state_0``). Returns ``None`` when the target
+    cannot be inspected (e.g. test doubles without composed configs) or is
+    not mapping-like (scalar/list targets need no conversion).
+
+    Args:
+        registry: Hydra registry used to compose the experiment config.
+        experiment_name: Experiment name to compose for inspection.
+        param: Sweep parameter name relative to ``prefix``.
+        prefix: Hydra package prefix of swept parameters.
+
+    Returns:
+        Field names in config order, or ``None``.
+    """
+    try:
+        base = registry.compose_experiment(experiment_name)
+    except Exception:
+        return None
+    node = base
+    try:
+        for part in f"{prefix}.{param}".split("."):
+            if OmegaConf.is_config(node):
+                node = node[part]
+            elif isinstance(node, Mapping):
+                node = node[part]
+            else:
+                node = getattr(node, part)
+        if OmegaConf.is_dict(node):
+            return list(node.keys())
+        if isinstance(node, Mapping):
+            return list(node.keys())
+    except Exception:
+        return None
+    return None
+
+
+def _normalize_sweep_value(value: SweepValue, field_names: list[str] | None, param: str) -> SweepValue:
+    """Map a positional ``tuple``/``list`` onto field names for mapping targets.
+
+    Args:
+        value: Raw sweep value from ``sweep_params``.
+        field_names: Target field names from :func:`_resolve_field_names`,
+            or ``None`` when the target is not mapping-like.
+        param: Sweep parameter name (used in error messages).
+
+    Returns:
+        ``dict`` for positional values with known field names, otherwise the
+        value unchanged (scalars, dicts, and list-targeted values).
+
+    Raises:
+        ValueError: If a positional value's arity differs from the field count.
+    """
+    if isinstance(value, (list, tuple)) and field_names is not None:
+        if len(value) != len(field_names):
+            raise ValueError(
+                f"sweep param {param!r}: expected {len(field_names)} values "
+                f"({', '.join(field_names)}), got {len(value)}"
+            )
+        return dict(zip(field_names, value, strict=True))
+    return value
 
 
 class ExperimentBase(ABC):
@@ -139,8 +260,13 @@ class ExperimentSweepT(ExperimentBase, Generic[NameType, SweepResultType]):
     #: ``"<prefix>.<param>=<comma-separated values>"`` (one per entry).
     sweep_param_prefix: ClassVar[str] = "session.parameters"
     #: Swept parameter names (relative to ``sweep_param_prefix``) mapped to
-    #: the values swept over.
-    sweep_params: ClassVar[dict[str, list[float]]]
+    #: the values swept over. Values must be Hydra-expressible: scalars
+    #: (``bool``, ``int``, ``float``, ``str``, ``None``), ``dict`` (dict
+    #: container, e.g. ``State`` as ``{"px": ..., "py": ..., "theta": ...}``),
+    #: or ``tuple``/``list`` — mapped positionally onto the target's field
+    #: names for mapping targets (e.g. ``(px, py, theta)`` for ``state_0``),
+    #: serialized as a list container otherwise.
+    sweep_params: ClassVar[dict[str, list[SweepValue]]]
 
     #: Experiment name(s) to sweep.
     name: NameType
@@ -169,10 +295,18 @@ class ExperimentSweepT(ExperimentBase, Generic[NameType, SweepResultType]):
                 the cartesian-product size.
         """
         combos = list(product(*cls.sweep_params.values()))
-        sweep_overrides = [
-            f"{cls.sweep_param_prefix}.{param}={','.join(str(value) for value in values)}"
-            for param, values in cls.sweep_params.items()
-        ]
+        sweep_overrides = []
+        for param, values in cls.sweep_params.items():
+            needs_fields = any(isinstance(value, (list, tuple)) for value in values)
+            field_names = (
+                _resolve_field_names(registry, name, param, cls.sweep_param_prefix)
+                if needs_fields
+                else None
+            )
+            normalized = [_normalize_sweep_value(value, field_names, param) for value in values]
+            sweep_overrides.append(
+                f"{cls.sweep_param_prefix}.{param}={','.join(_to_hydra_value(value) for value in normalized)}"
+            )
         sweep_results = sim_tools.simulate(
             registry.get_experiment_run_config(name),
             overrides=[
@@ -185,8 +319,9 @@ class ExperimentSweepT(ExperimentBase, Generic[NameType, SweepResultType]):
         assert len(sweep_results) == len(combos), (
             f"expected {len(combos)} sweep results, got {len(sweep_results)}"
         )
+        frozen_combos = [tuple(_freeze_value(value) for value in combo) for combo in combos]
         return dict(
-            zip(combos, (result.solutions[model_name] for result in sweep_results), strict=True)
+            zip(frozen_combos, (result.solutions[model_name] for result in sweep_results), strict=True)
         )
 
     @pytest.fixture(autouse=True, scope="class")
@@ -211,6 +346,6 @@ class ExperimentSweepT(ExperimentBase, Generic[NameType, SweepResultType]):
 
 
 # Single sweep: ``results`` maps each cartesian-product tuple to its solution table.
-ExperimentSweep = ExperimentSweepT[str, dict[tuple[float, ...], pd.DataFrame]]
+ExperimentSweep = ExperimentSweepT[str, dict[tuple[Hashable, ...], pd.DataFrame]]
 # Multiple sweeps: ``results`` maps each experiment name to such a per-combination mapping.
-ExperimentSweeps = ExperimentSweepT[list[str], dict[str, dict[tuple[float, ...], pd.DataFrame]]]
+ExperimentSweeps = ExperimentSweepT[list[str], dict[str, dict[tuple[Hashable, ...], pd.DataFrame]]]
