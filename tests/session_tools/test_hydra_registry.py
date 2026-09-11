@@ -144,6 +144,91 @@ class TestHydraRegistryWithHydraComposition:
         assert run_results == expected_results
 
 
+class TestGetRunConfig:
+    """Run configs registered via ``create_run``/``register_run_config`` are retrievable by name."""
+
+    def test_registered_run_retrievable_by_name(self):
+        registry = HydraZenRegistry(store=hydra_zen.ZenStore())
+        run_default = registry.create_run(
+            model_name="KinematicVehicle",
+            parameters=KinematicVehicle(state_0=State()),
+            simulation=session_config.Simulation(solver="rungekutta", output_format="csv"),
+            model_path=Path("tests/session_tools/models/kinematic_vehicle.mo").resolve(),
+            name="default",
+        )
+
+        assert registry.get_run_config("default") is run_default
+
+    def test_unknown_name_raises_key_error(self):
+        registry = HydraZenRegistry(store=hydra_zen.ZenStore())
+
+        with pytest.raises(KeyError, match="unknown run config"):
+            registry.get_run_config("default")
+
+
+class TestExperimentConfigs:
+    """Experiments remember the base run config they were registered with."""
+
+    @pytest.fixture(autouse=True)
+    def _reset_global_hydra(self):
+        GlobalHydra.instance().clear()
+        yield
+        GlobalHydra.instance().clear()
+
+    def _registry_with_experiment(self):
+        registry = HydraZenRegistry(store=hydra_zen.ZenStore())
+        registry.register_group_option(
+            "session/parameters",
+            name="default_params",
+            config=KinematicVehicle(state_0=State()),
+            default=True,
+        )
+        run_default = registry.create_run(
+            model_name="KinematicVehicle",
+            parameters=KinematicVehicle(state_0=State()),
+            simulation=session_config.Simulation(solver="rungekutta", output_format="csv"),
+            model_path=Path("tests/session_tools/models/kinematic_vehicle.mo").resolve(),
+            include_experiment_group=True,
+            name="default",
+        )
+        registry.register_experiment(
+            name="fast",
+            base_run_config=run_default,
+            overrides={"session/parameters": KinematicVehicle(state_0=State(), v_norm=99.0, phi=0.0)},
+        )
+        return registry, run_default
+
+    def test_experiment_run_config_retrievable(self):
+        registry, run_default = self._registry_with_experiment()
+
+        assert registry.get_experiment_run_config("fast") is run_default
+
+    def test_unknown_experiment_raises_key_error(self):
+        registry = HydraZenRegistry(store=hydra_zen.ZenStore())
+
+        with pytest.raises(KeyError, match="unknown experiment"):
+            registry.get_experiment_run_config("fast")
+
+    def test_unregistered_base_fails_fast(self):
+        registry = HydraZenRegistry(store=hydra_zen.ZenStore())
+
+        with pytest.raises(ValueError, match="not a registered run config"):
+            registry.register_experiment(name="fast", base_run_config=object())
+
+    def test_compose_experiment_applies_experiment(self):
+        registry, _ = self._registry_with_experiment()
+
+        cfg = registry.compose_experiment("fast")
+
+        assert cfg.session.parameters.v_norm == 99.0
+
+    def test_compose_experiment_unknown_raises_key_error(self):
+        registry, _ = self._registry_with_experiment()
+
+        with pytest.raises(KeyError, match="unknown experiment"):
+            registry.compose_experiment("missing")
+
+
 class TestCreateRun:
     @pytest.fixture(autouse=True)
     def _reset_global_hydra(self):
