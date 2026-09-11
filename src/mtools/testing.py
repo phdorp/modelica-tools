@@ -21,14 +21,14 @@ one for that class)::
     def registry():
         return kinematic_registry
 
-    @pytest.fixture(scope="module")
-    def base_run():
-        return run_default
-
 Which fixtures each alias needs:
 
 - :data:`Experiment` / :data:`Experiments`: ``model_name`` + ``registry``.
-- :data:`ExperimentSweep` / :data:`ExperimentSweeps`: ``model_name`` + ``base_run``.
+- :data:`ExperimentSweep` / :data:`ExperimentSweeps`: ``model_name`` + ``registry``.
+
+Experiments are resolved by name: single runs compose via
+``registry.compose_experiment(name)``, sweeps use
+``registry.get_experiment_run_config(name)`` as multirun base.
 """
 
 from __future__ import annotations
@@ -41,10 +41,10 @@ import pandas as pd
 import pytest
 
 from mtools import sim_tools
+from mtools.hydra_registry import EXPERIMENT_GROUP
 
 if TYPE_CHECKING:
     from mtools.hydra_registry import HydraZenRegistry
-    from mtools.session_config import SimulationRun
 
 __all__ = [
     "Experiment",
@@ -62,10 +62,9 @@ class ExperimentBase(ABC):
     """Shared config for experiment tests.
 
     Requires the ``model_name`` pytest fixture (the simulated model name
-    used to select solution tables). Single-run tests additionally require
-    ``registry`` (the Hydra registry experiments are composed from) and
-    sweep tests require ``base_run`` (the multirun base config). Test
-    modules provide each fixture once, e.g.::
+    used to select solution tables) and the ``registry`` pytest fixture
+    (the Hydra registry experiments are composed from and sweeps resolve
+    their base config from). Test modules provide each fixture once, e.g.::
 
         @pytest.fixture(scope="module")
         def model_name():
@@ -77,7 +76,7 @@ class ExperimentBase(ABC):
 
 
 class ExperimentT(ExperimentBase, Generic[NameType, ResultType]):
-    """Run one experiment per name via ``registry.compose`` + single-run simulate.
+    """Run one experiment per name via ``registry.compose_experiment`` + single-run simulate.
 
     Requires the ``model_name`` and ``registry`` pytest fixtures (see
     :class:`ExperimentBase`).
@@ -87,11 +86,6 @@ class ExperimentT(ExperimentBase, Generic[NameType, ResultType]):
     the class-scoped ``run_experiment`` fixture runs, ``results`` holds the
     solution table (single name) or a mapping of name to solution table.
     """
-
-    #: Composed config name passed to ``registry.compose``.
-    config_name: ClassVar[str] = "default"
-    #: Hydra group selecting the experiment, i.e. overrides are ``"<group>=<name>"``.
-    experiment_group: ClassVar[str] = "experiment"
 
     #: Experiment name(s) to run.
     name: NameType
@@ -107,12 +101,7 @@ class ExperimentT(ExperimentBase, Generic[NameType, ResultType]):
             model_name: Simulated model name selecting the solution table.
         """
         names = [cls.name] if isinstance(cls.name, str) else cls.name
-        results = {
-            name: sim_tools.simulate(
-                registry.compose(config_name=cls.config_name, overrides=[f"{cls.experiment_group}={name}"])
-            )[model_name]
-            for name in names
-        }
+        results = {name: sim_tools.simulate(registry.compose_experiment(name))[model_name] for name in names}
         cls.results = cast(ResultType, results[cls.name] if isinstance(cls.name, str) else results)
 
     @pytest.fixture(autouse=True, scope="class")
@@ -131,8 +120,10 @@ Experiments = ExperimentT[list[str], dict[str, pd.DataFrame]]
 class ExperimentSweepT(ExperimentBase, Generic[NameType, SweepResultType]):
     """Sweep one parameter across ``sweep_values`` via multirun simulate.
 
-    Requires the ``model_name`` and ``base_run`` pytest fixtures (see
-    :class:`ExperimentBase`).
+    Requires the ``model_name`` and ``registry`` pytest fixtures (see
+    :class:`ExperimentBase`); the multirun base config is the run config
+    the swept experiment was registered with, resolved via
+    ``registry.get_experiment_run_config(name)``.
 
     Subclasses set ``name`` to a single experiment name (via
     :data:`ExperimentSweep`) or a list of names (via
@@ -142,8 +133,6 @@ class ExperimentSweepT(ExperimentBase, Generic[NameType, SweepResultType]):
     such a mapping.
     """
 
-    #: Hydra group selecting the experiment, i.e. overrides are ``"<group>=<name>"``.
-    experiment_group: ClassVar[str] = "experiment"
     #: Hydra package prefix of the swept parameter, i.e. overrides are
     #: ``"<prefix>.<sweep_param>=<comma-separated values>"``.
     sweep_param_prefix: ClassVar[str] = "session.parameters"
@@ -158,13 +147,16 @@ class ExperimentSweepT(ExperimentBase, Generic[NameType, SweepResultType]):
     results: SweepResultType
 
     @classmethod
-    def run_single_sweep(cls, name: str, model_name: str, base_run: type[SimulationRun], tmp_path_factory: Any):
+    def run_single_sweep(
+        cls, name: str, model_name: str, registry: HydraZenRegistry, tmp_path_factory: Any
+    ):
         """Run one multirun sweep and map each value in ``sweep_values`` to its solution table.
 
         Args:
             name: Experiment name to sweep.
             model_name: Simulated model name selecting the solution table.
-            base_run: Multirun base config passed to :func:`mtools.sim_tools.simulate`.
+            registry: Hydra registry providing the experiment's base run
+                config via ``get_experiment_run_config(name)``.
             tmp_path_factory: Pytest factory used for the sweep directory.
 
         Returns:
@@ -176,9 +168,9 @@ class ExperimentSweepT(ExperimentBase, Generic[NameType, SweepResultType]):
         """
         sweep = ",".join(str(value) for value in cls.sweep_values)
         sweep_results = sim_tools.simulate(
-            base_run,
+            registry.get_experiment_run_config(name),
             overrides=[
-                f"{cls.experiment_group}={name}",
+                f"{EXPERIMENT_GROUP}={name}",
                 f"{cls.sweep_param_prefix}.{cls.sweep_param}={sweep}",
             ],
             multirun=True,
@@ -193,21 +185,22 @@ class ExperimentSweepT(ExperimentBase, Generic[NameType, SweepResultType]):
 
     @pytest.fixture(autouse=True, scope="class")
     @classmethod
-    def run_sweep(cls, model_name: str, base_run: type[SimulationRun], tmp_path_factory):
+    def run_sweep(cls, model_name: str, registry: HydraZenRegistry, tmp_path_factory):
         """Class-scoped fixture populating ``results`` before any test runs."""
-        cls.fetch_sweep(model_name, base_run, tmp_path_factory)
+        cls.fetch_sweep(model_name, registry, tmp_path_factory)
 
     @classmethod
-    def fetch_sweep(cls, model_name: str, base_run: type[SimulationRun], tmp_path_factory):
+    def fetch_sweep(cls, model_name: str, registry: HydraZenRegistry, tmp_path_factory):
         """Sweep each experiment in ``cls.name`` and store per-value solution tables in ``cls.results``.
 
         Args:
             model_name: Simulated model name selecting the solution table.
-            base_run: Multirun base config passed to :func:`mtools.sim_tools.simulate`.
+            registry: Hydra registry providing each experiment's base run
+                config via ``get_experiment_run_config(name)``.
             tmp_path_factory: Pytest factory used for the sweep directory.
         """
         names = [cls.name] if isinstance(cls.name, str) else cls.name
-        results = {name: cls.run_single_sweep(name, model_name, base_run, tmp_path_factory) for name in names}
+        results = {name: cls.run_single_sweep(name, model_name, registry, tmp_path_factory) for name in names}
         cls.results = cast(SweepResultType, results[cls.name] if isinstance(cls.name, str) else results)
 
 
