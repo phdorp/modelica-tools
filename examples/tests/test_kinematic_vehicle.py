@@ -2,7 +2,7 @@ from typing import ClassVar
 
 import numpy as np
 import pytest
-from kinematic_vehicle.kinematic_vehicle import MODEL_NAME, run_default
+from kinematic_vehicle.kinematic_vehicle import MODEL_NAME
 from tests.experiments import registry as kinematic_registry
 
 from mtools.testing import Experiment, Experiments, ExperimentSweep
@@ -16,11 +16,6 @@ def model_name():
 @pytest.fixture(scope="module")
 def registry():
     return kinematic_registry
-
-
-@pytest.fixture(scope="module")
-def base_run():
-    return run_default
 
 
 class TestStandstill(Experiment):
