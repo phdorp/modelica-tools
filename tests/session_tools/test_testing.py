@@ -9,9 +9,10 @@ needed. Covered behavior:
 - multiple experiments (``Experiments``): same, but ``name`` is a list and
   ``results`` maps each name to its solution table.
 - parameter sweep (``ExperimentSweep``): resolves the experiment's base
-  config from the registry, fans out via multirun simulate with a
-  comma-separated ``<prefix>.<sweep_param>`` override, and maps each value
-  in ``sweep_values`` to its solution table.
+  config from the registry, fans out via multirun simulate with one
+  comma-separated ``<prefix>.<param>`` override per entry in
+  ``sweep_params``, and maps each cartesian-product tuple to its solution
+  table.
 """
 
 import pandas as pd
@@ -84,7 +85,7 @@ def test_multi_experiment_returns_mapping(monkeypatch):
 
 
 def test_sweep_resolves_base_run_from_registry(monkeypatch, tmp_path_factory):
-    """Sweep resolves the multirun base config from the registry and keys results by value."""
+    """Sweep resolves the multirun base config from the registry and keys results by value tuple."""
     captured = {}
 
     class FakeJob:
@@ -106,12 +107,46 @@ def test_sweep_resolves_base_run_from_registry(monkeypatch, tmp_path_factory):
     fake_registry = FakeRegistry(runs={"turn_left": sentinel_run})
 
     class T(testing.ExperimentSweep):
-        sweep_param = "phi"
-        sweep_values = [0.1, 0.2]
+        sweep_params = {"phi": [0.1, 0.2]}
         name = "turn_left"
 
     T.fetch_sweep("my.Model", fake_registry, tmp_path_factory)
 
     assert captured["config"] is sentinel_run
     assert captured["overrides"] == ["experiment=turn_left", "session.parameters.phi=0.1,0.2"]
-    assert set(T.results.keys()) == {0.1, 0.2}
+    assert set(T.results.keys()) == {(0.1,), (0.2,)}
+
+
+def test_sweep_over_multiple_parameters_uses_cartesian_product(monkeypatch, tmp_path_factory):
+    """Multi-parameter sweep emits one override per param and keys results by product tuples."""
+
+    class FakeJob:
+        """Test double for ``SweepResult`` exposing per-job ``solutions``."""
+
+        def __init__(self, solutions):
+            self.solutions = solutions
+
+    captured = {}
+
+    def fake_simulate(config, *, overrides, multirun, sweep_dir):
+        captured["overrides"] = overrides
+        assert multirun is True
+        return [FakeJob({"my.Model": _frame(f"s{i}")}) for i in range(4)]
+
+    monkeypatch.setattr(sim_tools, "simulate", fake_simulate)
+    sentinel_run = object()
+    fake_registry = FakeRegistry(runs={"straight_driving": sentinel_run})
+
+    class T(testing.ExperimentSweep):
+        sweep_params = {"state_0.px": [0.0, 1.0], "state_0.py": [0.0, 1.0]}
+        name = "straight_driving"
+
+    T.fetch_sweep("my.Model", fake_registry, tmp_path_factory)
+
+    assert captured["overrides"] == [
+        "experiment=straight_driving",
+        "session.parameters.state_0.px=0.0,1.0",
+        "session.parameters.state_0.py=0.0,1.0",
+    ]
+    assert set(T.results.keys()) == {(0.0, 0.0), (0.0, 1.0), (1.0, 0.0), (1.0, 1.0)}
+    assert T.results[(1.0, 0.0)]["tag"].iloc[0] == "s2"

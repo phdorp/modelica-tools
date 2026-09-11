@@ -34,6 +34,7 @@ Experiments are resolved by name: single runs compose via
 from __future__ import annotations
 
 from abc import ABC
+from itertools import product
 from typing import TYPE_CHECKING, Any, ClassVar, Generic, TypeVar, cast
 
 import numpy as np
@@ -118,7 +119,7 @@ Experiments = ExperimentT[list[str], dict[str, pd.DataFrame]]
 
 
 class ExperimentSweepT(ExperimentBase, Generic[NameType, SweepResultType]):
-    """Sweep one parameter across ``sweep_values`` via multirun simulate.
+    """Sweep parameters across ``sweep_params`` via multirun simulate.
 
     Requires the ``model_name`` and ``registry`` pytest fixtures (see
     :class:`ExperimentBase`); the multirun base config is the run config
@@ -127,19 +128,19 @@ class ExperimentSweepT(ExperimentBase, Generic[NameType, SweepResultType]):
 
     Subclasses set ``name`` to a single experiment name (via
     :data:`ExperimentSweep`) or a list of names (via
-    :data:`ExperimentSweeps`) plus ``sweep_param`` and ``sweep_values``;
-    after the class-scoped ``run_sweep`` fixture runs, ``results`` maps
-    each sweep value to its solution table (single name) or each name to
-    such a mapping.
+    :data:`ExperimentSweeps`) plus ``sweep_params`` mapping each swept
+    parameter name to its values; after the class-scoped ``run_sweep``
+    fixture runs, ``results`` maps each cartesian-product tuple (in
+    ``sweep_params`` insertion order) to its solution table (single name)
+    or each name to such a mapping.
     """
 
-    #: Hydra package prefix of the swept parameter, i.e. overrides are
-    #: ``"<prefix>.<sweep_param>=<comma-separated values>"``.
+    #: Hydra package prefix of swept parameters, i.e. overrides are
+    #: ``"<prefix>.<param>=<comma-separated values>"`` (one per entry).
     sweep_param_prefix: ClassVar[str] = "session.parameters"
-    #: Swept parameter name (relative to ``sweep_param_prefix``).
-    sweep_param: ClassVar[str]
-    #: Parameter values swept over.
-    sweep_values: ClassVar[list[float]]
+    #: Swept parameter names (relative to ``sweep_param_prefix``) mapped to
+    #: the values swept over.
+    sweep_params: ClassVar[dict[str, list[float]]]
 
     #: Experiment name(s) to sweep.
     name: NameType
@@ -150,7 +151,7 @@ class ExperimentSweepT(ExperimentBase, Generic[NameType, SweepResultType]):
     def run_single_sweep(
         cls, name: str, model_name: str, registry: HydraZenRegistry, tmp_path_factory: Any
     ):
-        """Run one multirun sweep and map each value in ``sweep_values`` to its solution table.
+        """Run one multirun sweep and map each parameter combination to its solution table.
 
         Args:
             name: Experiment name to sweep.
@@ -160,27 +161,32 @@ class ExperimentSweepT(ExperimentBase, Generic[NameType, SweepResultType]):
             tmp_path_factory: Pytest factory used for the sweep directory.
 
         Returns:
-            Mapping of sweep value to solution table.
+            Mapping of cartesian-product tuple (in ``sweep_params``
+            insertion order) to solution table.
 
         Raises:
             AssertionError: If the number of sweep results differs from
-                ``len(sweep_values)``.
+                the cartesian-product size.
         """
-        sweep = ",".join(str(value) for value in cls.sweep_values)
+        combos = list(product(*cls.sweep_params.values()))
+        sweep_overrides = [
+            f"{cls.sweep_param_prefix}.{param}={','.join(str(value) for value in values)}"
+            for param, values in cls.sweep_params.items()
+        ]
         sweep_results = sim_tools.simulate(
             registry.get_experiment_run_config(name),
             overrides=[
                 f"{EXPERIMENT_GROUP}={name}",
-                f"{cls.sweep_param_prefix}.{cls.sweep_param}={sweep}",
+                *sweep_overrides,
             ],
             multirun=True,
             sweep_dir=str(tmp_path_factory.mktemp(f"{name}_sweep")),
         )
-        assert len(sweep_results) == len(cls.sweep_values), (
-            f"expected {len(cls.sweep_values)} sweep results, got {len(sweep_results)}"
+        assert len(sweep_results) == len(combos), (
+            f"expected {len(combos)} sweep results, got {len(sweep_results)}"
         )
         return dict(
-            zip(cls.sweep_values, (result.solutions[model_name] for result in sweep_results), strict=True)
+            zip(combos, (result.solutions[model_name] for result in sweep_results), strict=True)
         )
 
     @pytest.fixture(autouse=True, scope="class")
@@ -191,7 +197,7 @@ class ExperimentSweepT(ExperimentBase, Generic[NameType, SweepResultType]):
 
     @classmethod
     def fetch_sweep(cls, model_name: str, registry: HydraZenRegistry, tmp_path_factory):
-        """Sweep each experiment in ``cls.name`` and store per-value solution tables in ``cls.results``.
+        """Sweep each experiment in ``cls.name`` and store per-combination solution tables in ``cls.results``.
 
         Args:
             model_name: Simulated model name selecting the solution table.
@@ -204,7 +210,7 @@ class ExperimentSweepT(ExperimentBase, Generic[NameType, SweepResultType]):
         cls.results = cast(SweepResultType, results[cls.name] if isinstance(cls.name, str) else results)
 
 
-# Single sweep: ``results`` maps each value in ``sweep_values`` to its solution table.
-ExperimentSweep = ExperimentSweepT[str, dict[float, pd.DataFrame]]
-# Multiple sweeps: ``results`` maps each experiment name to such a per-value mapping.
-ExperimentSweeps = ExperimentSweepT[list[str], dict[str, dict[float, pd.DataFrame]]]
+# Single sweep: ``results`` maps each cartesian-product tuple to its solution table.
+ExperimentSweep = ExperimentSweepT[str, dict[tuple[float, ...], pd.DataFrame]]
+# Multiple sweeps: ``results`` maps each experiment name to such a per-combination mapping.
+ExperimentSweeps = ExperimentSweepT[list[str], dict[str, dict[tuple[float, ...], pd.DataFrame]]]
