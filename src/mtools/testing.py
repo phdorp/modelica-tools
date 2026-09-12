@@ -305,8 +305,18 @@ class ExperimentSweepT(ExperimentBase, Generic[NameType, SweepResultType]):
         Raises:
             AssertionError: If the number of sweep results differs from
                 the cartesian-product size.
+            ValueError: If distinct sweep values freeze to the same result
+                key (e.g. ``True`` vs ``1``, or ``1`` vs ``1.0``, which
+                compare equal as dict keys).
         """
         combos = list(product(*cls.sweep_params.values()))
+        frozen_combos = [tuple(_freeze_value(value) for value in combo) for combo in combos]
+        if len(set(frozen_combos)) != len(frozen_combos):
+            raise ValueError(
+                "sweep values collapse to duplicate result keys "
+                "(e.g. True == 1 and 1 == 1.0 as dict keys); "
+                "use distinct types or stringify ambiguous choices"
+            )
         sweep_overrides = []
         for param, values in cls.sweep_params.items():
             needs_fields = any(isinstance(value, (list, tuple)) for value in values)
@@ -331,7 +341,6 @@ class ExperimentSweepT(ExperimentBase, Generic[NameType, SweepResultType]):
         assert len(sweep_results) == len(combos), (
             f"expected {len(combos)} sweep results, got {len(sweep_results)}"
         )
-        frozen_combos = [tuple(_freeze_value(value) for value in combo) for combo in combos]
         return dict(
             zip(frozen_combos, (result.solutions[model_name] for result in sweep_results), strict=True)
         )

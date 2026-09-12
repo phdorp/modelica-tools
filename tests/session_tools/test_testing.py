@@ -355,3 +355,24 @@ def test_sweep_serializes_dataclass_values_like_dicts(monkeypatch, tmp_path_fact
         ((("px", 0.0), ("py", 0.0), ("theta", 0.0)),),
         ((("px", 1.0), ("py", 0.0), ("theta", 0.0)),),
     }
+
+
+def test_sweep_duplicate_frozen_keys_raise(monkeypatch, tmp_path_factory):
+    """Sweep values collapsing to the same frozen key (True vs 1) fail fast."""
+
+    def fake_simulate(config, *, overrides, multirun, sweep_dir):
+        raise AssertionError("simulate must not run when frozen keys collide")
+
+    monkeypatch.setattr(sim_tools, "simulate", fake_simulate)
+    fake_registry = FakeRegistry(runs={"exp": object()})
+
+    class T(testing.ExperimentSweep):
+        sweep_params = {"flag": [True, 1]}
+        name = "exp"
+
+    try:
+        T.fetch_sweep("my.Model", fake_registry, tmp_path_factory)
+    except ValueError as exc:
+        assert "duplicate result keys" in str(exc)
+    else:
+        raise AssertionError("expected ValueError for colliding frozen keys")
