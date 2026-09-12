@@ -36,6 +36,7 @@ Experiments are resolved by name: single runs compose via
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from abc import ABC
 from collections.abc import Hashable, Mapping
@@ -66,7 +67,8 @@ __all__ = [
 #: Scalar types expressible as Hydra override primitives.
 SweepScalar: TypeAlias = bool | int | float | str | None
 #: All sweep value types expressible in Hydra override grammar: scalars,
-#: lists/tuples (list containers), and string-keyed dicts (dict containers).
+#: lists/tuples (list containers), string-keyed dicts (dict containers),
+#: and dataclass instances (coerced via ``asdict``, e.g. ``State``).
 SweepValue: TypeAlias = SweepScalar | list["SweepValue"] | tuple["SweepValue", ...] | dict[str, "SweepValue"]
 
 NameType = TypeVar("NameType", bound="str | list[str]")
@@ -74,13 +76,14 @@ ResultType = TypeVar("ResultType")
 SweepResultType = TypeVar("SweepResultType")
 
 
-def _to_hydra_value(value: SweepValue) -> str:
+def _to_hydra_value(value: Any) -> str:
     """Serialize a sweep value to Hydra override grammar.
 
     Args:
         value: Sweep value; one of ``bool``, ``int``, ``float``, ``str``,
-            ``None``, ``list``/``tuple`` (list container), or ``dict``
-            (dict container, values serialized recursively).
+            ``None``, ``list``/``tuple`` (list container), ``dict``
+            (dict container, values serialized recursively), or a dataclass
+            instance (coerced via ``asdict``, e.g. ``State``).
 
     Returns:
         Hydra override value string (e.g. ``true``, ``5``, ``[0.0,0.0]``,
@@ -89,6 +92,8 @@ def _to_hydra_value(value: SweepValue) -> str:
     Raises:
         TypeError: If the value type is not expressible in Hydra overrides.
     """
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        return _to_hydra_value(dataclasses.asdict(value))
     if value is None:
         return "null"
     if isinstance(value, bool):
@@ -104,13 +109,16 @@ def _to_hydra_value(value: SweepValue) -> str:
     raise TypeError(f"sweep value of type {type(value).__name__!r} is not supported by Hydra overrides")
 
 
-def _freeze_value(value: SweepValue) -> Hashable:
+def _freeze_value(value: Any) -> Hashable:
     """Return a hashable form of a sweep value for use in result keys.
 
     ``list``/``tuple`` become ``tuple`` (recursively frozen); ``dict``
-    becomes a sorted tuple of ``(key, frozen value)`` pairs; other values
+    becomes a sorted tuple of ``(key, frozen value)`` pairs; dataclass
+    instances are coerced via ``asdict`` and frozen as dicts; other values
     are returned unchanged.
     """
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        return _freeze_value(dataclasses.asdict(value))
     if isinstance(value, dict):
         return tuple(sorted(((key, _freeze_value(item)) for key, item in value.items()), key=str))
     if isinstance(value, (list, tuple)):
@@ -266,6 +274,7 @@ class ExperimentSweepT(ExperimentBase, Generic[NameType, SweepResultType]):
     #: the values swept over. Values must be Hydra-expressible: scalars
     #: (``bool``, ``int``, ``float``, ``str``, ``None``), ``dict`` (dict
     #: container, e.g. ``State`` as ``{"px": ..., "py": ..., "theta": ...}``),
+    #: dataclass instances (coerced via ``asdict``, e.g. ``State(...)``),
     #: or ``tuple``/``list`` — mapped positionally onto the target's field
     #: names for mapping targets (e.g. ``(px, py, theta)`` for ``state_0``),
     #: serialized as a list container otherwise.

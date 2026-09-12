@@ -15,6 +15,8 @@ needed. Covered behavior:
   table.
 """
 
+import dataclasses
+
 import pandas as pd
 from omegaconf import OmegaConf
 
@@ -308,3 +310,48 @@ def test_sweep_over_multiple_parameters_uses_cartesian_product(monkeypatch, tmp_
     ]
     assert set(T.results.keys()) == {(0.0, 0.0), (0.0, 1.0), (1.0, 0.0), (1.0, 1.0)}
     assert T.results[(1.0, 0.0)]["tag"].iloc[0] == "s2"
+
+
+@dataclasses.dataclass
+class _State:
+    px: float = 0.0
+    py: float = 0.0
+    theta: float = 0.0
+
+
+def test_sweep_serializes_dataclass_values_like_dicts(monkeypatch, tmp_path_factory):
+    """Dataclass sweep values serialize and freeze identically to their dict form."""
+
+    class FakeJob:
+        """Test double for ``SweepResult`` exposing per-job ``solutions``."""
+
+        def __init__(self, solutions):
+            self.solutions = solutions
+
+    captured = {}
+
+    def fake_simulate(config, *, overrides, multirun, sweep_dir):
+        captured["overrides"] = overrides
+        assert multirun is True
+        return [FakeJob({"my.Model": _frame(f"s{i}")}) for i in range(2)]
+
+    monkeypatch.setattr(sim_tools, "simulate", fake_simulate)
+    sentinel_run = object()
+    fake_registry = FakeRegistry(runs={"straight_driving": sentinel_run})
+
+    class T(testing.ExperimentSweep):
+        sweep_params = {
+            "state_0": [_State(px=0.0), _State(px=1.0)],
+        }
+        name = "straight_driving"
+
+    T.fetch_sweep("my.Model", fake_registry, tmp_path_factory)
+
+    assert captured["overrides"] == [
+        "experiment=straight_driving",
+        "session.parameters.state_0={px:0.0,py:0.0,theta:0.0},{px:1.0,py:0.0,theta:0.0}",
+    ]
+    assert set(T.results.keys()) == {
+        ((("px", 0.0), ("py", 0.0), ("theta", 0.0)),),
+        ((("px", 1.0), ("py", 0.0), ("theta", 0.0)),),
+    }
