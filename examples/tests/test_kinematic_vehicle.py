@@ -1,28 +1,21 @@
-import mtools.sim_tools as sim_tools
+from typing import ClassVar
+
 import numpy as np
-import pandas as pd
 import pytest
-from abc import ABC, abstractmethod
+from mtools.testing import Experiment, Experiments, ExperimentSweep, SweepValue
 
 from kinematic_vehicle.kinematic_vehicle import MODEL_NAME
-from tests.experiments import registry
+from tests.experiments import registry as kinematic_registry
 
-class Experiment(ABC):
-    result = MODEL_NAME
-    solutions: pd.DataFrame
-    name: str
-    eps = np.finfo(float).eps
-    tol_position = 1e-2
-    tol_angle = 1e-2
-    tol_speed = 0.05
-    stop_time = 10.0
 
-    @pytest.fixture(autouse=True, scope="class")
-    @classmethod
-    def run_experiment(cls, request):
-        request.cls.solutions = sim_tools.simulate(
-            registry.compose(config_name="default", overrides=[f"experiment={cls.name}"])
-        )[cls.result]
+@pytest.fixture(scope="module")
+def model_name():
+    return MODEL_NAME
+
+
+@pytest.fixture(scope="module")
+def registry():
+    return kinematic_registry
 
 
 class TestStandstill(Experiment):
@@ -30,60 +23,84 @@ class TestStandstill(Experiment):
     name = "standstill"
 
     def test_position_unchanged(self):
-        assert self.solutions["state.px"].abs().max() < self.tol_position, "px should remain ~0.0"
-        assert self.solutions["state.py"].abs().max() < self.tol_position, "py should remain ~0.0"
-        assert self.solutions["state.theta"].abs().max() < self.tol_angle, "theta should remain ~0.0"
+        np.testing.assert_array_less(self.results["state.px"].abs(), self.eps, "px should remain ~0.0")
+        np.testing.assert_array_less(self.results["state.py"].abs(), self.eps, "py should remain ~0.0")
+        np.testing.assert_array_less(self.results["state.theta"].abs(), self.eps, "theta should remain ~0.0")
 
 
-class TestStraightDriving(Experiment):
+class TestStraightDriving(ExperimentSweep):
 
     name = "straight_driving"
+    # `state_0` is swept as a whole object parameterized by tuples
+    # (dicts like {"px": ..., "py": ..., "theta": ...} work too);
+    # `v_norm` demonstrates int sweep values.
+    sweep_params: ClassVar[dict[str, list[SweepValue]]] = {
+        "state_0": [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0)],
+        "v_norm": [5, 10],
+    }
 
     def test_monotonic_forward_motion(self):
-        px_vals = self.solutions["state.px"].values
-        assert np.all(np.diff(px_vals) >= -self.eps), "px should increase monotonically"
+        for result in self.results.values():
+            px_vals = result["state.px"].to_numpy()
+            assert np.all(np.diff(px_vals) >= -self.eps), "px should increase monotonically"
 
     def test_final_position_matches_velocity(self):
-        expected_px = self.solutions["time"].iloc[-1] * self.solutions["der(state.px)"].iloc[-1]
-        final_px = self.solutions["state.px"].iloc[-1]
-        assert final_px == pytest.approx(
-            expected_px, rel=self.tol_speed
-        ), f"px should be ~{expected_px}, got {final_px}"
+        for result in self.results.values():
+            px0 = result["state.px"].iloc[0]
+            expected_px = px0 + result["time"].iloc[-1] * result["der(state.px)"].iloc[-1]
+            np.testing.assert_allclose(result["state.px"].iloc[-1], expected_px)
 
     def test_no_lateral_drift(self):
-        assert (
-            self.solutions["state.py"].abs().max() < self.tol_position
-        ), "py should remain near 0.0 with zero steering"
+        for result in self.results.values():
+            py0 = result["state.py"].iloc[0]
+            np.testing.assert_array_less(
+                (result["state.py"] - py0).abs(),
+                self.eps,
+                f"py should remain near {py0} with zero steering",
+            )
 
     def test_heading_unchanged(self):
-        assert (
-            self.solutions["state.theta"].abs().max() < self.tol_angle
-        ), "theta should remain near 0.0 with zero steering"
+        for result in self.results.values():
+            np.testing.assert_array_less(
+                result["state.theta"].abs(), self.eps, "theta should remain near 0.0 with zero steering"
+            )
 
-    def test_speed_matches_v_norm(self):
-        px_dot = self.solutions["der(state.px)"]
-        py_dot = self.solutions["der(state.py)"]
-        vel = np.sqrt(px_dot**2 + py_dot**2)
-        expected_speed = 10.0
-        assert all(
-            (vel - expected_speed) / expected_speed < self.tol_speed
-        ), f"speed should be ~{expected_speed} within {self.tol_speed*100}%"
+    def test_constant_speed(self):
+        for result in self.results.values():
+            vel = np.sqrt(result["der(state.px)"] ** 2 + result["der(state.py)"] ** 2)
+            np.testing.assert_allclose(vel, vel[0])
 
-
-class TestTurnLeft(Experiment):
+class TestTurnLeft(ExperimentSweep):
 
     name = "turn_left"
+    sweep_params: ClassVar[dict[str, list[SweepValue]]] = {
+        "phi": [np.deg2rad(0.1), np.deg2rad(0.5), np.deg2rad(1.0)]
+    }
 
     def test_monotonic_heading_rotation(self):
-        theta_vals = self.solutions["state.theta"].values
-        assert np.all(np.diff(theta_vals) >= -self.eps), "theta should increase for left turn"
+        for result in self.results.values():
+            theta_vals = result["state.theta"].to_numpy()
+            assert np.all(np.diff(theta_vals) >= -self.eps), "theta should increase for left turn"
 
     def test_final_position_first_quadrant(self):
-        final_px = self.solutions["state.px"].iloc[-1]
-        final_py = self.solutions["state.py"].iloc[-1]
-        assert final_px > 0, f"final px should be positive, got {final_px}"
-        assert final_py > 0, f"final py should be positive, got {final_py}"
+        for result in self.results.values():
+            final_px = result["state.px"].iloc[-1]
+            final_py = result["state.py"].iloc[-1]
+            assert final_px > 0, f"final px should be positive, got {final_px}"
+            assert final_py > 0, f"final py should be positive, got {final_py}"
 
     def test_no_singular_heading(self):
-        final_theta = abs(self.solutions["state.theta"].iloc[-1])
-        assert final_theta < np.pi / 2, f"final heading |theta| should be < pi/2, got {final_theta}"
+        for result in self.results.values():
+            final_theta = abs(result["state.theta"].iloc[-1])
+            assert final_theta < np.pi / 2, f"final heading |theta| should be < pi/2, got {final_theta}"
+
+class TestVelocityIncrease(Experiments):
+
+    name: list[str] = ["standstill", "straight_driving"]  # noqa: RUF012 - shared immutable test config
+
+    def test_monotonic_speed_increase(self):
+        standstill = self.results["standstill"]
+        straight_driving = self.results["straight_driving"]
+        assert np.all(
+            straight_driving["der(state.px)"].to_numpy() - standstill["der(state.px)"].to_numpy() >= -self.eps
+        ), "speed should increase monotonically"
