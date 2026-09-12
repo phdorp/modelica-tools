@@ -215,6 +215,19 @@ class TestExperimentConfigs:
         with pytest.raises(ValueError, match="not a registered run config"):
             registry.register_experiment(name="fast", base_run_config=object())
 
+    def test_base_without_experiment_group_fails_fast(self):
+        registry = HydraZenRegistry(store=hydra_zen.ZenStore())
+        run_default = registry.create_run(
+            model_name="KinematicVehicle",
+            parameters=KinematicVehicle(state_0=State()),
+            simulation=session_config.Simulation(solver="rungekutta", output_format="csv"),
+            model_path=Path("tests/session_tools/models/kinematic_vehicle.mo").resolve(),
+            name="default",
+        )
+
+        with pytest.raises(ValueError, match="include_experiment_group=True"):
+            registry.register_experiment(name="fast", base_run_config=run_default)
+
     def test_compose_experiment_applies_experiment(self):
         registry, _ = self._registry_with_experiment()
 

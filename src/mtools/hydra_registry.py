@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, Optional
 
@@ -17,6 +18,60 @@ if TYPE_CHECKING:
 
 #: Hydra group under which experiments are registered.
 EXPERIMENT_GROUP = "experiment"
+
+
+def _run_config_defaults(run_config: Any) -> list | None:
+    """Best-effort extraction of the Hydra defaults list from a run config.
+
+    Args:
+        run_config: Run config type or instance to inspect.
+
+    Returns:
+        The defaults list, or ``None`` when the config shape is not
+        introspectable (non-dataclass or no ``defaults`` field).
+    """
+    try:
+        if isinstance(run_config, type) and dataclasses.is_dataclass(run_config):
+            field = run_config.__dataclass_fields__.get("defaults")
+            if field is None:
+                return None
+            if field.default_factory is not dataclasses.MISSING:  # type: ignore[misc]
+                return list(field.default_factory())  # type: ignore[operator]
+            if isinstance(field.default, list):
+                return list(field.default)
+            return None
+        if dataclasses.is_dataclass(run_config) and not isinstance(run_config, type):
+            defaults = getattr(run_config, "defaults", None)
+            return list(defaults) if isinstance(defaults, list) else None
+    except Exception:
+        return None
+    return None
+
+
+def _defaults_include_group(defaults: list, group: str) -> bool:
+    """Check whether a Hydra defaults list references ``group``.
+
+    Handles plain entries (``{"experiment": None}``, ``"experiment"``) and
+    override entries (``{"override /experiment": ...}``).
+
+    Args:
+        defaults: Hydra defaults list to inspect.
+        group: Group name to look for (e.g. ``"experiment"``).
+
+    Returns:
+        Whether any entry references the group.
+    """
+    candidates = {group, group.replace(".", "/")}
+    for entry in defaults:
+        if isinstance(entry, dict):
+            keys = {key.removeprefix("override /") for key in entry}
+            normalized = {key.replace(".", "/") for key in keys} | keys
+            if candidates & normalized:
+                return True
+        elif isinstance(entry, str) and entry != "_self_":
+            if entry in candidates or entry.replace(".", "/") in candidates:
+                return True
+    return False
 
 
 class HydraZenRegistry:
@@ -491,12 +546,22 @@ class HydraZenRegistry:
                 to use as override targets.
 
         Raises:
-            ValueError: If ``base_run_config`` is not a registered run config.
+            ValueError: If ``base_run_config`` is not a registered run config,
+                or if it does not include the ``experiment`` group (create it
+                with ``include_experiment_group=True``).
         """
         if self._find_run_config_name(base_run_config) is None:
             raise ValueError(
                 f"base_run_config for experiment '{name}' is not a registered run config; "
                 "register it with a name first via 'register_run_config' or 'create_run'."
+            )
+        defaults = _run_config_defaults(base_run_config)
+        if defaults is not None and not _defaults_include_group(defaults, EXPERIMENT_GROUP):
+            raise ValueError(
+                f"base_run_config for experiment '{name}' does not include the "
+                f"'{EXPERIMENT_GROUP}' group; create it with "
+                "'include_experiment_group=True' so 'compose_experiment' and "
+                "sweeps can select the experiment."
             )
         self._experiment_bases[name] = base_run_config
         hydra_defaults = self._build_hydra_defaults(selections=selections, override=True)
