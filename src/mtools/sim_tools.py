@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Literal, overload
 
 import pandas
+from omegaconf import DictConfig
 
 import mtools.internal.sim_tools as _internal
 import mtools.session_config as session_config
@@ -15,7 +16,7 @@ class SweepResult:
     """Per-job result of a multirun sweep launched via :func:`simulate`."""
 
     #: Composed job config for this sweep point.
-    config: session_config.SimulationRun
+    config: DictConfig
     #: Simulation solutions for this sweep point.
     solutions: dict[str, pandas.DataFrame]
 
