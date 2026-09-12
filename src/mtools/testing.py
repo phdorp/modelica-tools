@@ -38,8 +38,8 @@ from __future__ import annotations
 
 from abc import ABC
 from collections.abc import Hashable
-from typing import (TYPE_CHECKING, Any, ClassVar, Generic, TypeAlias, TypeVar,
-                    cast)
+from typing import (TYPE_CHECKING, Any, ClassVar, Generic, Protocol, TypeAlias,
+                    TypeVar, cast, runtime_checkable)
 
 import numpy as np
 import pandas as pd
@@ -52,6 +52,7 @@ if TYPE_CHECKING:
     from mtools.hydra_registry import HydraZenRegistry
 
 __all__ = [
+    "DataclassInstance",
     "Experiment",
     "ExperimentSweep",
     "ExperimentSweeps",
@@ -62,10 +63,21 @@ __all__ = [
 
 #: Scalar types expressible as Hydra override primitives.
 SweepScalar: TypeAlias = bool | int | float | str | None
+
+
+@runtime_checkable
+class DataclassInstance(Protocol):
+    """Structural type for dataclass instances accepted as sweep values."""
+
+    __dataclass_fields__: ClassVar[dict[str, Any]]
+
+
 #: All sweep value types expressible in Hydra override grammar: scalars,
 #: lists/tuples (list containers), string-keyed dicts (dict containers),
 #: and dataclass instances (coerced via ``asdict``, e.g. ``State``).
-SweepValue: TypeAlias = SweepScalar | list["SweepValue"] | tuple["SweepValue", ...] | dict[str, "SweepValue"]
+SweepValue: TypeAlias = (
+    SweepScalar | DataclassInstance | list["SweepValue"] | tuple["SweepValue", ...] | dict[str, "SweepValue"]
+)
 
 NameType = TypeVar("NameType", bound="str | list[str]")
 ResultType = TypeVar("ResultType")

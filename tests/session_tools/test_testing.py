@@ -16,6 +16,7 @@ needed. Covered behavior:
 """
 
 import dataclasses
+import typing
 from itertools import product as _product
 
 import pandas as pd
@@ -555,6 +556,13 @@ def test_sweep_dataclass_over_structured_target_needs_no_arity_mapping(monkeypat
         ((("px", 0.0), ("py", 0.0), ("theta", 0.0)),),
         ((("px", 1.0), ("py", 2.0), ("theta", 3.0)),),
     }
+
+
+def test_sweep_value_alias_covers_dataclass_instances():
+    """The public SweepValue alias admits dataclass instances such as State."""
+    assert testing.DataclassInstance in typing.get_args(testing.SweepValue)
+    assert isinstance(_State(), testing.DataclassInstance)
+    assert not isinstance(5, testing.DataclassInstance)
 
 
 def test_dataclass_helpers_recurse_into_nested_and_tuple_fields():
