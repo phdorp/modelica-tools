@@ -201,6 +201,44 @@ def _normalize_sweep_value(value: SweepValue, field_names: list[str] | None, par
     return value
 
 
+#: Sentinel marking a sweep path absent from a job's composed config.
+_JOB_VALUE_MISSING = object()
+
+
+def _select_job_value(config: Any, path: str) -> Any:
+    """Extract the swept value at ``path`` from a job's composed config.
+
+    Handles Hydra ``DictConfig``/``ListConfig`` nodes (via
+    :func:`OmegaConf.select`, converting containers with
+    :func:`OmegaConf.to_container`), plain mappings, and attribute-style
+    config objects.
+
+    Args:
+        config: A sweep job's composed config.
+        path: Dot-separated config path (e.g. ``"session.parameters.phi"``).
+
+    Returns:
+        The plain-Python value at ``path``.
+
+    Raises:
+        ValueError: If ``path`` is absent from the job config.
+    """
+    if OmegaConf.is_config(config):
+        value = OmegaConf.select(config, path, default=_JOB_VALUE_MISSING)
+        if value is _JOB_VALUE_MISSING:
+            raise ValueError(f"sweep path {path!r} not found in sweep job config")
+        if OmegaConf.is_config(value):
+            return OmegaConf.to_container(value, resolve=True)
+        return value
+    node = config
+    try:
+        for part in path.split("."):
+            node = node[part] if isinstance(node, Mapping) else getattr(node, part)
+    except (KeyError, AttributeError, TypeError) as exc:
+        raise ValueError(f"sweep path {path!r} not found in sweep job config") from exc
+    return node
+
+
 class ExperimentBase(ABC):
     """Shared config for experiment tests.
 
@@ -310,14 +348,18 @@ class ExperimentSweepT(ExperimentBase, Generic[NameType, SweepResultType]):
 
         Returns:
             Mapping of cartesian-product tuple (in ``sweep_params``
-            insertion order) to solution table.
+            insertion order) to solution table. Each table is attributed
+            via its own job's composed config, so Hydra launch order does
+            not affect the mapping.
 
         Raises:
             AssertionError: If the number of sweep results differs from
                 the cartesian-product size.
             ValueError: If distinct sweep values freeze to the same result
                 key (e.g. ``True`` vs ``1``, or ``1`` vs ``1.0``, which
-                compare equal as dict keys).
+                compare equal as dict keys); if normalized sweep values
+                are ambiguous; or if a job's composed config matches no
+                swept combination or matches twice.
         """
         combos = list(product(*cls.sweep_params.values()))
         frozen_combos = [tuple(_freeze_value(value) for value in combo) for combo in combos]
@@ -328,6 +370,7 @@ class ExperimentSweepT(ExperimentBase, Generic[NameType, SweepResultType]):
                 "use distinct types or stringify ambiguous choices"
             )
         sweep_overrides = []
+        normalized_per_param = []
         for param, values in cls.sweep_params.items():
             needs_fields = any(isinstance(value, (list, tuple)) for value in values)
             field_names = (
@@ -336,9 +379,19 @@ class ExperimentSweepT(ExperimentBase, Generic[NameType, SweepResultType]):
                 else None
             )
             normalized = [_normalize_sweep_value(value, field_names, param) for value in values]
+            normalized_per_param.append(normalized)
             sweep_overrides.append(
                 f"{cls.sweep_param_prefix}.{param}={','.join(_to_hydra_value(value) for value in normalized)}"
             )
+        norm_combos = [
+            tuple(_freeze_value(value) for value in combo) for combo in product(*normalized_per_param)
+        ]
+        if len(set(norm_combos)) != len(norm_combos):
+            raise ValueError(
+                "swept values are ambiguous after positional-to-field normalization; "
+                "use distinct values or hand-written dicts with distinct fields"
+            )
+        norm_to_raw = dict(zip(norm_combos, frozen_combos))
         sweep_results = sim_tools.simulate(
             registry.get_experiment_run_config(name),
             overrides=[
@@ -351,9 +404,24 @@ class ExperimentSweepT(ExperimentBase, Generic[NameType, SweepResultType]):
         assert len(sweep_results) == len(combos), (
             f"expected {len(combos)} sweep results, got {len(sweep_results)}"
         )
-        return dict(
-            zip(frozen_combos, (result.solutions[model_name] for result in sweep_results), strict=True)
+        param_paths = [f"{cls.sweep_param_prefix}.{param}" for param in cls.sweep_params]
+        results = {}
+        for job in sweep_results:
+            job_key = tuple(_freeze_value(_select_job_value(job.config, path)) for path in param_paths)
+            try:
+                raw_key = norm_to_raw[job_key]
+            except KeyError:
+                raise ValueError(
+                    f"sweep job config {job_key!r} matches no swept combination "
+                    f"for params {list(cls.sweep_params)}"
+                ) from None
+            if raw_key in results:
+                raise ValueError(f"duplicate sweep job for combination {raw_key!r}")
+            results[raw_key] = job.solutions[model_name]
+        assert len(results) == len(combos), (
+            f"expected {len(combos)} sweep results, got {len(results)}"
         )
+        return results
 
     @pytest.fixture(autouse=True, scope="class")
     @classmethod

@@ -16,6 +16,7 @@ needed. Covered behavior:
 """
 
 import dataclasses
+from itertools import product as _product
 
 import pandas as pd
 from omegaconf import OmegaConf
@@ -92,9 +93,10 @@ def test_sweep_resolves_base_run_from_registry(monkeypatch, tmp_path_factory):
     captured = {}
 
     class FakeJob:
-        """Test double for ``SweepResult`` exposing per-job ``solutions``."""
+        """Test double for ``SweepResult`` exposing per-job ``config`` and ``solutions``."""
 
-        def __init__(self, solutions):
+        def __init__(self, config, solutions):
+            self.config = config
             self.solutions = solutions
 
     def fake_simulate(config, *, overrides, multirun, sweep_dir):
@@ -103,7 +105,13 @@ def test_sweep_resolves_base_run_from_registry(monkeypatch, tmp_path_factory):
         captured["multirun"] = multirun
         captured["sweep_dir"] = sweep_dir
         assert multirun is True
-        return [FakeJob({"my.Model": _frame("s0")}), FakeJob({"my.Model": _frame("s1")})]
+        return [
+            FakeJob(
+                {"session": {"parameters": {"phi": phi}}},
+                {"my.Model": _frame(f"s{i}")},
+            )
+            for i, phi in enumerate((0.1, 0.2))
+        ]
 
     monkeypatch.setattr(sim_tools, "simulate", fake_simulate)
     sentinel_run = object()
@@ -120,13 +128,48 @@ def test_sweep_resolves_base_run_from_registry(monkeypatch, tmp_path_factory):
     assert set(T.results.keys()) == {(0.1,), (0.2,)}
 
 
+def test_sweep_results_keyed_by_job_config_not_launch_order(monkeypatch, tmp_path_factory):
+    """Jobs returned out of Cartesian order still attribute each table to its own sweep value."""
+
+    class FakeJob:
+        """Test double for ``SweepResult`` exposing per-job ``config`` and ``solutions``."""
+
+        def __init__(self, config, solutions):
+            self.config = config
+            self.solutions = solutions
+
+    def fake_simulate(config, *, overrides, multirun, sweep_dir):
+        assert multirun is True
+        jobs = [
+            FakeJob(
+                {"session": {"parameters": {"phi": phi}}},
+                {"my.Model": _frame(f"phi={phi}")},
+            )
+            for phi in (0.1, 0.2)
+        ]
+        return jobs[::-1]
+
+    monkeypatch.setattr(sim_tools, "simulate", fake_simulate)
+    fake_registry = FakeRegistry(runs={"turn_left": object()})
+
+    class T(testing.ExperimentSweep):
+        sweep_params = {"phi": [0.1, 0.2]}
+        name = "turn_left"
+
+    T.fetch_sweep("my.Model", fake_registry, tmp_path_factory)
+
+    assert T.results[(0.1,)]["tag"].iloc[0] == "phi=0.1"
+    assert T.results[(0.2,)]["tag"].iloc[0] == "phi=0.2"
+
+
 def test_sweep_serializes_hydra_native_types(monkeypatch, tmp_path_factory):
     """Tuple (list target), int, and bool sweep values serialize to Hydra-native override syntax."""
 
     class FakeJob:
-        """Test double for ``SweepResult`` exposing per-job ``solutions``."""
+        """Test double for ``SweepResult`` exposing per-job ``config`` and ``solutions``."""
 
-        def __init__(self, solutions):
+        def __init__(self, config, solutions):
+            self.config = config
             self.solutions = solutions
 
     captured = {}
@@ -134,7 +177,14 @@ def test_sweep_serializes_hydra_native_types(monkeypatch, tmp_path_factory):
     def fake_simulate(config, *, overrides, multirun, sweep_dir):
         captured["overrides"] = overrides
         assert multirun is True
-        return [FakeJob({"my.Model": _frame(f"s{i}")}) for i in range(8)]
+        combos = list(_product([(0.0, 0.0, 0.0), (1.0, 0.0, 0.0)], [5, 10], [True, False]))
+        return [
+            FakeJob(
+                {"session": {"parameters": {"state_0": list(state), "v_norm": v, "flag": flag}}},
+                {"my.Model": _frame(f"s{i}")},
+            )
+            for i, (state, v, flag) in enumerate(combos)
+        ]
 
     monkeypatch.setattr(sim_tools, "simulate", fake_simulate)
     sentinel_run = object()
@@ -172,9 +222,10 @@ def test_sweep_serializes_dict_values_and_freezes_keys(monkeypatch, tmp_path_fac
     """Dict sweep values serialize to Hydra dict syntax with hashable frozen keys."""
 
     class FakeJob:
-        """Test double for ``SweepResult`` exposing per-job ``solutions``."""
+        """Test double for ``SweepResult`` exposing per-job ``config`` and ``solutions``."""
 
-        def __init__(self, solutions):
+        def __init__(self, config, solutions):
+            self.config = config
             self.solutions = solutions
 
     captured = {}
@@ -182,7 +233,17 @@ def test_sweep_serializes_dict_values_and_freezes_keys(monkeypatch, tmp_path_fac
     def fake_simulate(config, *, overrides, multirun, sweep_dir):
         captured["overrides"] = overrides
         assert multirun is True
-        return [FakeJob({"my.Model": _frame(f"s{i}")}) for i in range(2)]
+        states = [
+            {"px": 0.0, "py": 0.0, "theta": 0.0},
+            {"px": 1.0, "py": 0.0, "theta": 0.0},
+        ]
+        return [
+            FakeJob(
+                {"session": {"parameters": {"state_0": dict(state)}}},
+                {"my.Model": _frame(f"s{i}")},
+            )
+            for i, state in enumerate(states)
+        ]
 
     monkeypatch.setattr(sim_tools, "simulate", fake_simulate)
     sentinel_run = object()
@@ -210,9 +271,10 @@ def test_sweep_maps_tuples_onto_structured_fields(monkeypatch, tmp_path_factory)
     """Tuple sweep values over a mapping target serialize as Hydra dicts with raw tuple keys."""
 
     class FakeJob:
-        """Test double for ``SweepResult`` exposing per-job ``solutions``."""
+        """Test double for ``SweepResult`` exposing per-job ``config`` and ``solutions``."""
 
-        def __init__(self, solutions):
+        def __init__(self, config, solutions):
+            self.config = config
             self.solutions = solutions
 
     class StructuredRegistry(FakeRegistry):
@@ -229,7 +291,15 @@ def test_sweep_maps_tuples_onto_structured_fields(monkeypatch, tmp_path_factory)
     def fake_simulate(config, *, overrides, multirun, sweep_dir):
         captured["overrides"] = overrides
         assert multirun is True
-        return [FakeJob({"my.Model": _frame(f"s{i}")}) for i in range(2)]
+        states = [(0.0, 0.0, 0.0), (1.0, 2.0, 3.0)]
+        fields = ("px", "py", "theta")
+        return [
+            FakeJob(
+                {"session": {"parameters": {"state_0": dict(zip(fields, state))}}},
+                {"my.Model": _frame(f"s{i}")},
+            )
+            for i, state in enumerate(states)
+        ]
 
     monkeypatch.setattr(sim_tools, "simulate", fake_simulate)
     sentinel_run = object()
@@ -281,9 +351,10 @@ def test_sweep_over_multiple_parameters_uses_cartesian_product(monkeypatch, tmp_
     """Multi-parameter sweep emits one override per param and keys results by product tuples."""
 
     class FakeJob:
-        """Test double for ``SweepResult`` exposing per-job ``solutions``."""
+        """Test double for ``SweepResult`` exposing per-job ``config`` and ``solutions``."""
 
-        def __init__(self, solutions):
+        def __init__(self, config, solutions):
+            self.config = config
             self.solutions = solutions
 
     captured = {}
@@ -291,7 +362,15 @@ def test_sweep_over_multiple_parameters_uses_cartesian_product(monkeypatch, tmp_
     def fake_simulate(config, *, overrides, multirun, sweep_dir):
         captured["overrides"] = overrides
         assert multirun is True
-        return [FakeJob({"my.Model": _frame(f"s{i}")}) for i in range(4)]
+        combos = list(_product((0.0, 1.0), (0.0, 1.0)))
+        jobs = [
+            FakeJob(
+                {"session": {"parameters": {"state_0": {"px": px, "py": py}}}},
+                {"my.Model": _frame(f"s{i}")},
+            )
+            for i, (px, py) in enumerate(combos)
+        ]
+        return [jobs[i] for i in (2, 0, 3, 1)]
 
     monkeypatch.setattr(sim_tools, "simulate", fake_simulate)
     sentinel_run = object()
@@ -323,9 +402,10 @@ def test_sweep_serializes_dataclass_values_like_dicts(monkeypatch, tmp_path_fact
     """Dataclass sweep values serialize and freeze identically to their dict form."""
 
     class FakeJob:
-        """Test double for ``SweepResult`` exposing per-job ``solutions``."""
+        """Test double for ``SweepResult`` exposing per-job ``config`` and ``solutions``."""
 
-        def __init__(self, solutions):
+        def __init__(self, config, solutions):
+            self.config = config
             self.solutions = solutions
 
     captured = {}
@@ -333,7 +413,17 @@ def test_sweep_serializes_dataclass_values_like_dicts(monkeypatch, tmp_path_fact
     def fake_simulate(config, *, overrides, multirun, sweep_dir):
         captured["overrides"] = overrides
         assert multirun is True
-        return [FakeJob({"my.Model": _frame(f"s{i}")}) for i in range(2)]
+        states = [
+            {"px": 0.0, "py": 0.0, "theta": 0.0},
+            {"px": 1.0, "py": 0.0, "theta": 0.0},
+        ]
+        return [
+            FakeJob(
+                {"session": {"parameters": {"state_0": dict(state)}}},
+                {"my.Model": _frame(f"s{i}")},
+            )
+            for i, state in enumerate(states)
+        ]
 
     monkeypatch.setattr(sim_tools, "simulate", fake_simulate)
     sentinel_run = object()
