@@ -1,5 +1,8 @@
 """Generic pytest base classes for Modelica experiment tests.
 
+Requires the ``testing`` extra (``pip install modelica-tools[testing]``)
+for the ``pytest``/``numpy`` imports used below.
+
 Test classes inherit the aliases directly and provide model-specific wiring
 via pytest fixtures; this module contains no model imports::
 
