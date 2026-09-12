@@ -478,3 +478,77 @@ def test_to_hydra_value_rejects_non_identifier_dict_keys():
         else:
             raise AssertionError(f"expected ValueError for dict key {bad!r}")
     assert testing._to_hydra_value({"px": 1.0}) == "{px:1.0}"
+
+
+def test_sweep_dataclass_over_structured_target_needs_no_arity_mapping(monkeypatch, tmp_path_factory):
+    """Whole-object dataclass values over a mapping target sweep without positional conversion."""
+
+    class FakeJob:
+        """Test double for ``SweepResult`` exposing per-job ``config`` and ``solutions``."""
+
+        def __init__(self, config, solutions):
+            self.config = config
+            self.solutions = solutions
+
+    class StructuredRegistry(FakeRegistry):
+        """Fake registry composing a structured config exposing ``state_0`` fields."""
+
+        def compose_experiment(self, name, overrides=None):
+            self.calls.append({"compose_experiment": name, "overrides": overrides})
+            return OmegaConf.create(
+                {"session": {"parameters": {"state_0": {"px": 0.0, "py": 0.0, "theta": 0.0}}}}
+            )
+
+    captured = {}
+
+    def fake_simulate(config, *, overrides, multirun, sweep_dir):
+        captured["overrides"] = overrides
+        assert multirun is True
+        states = [
+            {"px": 0.0, "py": 0.0, "theta": 0.0},
+            {"px": 1.0, "py": 2.0, "theta": 3.0},
+        ]
+        return [
+            FakeJob(
+                {"session": {"parameters": {"state_0": dict(state)}}},
+                {"my.Model": _frame(f"s{i}")},
+            )
+            for i, state in enumerate(states)
+        ]
+
+    monkeypatch.setattr(sim_tools, "simulate", fake_simulate)
+    fake_registry = StructuredRegistry(runs={"straight_driving": object()})
+
+    class T(testing.ExperimentSweep):
+        sweep_params = {"state_0": [_State(), _State(px=1.0, py=2.0, theta=3.0)]}
+        name = "straight_driving"
+
+    T.fetch_sweep("my.Model", fake_registry, tmp_path_factory)
+
+    assert captured["overrides"] == [
+        "experiment=straight_driving",
+        "session.parameters.state_0={px:0.0,py:0.0,theta:0.0},{px:1.0,py:2.0,theta:3.0}",
+    ]
+    assert set(T.results.keys()) == {
+        ((("px", 0.0), ("py", 0.0), ("theta", 0.0)),),
+        ((("px", 1.0), ("py", 2.0), ("theta", 3.0)),),
+    }
+
+
+def test_dataclass_helpers_recurse_into_nested_and_tuple_fields():
+    """Nested dataclasses and tuple fields serialize and freeze recursively."""
+
+    @dataclasses.dataclass
+    class Inner:
+        x: float = 0.0
+
+    @dataclasses.dataclass
+    class Outer:
+        inner: Inner = dataclasses.field(default_factory=Inner)
+        tags: tuple = (1.0, 2.0)
+
+    assert testing._to_hydra_value(Outer(inner=Inner(x=1.0))) == "{inner:{x:1.0},tags:[1.0,2.0]}"
+    assert testing._freeze_value(Outer(inner=Inner(x=1.0))) == (
+        ("inner", (("x", 1.0),)),
+        ("tags", (1.0, 2.0)),
+    )
