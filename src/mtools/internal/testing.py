@@ -1,7 +1,7 @@
 """Internal sweep helpers backing :mod:`mtools.testing`.
 
 This module contains implementation details not intended for direct use:
-sweep-value serialization, result-key freezing, positional-to-field
+sweep-value serialization, result-key hashing, positional-to-field
 normalization, per-job config inspection, and the sweep planner. Public
 entry points (experiment base classes, aliases, sweep types) live in
 :mod:`mtools.testing` and delegate here.
@@ -68,7 +68,7 @@ def _to_hydra_value(value: Any) -> str:
     raise TypeError(f"sweep value of type {type(value).__name__!r} is not supported by Hydra overrides")
 
 
-def _freeze_value(value: Any) -> Hashable:
+def _to_hashable(value: Any) -> Hashable:
     """Return a hashable form of a sweep value for use in result keys.
 
     ``list``/``tuple`` become ``tuple`` (recursively frozen); ``dict``
@@ -77,11 +77,11 @@ def _freeze_value(value: Any) -> Hashable:
     are returned unchanged.
     """
     if dataclasses.is_dataclass(value) and not isinstance(value, type):
-        return _freeze_value(dataclasses.asdict(value))
+        return _to_hashable(dataclasses.asdict(value))
     if isinstance(value, dict):
-        return tuple(sorted(((key, _freeze_value(item)) for key, item in value.items()), key=str))
+        return tuple(sorted(((key, _to_hashable(item)) for key, item in value.items()), key=str))
     if isinstance(value, (list, tuple)):
-        return tuple(_freeze_value(item) for item in value)
+        return tuple(_to_hashable(item) for item in value)
     return value
 
 
@@ -222,7 +222,7 @@ class _SweepPlan:
         self.prefix = prefix
         self.experiment = experiment
         self.combos = list(product(*sweep_params.values()))
-        self.frozen_combos = [tuple(_freeze_value(value) for value in combo) for combo in self.combos]
+        self.frozen_combos = [tuple(_to_hashable(value) for value in combo) for combo in self.combos]
         _ensure_unique(
             self.frozen_combos,
             "sweep values collapse to duplicate result keys "
@@ -234,7 +234,7 @@ class _SweepPlan:
             for param, values in sweep_params.items()
         ]
         self.norm_combos = [
-            tuple(_freeze_value(value) for value in combo) for combo in product(*self.normalized_per_param)
+            tuple(_to_hashable(value) for value in combo) for combo in product(*self.normalized_per_param)
         ]
         _ensure_unique(
             self.norm_combos,
@@ -275,7 +275,7 @@ class _SweepPlan:
     def key_of(self, job: Any) -> tuple:
         """Attribute one job to its raw combination via its own composed config."""
         job_key = tuple(
-            _freeze_value(_select_job_value(job.config, f"{self.prefix}.{param}")) for param in self.params
+            _to_hashable(_select_job_value(job.config, f"{self.prefix}.{param}")) for param in self.params
         )
         try:
             return self.norm_to_raw[job_key]

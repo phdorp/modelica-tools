@@ -549,7 +549,7 @@ def test_dataclass_helpers_recurse_into_nested_and_tuple_fields():
         tags: tuple = (1.0, 2.0)
 
     assert internal_testing._to_hydra_value(Outer(inner=Inner(x=1.0))) == "{inner:{x:1.0},tags:[1.0,2.0]}"
-    assert internal_testing._freeze_value(Outer(inner=Inner(x=1.0))) == (
+    assert internal_testing._to_hashable(Outer(inner=Inner(x=1.0))) == (
         ("inner", (("x", 1.0),)),
         ("tags", (1.0, 2.0)),
     )
