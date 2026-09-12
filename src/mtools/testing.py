@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import re
 from abc import ABC
 from collections.abc import Hashable, Mapping
 from itertools import product
@@ -91,6 +92,8 @@ def _to_hydra_value(value: Any) -> str:
 
     Raises:
         TypeError: If the value type is not expressible in Hydra overrides.
+        ValueError: If a dict key is not a valid Hydra identifier (quoting
+            keys is not supported by the Hydra override grammar).
     """
     if dataclasses.is_dataclass(value) and not isinstance(value, type):
         return _to_hydra_value(dataclasses.asdict(value))
@@ -105,6 +108,13 @@ def _to_hydra_value(value: Any) -> str:
     if isinstance(value, (list, tuple)):
         return f"[{','.join(_to_hydra_value(item) for item in value)}]"
     if isinstance(value, dict):
+        for key in value:
+            if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
+                raise ValueError(
+                    f"dict key {key!r} is not expressible in Hydra overrides "
+                    "(keys must match [A-Za-z_][A-Za-z0-9_]*; quoting keys "
+                    "is not supported by the Hydra override grammar)"
+                )
         return f"{{{','.join(f'{key}:{_to_hydra_value(item)}' for key, item in value.items())}}}"
     raise TypeError(f"sweep value of type {type(value).__name__!r} is not supported by Hydra overrides")
 

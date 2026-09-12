@@ -376,3 +376,15 @@ def test_sweep_duplicate_frozen_keys_raise(monkeypatch, tmp_path_factory):
         assert "duplicate result keys" in str(exc)
     else:
         raise AssertionError("expected ValueError for colliding frozen keys")
+
+
+def test_to_hydra_value_rejects_non_identifier_dict_keys():
+    """Dict keys with Hydra syntax characters fail fast instead of emitting invalid overrides."""
+    for bad in ["a b", "a,b", "a:b", "a{b", 'a"b', "a'b", "a.b", "a-b"]:
+        try:
+            testing._to_hydra_value({bad: 1.0})
+        except ValueError as exc:
+            assert "not expressible in Hydra overrides" in str(exc)
+        else:
+            raise AssertionError(f"expected ValueError for dict key {bad!r}")
+    assert testing._to_hydra_value({"px": 1.0}) == "{px:1.0}"
