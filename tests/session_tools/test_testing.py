@@ -469,6 +469,27 @@ def test_sweep_duplicate_frozen_keys_raise(monkeypatch, tmp_path_factory):
         raise AssertionError("expected ValueError for colliding frozen keys")
 
 
+def test_sweep_empty_value_list_raises(monkeypatch, tmp_path_factory):
+    """A param with no sweep values fails fast instead of emitting an invalid override."""
+
+    def fake_simulate(config, *, overrides, multirun, sweep_dir):
+        raise AssertionError("simulate must not run with empty value lists")
+
+    monkeypatch.setattr(sim_tools, "simulate", fake_simulate)
+    fake_registry = FakeRegistry(runs={"exp": object()})
+
+    class T(testing.ExperimentSweep):
+        sweep_params = {"phi": []}
+        name = "exp"
+
+    try:
+        T.fetch_sweep("my.Model", fake_registry, tmp_path_factory)
+    except ValueError as exc:
+        assert "'phi'" in str(exc)
+    else:
+        raise AssertionError("expected ValueError for empty sweep value list")
+
+
 def test_to_hydra_value_rejects_non_identifier_dict_keys():
     """Dict keys with Hydra syntax characters fail fast instead of emitting invalid overrides."""
     for bad in ["a b", "a,b", "a:b", "a{b", 'a"b', "a'b", "a.b", "a-b"]:

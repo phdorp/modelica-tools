@@ -221,6 +221,11 @@ class _SweepPlan:
         self.params = list(sweep_params)
         self.prefix = prefix
         self.experiment = experiment
+        for param, values in sweep_params.items():
+            if not values:
+                raise ValueError(
+                    f"sweep param {param!r} has no values; provide at least one value to sweep over"
+                )
         self.combos = list(product(*sweep_params.values()))
         self.frozen_combos = [tuple(_to_hashable(value) for value in combo) for combo in self.combos]
         _ensure_unique(
