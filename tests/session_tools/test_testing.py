@@ -21,6 +21,7 @@ from itertools import product as _product
 import pandas as pd
 from omegaconf import OmegaConf
 
+import mtools.internal.testing as internal_testing
 import mtools.sim_tools as sim_tools
 import mtools.testing as testing
 
@@ -472,12 +473,12 @@ def test_to_hydra_value_rejects_non_identifier_dict_keys():
     """Dict keys with Hydra syntax characters fail fast instead of emitting invalid overrides."""
     for bad in ["a b", "a,b", "a:b", "a{b", 'a"b', "a'b", "a.b", "a-b"]:
         try:
-            testing._to_hydra_value({bad: 1.0})
+            internal_testing._to_hydra_value({bad: 1.0})
         except ValueError as exc:
             assert "not expressible in Hydra overrides" in str(exc)
         else:
             raise AssertionError(f"expected ValueError for dict key {bad!r}")
-    assert testing._to_hydra_value({"px": 1.0}) == "{px:1.0}"
+    assert internal_testing._to_hydra_value({"px": 1.0}) == "{px:1.0}"
 
 
 def test_sweep_dataclass_over_structured_target_needs_no_arity_mapping(monkeypatch, tmp_path_factory):
@@ -547,8 +548,8 @@ def test_dataclass_helpers_recurse_into_nested_and_tuple_fields():
         inner: Inner = dataclasses.field(default_factory=Inner)
         tags: tuple = (1.0, 2.0)
 
-    assert testing._to_hydra_value(Outer(inner=Inner(x=1.0))) == "{inner:{x:1.0},tags:[1.0,2.0]}"
-    assert testing._freeze_value(Outer(inner=Inner(x=1.0))) == (
+    assert internal_testing._to_hydra_value(Outer(inner=Inner(x=1.0))) == "{inner:{x:1.0},tags:[1.0,2.0]}"
+    assert internal_testing._freeze_value(Outer(inner=Inner(x=1.0))) == (
         ("inner", (("x", 1.0),)),
         ("tags", (1.0, 2.0)),
     )
