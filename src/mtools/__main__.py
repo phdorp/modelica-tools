@@ -47,6 +47,7 @@ def main() -> None:
         selected_result=selected_result,
         results_root=args.results_dir,
     )
+    builder.build_result_explorer(results_root=args.results_dir)
     builder.build_grid_controls()
     builder.build_graph_grid()
     app = builder.get_app()

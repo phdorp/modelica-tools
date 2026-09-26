@@ -190,7 +190,7 @@ class ResultSelectBuilder:
         self._select: html.Div | None = None
 
     def build_select(self):
-        """Build and cache the result select dropdown.
+        """Build and cache the result select dropdown with a rescan button.
 
         Returns:
             None.
@@ -202,7 +202,19 @@ class ResultSelectBuilder:
         self._select = html.Div(
             children=[
                 html.Label("Result File"),
-                dcc.Dropdown(options, id="result-select", value=self._selected_result, clearable=False),
+                html.Div(
+                    children=[
+                        dcc.Dropdown(
+                            options,
+                            id="result-select",
+                            value=self._selected_result,
+                            clearable=False,
+                            style={"flex": "1"},
+                        ),
+                        html.Button("Rescan", id="rescan-results", n_clicks=0),
+                    ],
+                    style={"display": "flex", "gap": "8px", "alignItems": "center"},
+                ),
             ],
             style={"display": "flex", "flexDirection": "column", "gap": "4px"},
         )
@@ -246,6 +258,7 @@ class DashBuilder:
         self._layout: List[Component] = []
         self._data = pd.DataFrame()
         self._variable_columns: List[str] = []
+        self._results_root: Path | None = None
 
     def build_result_select(
         self,
@@ -273,6 +286,27 @@ class DashBuilder:
         select = result_select.get_select()
         if select is not None:
             self._layout.append(select)
+        if results_root is not None:
+            self._results_root = Path(results_root)
+
+    def build_result_explorer(self, results_root: str | Path | None = None):
+        """Register a callback that rescans results_root subdirectories.
+
+        Args:
+            results_root: Root directory to search for CSV files.
+                Defaults to the current working directory when None.
+
+        Returns:
+            None.
+        """
+
+        self._results_root = Path(results_root) if results_root is not None else Path.cwd()
+        self._app.callback(
+            [Output("result-select", "options"), Output("result-select", "value")],
+            Input("rescan-results", "n_clicks"),
+            State("result-select", "value"),
+            prevent_initial_call=True,
+        )(self._refresh_results)
 
     def build_grid_controls(self):
         """Add grid control inputs and a grid container to the layout.
@@ -324,6 +358,46 @@ class DashBuilder:
 
         self._app.layout = html.Div(children=self._layout)
         return self._app
+
+    def _refresh_results(self, _, current_value: str | None):
+        """Rescan results_root subdirectories and rebuild dropdown options.
+
+        Args:
+            _: Unused callback input from the rescan button.
+            current_value: Currently selected result file path.
+
+        Returns:
+            Tuple of dropdown options and the value to select.
+        """
+
+        root = self._results_root if self._results_root is not None else Path.cwd()
+        result_files = find_results(root)
+        options = [
+            {"label": self._format_result_label(result_file), "value": result_file}
+            for result_file in result_files
+        ]
+        if current_value in result_files:
+            value: str | None = current_value
+        else:
+            value = result_files[0] if result_files else None
+        return options, value
+
+    def _format_result_label(self, result_file: str) -> str:
+        """Shorten a result path relative to the results root.
+
+        Args:
+            result_file: Result file path to format.
+
+        Returns:
+            Relative path when under the results root, else the full path.
+        """
+
+        if not self._results_root:
+            return result_file
+        try:
+            return str(Path(result_file).relative_to(self._results_root))
+        except ValueError:
+            return result_file
 
     def _set_data(self, data: pd.DataFrame):
         """Store the data and update available variable columns.
