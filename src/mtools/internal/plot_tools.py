@@ -368,6 +368,8 @@ class DashBuilder:
 
         Returns:
             Tuple of dropdown options and the value to select.
+            Returns dash.no_update for the value when the current
+            selection is still valid, leaving graphs untouched.
         """
 
         root = self._results_root if self._results_root is not None else Path.cwd()
@@ -377,9 +379,8 @@ class DashBuilder:
             for result_file in result_files
         ]
         if current_value in result_files:
-            value: str | None = current_value
-        else:
-            value = result_files[0] if result_files else None
+            return options, dash.no_update
+        value: str | None = result_files[0] if result_files else None
         return options, value
 
     def _format_result_label(self, result_file: str) -> str:
