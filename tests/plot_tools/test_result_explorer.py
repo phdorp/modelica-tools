@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import dash
+
 from mtools.internal.plot_tools import DashBuilder, ResultSelectBuilder
 
 
@@ -70,8 +72,8 @@ class TestResultExplorerButton:
 
         values = [option["value"] for option in options]
         assert values == [str(first), str(second)]
-        # Existing selection is preserved.
-        assert value == str(first)
+        # Existing selection is preserved via no_update, leaving graphs untouched.
+        assert value is dash.no_update
 
     def test_refresh_falls_back_when_selected_removed(self, tmp_path: Path):
         first = tmp_path / "a.csv"
