@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import dash
+import pandas as pd
 
 from mtools.internal.plot_tools import DashBuilder, ResultSelectBuilder
 
@@ -125,14 +126,26 @@ class TestResultExplorerButton:
         assert value == str(sub_b)
 
 
-def _dropdown_values(grid):
-    """Collect variable-dropdown values from a built grid in row-major order."""
+def _x_dropdown_values(grid):
+    """Collect x-variable-dropdown values from a built grid in row-major order."""
     values = []
     for row in grid:
         cells = row.children if isinstance(row.children, (list, tuple)) else [row.children]
         for cell in cells:
             children = cell.children if isinstance(cell.children, (list, tuple)) else []
             dropdown = children[0]
+            values.append(dropdown.value)
+    return values
+
+
+def _y_dropdown_values(grid):
+    """Collect variable-dropdown values from a built grid in row-major order."""
+    values = []
+    for row in grid:
+        cells = row.children if isinstance(row.children, (list, tuple)) else [row.children]
+        for cell in cells:
+            children = cell.children if isinstance(cell.children, (list, tuple)) else []
+            dropdown = children[1]
             values.append(dropdown.value)
     return values
 
@@ -144,10 +157,11 @@ class TestGraphGridPreservesSelections:
 
         app_builder = DashBuilder(__name__)
         grid = app_builder._build_graph_grid(
-            0, str(new_file), 1, 1, current_selections=[["a", "b"]]
+            0, str(new_file), 1, 1, current_x_selections=["a"], current_y_selections=[["a", "b"]]
         )
 
-        assert _dropdown_values(grid) == [["a"]]
+        assert _x_dropdown_values(grid) == ["a"]
+        assert _y_dropdown_values(grid) == [["a"]]
 
     def test_resets_only_missing_variables_to_default(self, tmp_path: Path):
         new_file = tmp_path / "new.csv"
@@ -155,7 +169,33 @@ class TestGraphGridPreservesSelections:
 
         app_builder = DashBuilder(__name__)
         grid = app_builder._build_graph_grid(
-            0, str(new_file), 1, 2, current_selections=[["a", "b"], ["b"]]
+            0,
+            str(new_file),
+            1,
+            2,
+            current_x_selections=["z", None],
+            current_y_selections=[["a", "b"], ["b"]],
         )
 
-        assert _dropdown_values(grid) == [["a"], ["a"]]
+        assert _x_dropdown_values(grid) == ["time", "time"]
+        assert _y_dropdown_values(grid) == [["a"], ["a"]]
+
+    def test_defaults_x_to_time(self, tmp_path: Path):
+        new_file = tmp_path / "new.csv"
+        new_file.write_text("time,a,c\n0,1,2\n1,3,4\n")
+
+        app_builder = DashBuilder(__name__)
+        grid = app_builder._build_graph_grid(0, str(new_file), 1, 2)
+
+        assert _x_dropdown_values(grid) == ["time", "time"]
+
+
+class TestGraphUpdates:
+    def test_supports_signal_vs_signal_plots(self):
+        app_builder = DashBuilder(__name__)
+        app_builder._set_data(pd.DataFrame({"time": [0, 1], "phi": [10, 20], "w": [2, 3]}))
+
+        figure = app_builder._update_graph_callback(["phi"], [["w"]])[0]
+
+        assert list(figure.data[0].x) == [10, 20]
+        assert list(figure.data[0].y) == [2, 3]

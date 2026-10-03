@@ -175,4 +175,4 @@ Refer to the [`kinematic_vehicle` examples](examples/) for a complete working se
 uv run python -m mtools path/to/results
 ```
 
-This launches an interactive Dash dashboard for exploring simulation output CSV files.
+This launches an interactive Dash dashboard for exploring simulation output CSV files, with per-graph x-axis (`time` or any signal) and y-axis signal selection.
