@@ -31,6 +31,67 @@ def find_results(directory: str | Path) -> List[str]:
     return sorted(str(path) for path in directory_path.rglob("*.csv") if path.is_file())
 
 
+def resolve_path(value: str | Path) -> str | None:
+    """Resolve a path to a comparable canonical string.
+
+    Returns None when the value cannot be resolved.
+    """
+
+    try:
+        return str(Path(value).resolve())
+    except (OSError, ValueError):
+        return None
+
+
+def format_result_label(result_file: str, root: Path | None) -> str:
+    """Shorten a result path relative to the results root."""
+
+    if root is None:
+        return result_file
+    try:
+        return str(Path(result_file).relative_to(root))
+    except ValueError:
+        return result_file
+
+
+class ResultCatalog:
+    """Owns result discovery and selection matching for one root."""
+
+    def __init__(self, root: str | Path | None):
+        self._root = Path(root) if root is not None else None
+
+    @property
+    def root(self) -> Path | None:
+        return self._root
+
+    def effective_root(self) -> Path:
+        return self._root if self._root is not None else Path.cwd()
+
+    def list_files(self) -> List[str]:
+        return find_results(self.effective_root())
+
+    def format_label(self, result_file: str) -> str:
+        return format_result_label(result_file, self._root)
+
+    def build_options(self, result_files: Sequence[str]) -> List[dict]:
+        return [
+            {"label": self.format_label(result_file), "value": result_file} for result_file in result_files
+        ]
+
+    def find_same_file(self, current_value: str | None, result_files: Sequence[str]) -> str | None:
+        """Return the rescanned entry for the current selection, or None when gone."""
+
+        if current_value is None:
+            return None
+        current_resolved = resolve_path(current_value)
+        if current_resolved is None:
+            return None
+        for result_file in result_files:
+            if resolve_path(result_file) == current_resolved:
+                return result_file
+        return None
+
+
 class GraphGridBuilder:
     """Builds a grid of graph controls for Dash layouts.
 
@@ -189,6 +250,10 @@ class ResultSelectBuilder:
         self._results_root = Path(results_root) if results_root is not None else None
         self._select: html.Div | None = None
 
+    @property
+    def _catalog(self) -> ResultCatalog:
+        return ResultCatalog(self._results_root)
+
     def build_select(self):
         """Build and cache the result select dropdown with a rescan button.
 
@@ -196,9 +261,7 @@ class ResultSelectBuilder:
             None.
         """
 
-        options = [
-            {"label": self._format_label(result_file), "value": result_file} for result_file in self._result_files
-        ]
+        options = self._catalog.build_options(self._result_files)
         self._select = html.Div(
             children=[
                 html.Label("Result File"),
@@ -229,12 +292,7 @@ class ResultSelectBuilder:
         return self._select
 
     def _format_label(self, result_file: str) -> str:
-        if not self._results_root:
-            return result_file
-        try:
-            return str(Path(result_file).relative_to(self._results_root))
-        except ValueError:
-            return result_file
+        return self._catalog.format_label(result_file)
 
 
 class DashBuilder:
@@ -287,7 +345,7 @@ class DashBuilder:
         if select is not None:
             self._layout.append(select)
         if results_root is not None:
-            self._results_root = Path(results_root)
+            self._remember_results_root(results_root)
 
     def build_result_explorer(self, results_root: str | Path | None = None):
         """Register a callback that rescans results_root subdirectories.
@@ -300,13 +358,19 @@ class DashBuilder:
             None.
         """
 
-        self._results_root = Path(results_root) if results_root is not None else Path.cwd()
+        self._remember_results_root(results_root if results_root is not None else Path.cwd())
         self._app.callback(
             [Output("result-select", "options"), Output("result-select", "value")],
             Input("rescan-results", "n_clicks"),
             State("result-select", "value"),
             prevent_initial_call=True,
         )(self._refresh_results)
+
+    def _remember_results_root(self, root: str | Path | None) -> None:
+        self._results_root = Path(root) if root is not None else None
+
+    def _current_catalog(self) -> ResultCatalog:
+        return ResultCatalog(self._results_root)
 
     def build_grid_controls(self):
         """Add grid control inputs and a grid container to the layout.
@@ -372,16 +436,15 @@ class DashBuilder:
             selection is still valid, leaving graphs untouched.
         """
 
-        root = self._results_root if self._results_root is not None else Path.cwd()
-        result_files = find_results(root)
-        options = [
-            {"label": self._format_result_label(result_file), "value": result_file}
-            for result_file in result_files
-        ]
-        if current_value in result_files:
+        catalog = self._current_catalog()
+        result_files = catalog.list_files()
+        options = catalog.build_options(result_files)
+        matched = catalog.find_same_file(current_value, result_files)
+        if matched is None:
+            return options, result_files[0] if result_files else None
+        if matched == current_value:
             return options, dash.no_update
-        value: str | None = result_files[0] if result_files else None
-        return options, value
+        return options, matched
 
     def _format_result_label(self, result_file: str) -> str:
         """Shorten a result path relative to the results root.
@@ -393,12 +456,7 @@ class DashBuilder:
             Relative path when under the results root, else the full path.
         """
 
-        if not self._results_root:
-            return result_file
-        try:
-            return str(Path(result_file).relative_to(self._results_root))
-        except ValueError:
-            return result_file
+        return format_result_label(result_file, self._results_root)
 
     def _set_data(self, data: pd.DataFrame):
         """Store the data and update available variable columns.

@@ -94,3 +94,32 @@ class TestResultExplorerButton:
 
         assert [option["value"] for option in options] == [str(second)]
         assert value == str(second)
+
+    def test_refresh_preserves_relative_selection_after_absolute_rescan(
+        self, tmp_path: Path, monkeypatch
+    ):
+        from mtools.internal.plot_tools import find_results
+
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "a.csv").write_text("time,value\n0,1\n")
+        sub_b = tmp_path / "sub" / "b.csv"
+        sub_b.parent.mkdir(parents=True)
+        sub_b.write_text("time,value\n0,2\n")
+
+        relative_files = find_results(".")
+        relative_selected = relative_files[1]
+        assert relative_selected != str(sub_b)
+
+        app_builder = DashBuilder(__name__)
+        app_builder.build_result_select(
+            result_files=relative_files,
+            selected_result=relative_selected,
+            results_root=".",
+        )
+        app_builder.build_result_explorer()
+
+        options, value = app_builder._refresh_results(1, relative_selected)
+
+        values = [option["value"] for option in options]
+        assert values == [str(tmp_path / "a.csv"), str(sub_b)]
+        assert value == str(sub_b)
