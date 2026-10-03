@@ -31,6 +31,67 @@ def find_results(directory: str | Path) -> List[str]:
     return sorted(str(path) for path in directory_path.rglob("*.csv") if path.is_file())
 
 
+def resolve_path(value: str | Path) -> str | None:
+    """Resolve a path to a comparable canonical string.
+
+    Returns None when the value cannot be resolved.
+    """
+
+    try:
+        return str(Path(value).resolve())
+    except (OSError, ValueError):
+        return None
+
+
+def format_result_label(result_file: str, root: Path | None) -> str:
+    """Shorten a result path relative to the results root."""
+
+    if root is None:
+        return result_file
+    try:
+        return str(Path(result_file).relative_to(root))
+    except ValueError:
+        return result_file
+
+
+class ResultCatalog:
+    """Owns result discovery and selection matching for one root."""
+
+    def __init__(self, root: str | Path | None):
+        self._root = Path(root) if root is not None else None
+
+    @property
+    def root(self) -> Path | None:
+        return self._root
+
+    def effective_root(self) -> Path:
+        return self._root if self._root is not None else Path.cwd()
+
+    def list_files(self) -> List[str]:
+        return find_results(self.effective_root())
+
+    def format_label(self, result_file: str) -> str:
+        return format_result_label(result_file, self._root)
+
+    def build_options(self, result_files: Sequence[str]) -> List[dict]:
+        return [
+            {"label": self.format_label(result_file), "value": result_file} for result_file in result_files
+        ]
+
+    def find_same_file(self, current_value: str | None, result_files: Sequence[str]) -> str | None:
+        """Return the rescanned entry for the current selection, or None when gone."""
+
+        if current_value is None:
+            return None
+        current_resolved = resolve_path(current_value)
+        if current_resolved is None:
+            return None
+        for result_file in result_files:
+            if resolve_path(result_file) == current_resolved:
+                return result_file
+        return None
+
+
 class GraphGridBuilder:
     """Builds a grid of graph controls for Dash layouts.
 
@@ -49,19 +110,23 @@ class GraphGridBuilder:
         self._grid: List[html.Div] | None = None
         self._variable_columns = variable_columns
 
-    def build_grid(self, _, rows: int, cols: int):
+    def build_grid(self, _, rows: int, cols: int, preserved_values=None):
         """Build and cache the grid layout.
 
         Args:
             _: Unused callback input from Dash.
             rows: Number of grid rows.
             cols: Number of grid columns.
+            preserved_values: Prior dropdown selections in row-major order.
+                Entries still present in ``_variable_columns`` are kept;
+                entries without overlap fall back to the default.
+                None (or empty) means no prior state, so defaults apply.
 
         Returns:
             None.
         """
 
-        self._grid = [self._build_row(row, cols) for row in range(rows)]
+        self._grid = [self._build_row(row, cols, preserved_values) for row in range(rows)]
 
     def get_grid(self):
         """Return the cached grid layout.
@@ -72,19 +137,29 @@ class GraphGridBuilder:
 
         return self._grid
 
-    def _build_row(self, row: int, cols: int):
+    _MISSING = object()
+
+    def _build_row(self, row: int, cols: int, preserved_values=None):
         """Build a row container for the grid.
 
         Args:
             row: Row index.
             cols: Number of columns in the row.
+            preserved_values: Prior dropdown selections in row-major order.
 
         Returns:
             A Dash HTML Div representing the row.
         """
 
+        cells = []
+        for col in range(cols):
+            index = row * cols + col
+            if preserved_values is not None and index < len(preserved_values):
+                cells.append(self._build_cell(row, col, preserved_values[index]))
+            else:
+                cells.append(self._build_cell(row, col))
         return html.Div(
-            children=[self._build_cell(row, col) for col in range(cols)],
+            children=cells,
             style={
                 "display": "grid",
                 "gridTemplateColumns": f"repeat({cols}, minmax(0, 1fr))",
@@ -93,12 +168,31 @@ class GraphGridBuilder:
             },
         )
 
-    def _build_cell(self, row: int, col: int):
+    def _resolve_value(self, preserved=_MISSING):
+        """Resolve the dropdown value, keeping selections still available."""
+        default = self._variable_columns[:1]
+        if preserved is self._MISSING:
+            return default
+        if preserved is None:
+            return []
+        if isinstance(preserved, str):
+            normalized = [preserved] if preserved else []
+        else:
+            normalized = [variable for variable in preserved if variable]
+        kept = [variable for variable in normalized if variable in self._variable_columns]
+        if normalized and not kept:
+            return default
+        return kept
+
+    def _build_cell(self, row: int, col: int, preserved=_MISSING):
         """Build a grid cell with a dropdown and graph.
 
         Args:
             row: Row index.
             col: Column index.
+            preserved: Prior selection for this cell. Values still present
+                in ``_variable_columns`` are kept; otherwise the default
+                applies. ``_MISSING`` (no prior state) also uses the default.
 
         Returns:
             A Dash HTML Div containing the controls for the cell.
@@ -109,7 +203,7 @@ class GraphGridBuilder:
                 dcc.Dropdown(
                     [{"label": column, "value": column} for column in self._variable_columns],
                     id={"type": "variable-dropdown", "row": row, "col": col},
-                    value=self._variable_columns[:1],
+                    value=self._resolve_value(preserved),
                     multi=True,
                 ),
                 dcc.Graph(id={"type": "graph", "row": row, "col": col}, style={"width": "100%"}),
@@ -189,20 +283,34 @@ class ResultSelectBuilder:
         self._results_root = Path(results_root) if results_root is not None else None
         self._select: html.Div | None = None
 
+    @property
+    def _catalog(self) -> ResultCatalog:
+        return ResultCatalog(self._results_root)
+
     def build_select(self):
-        """Build and cache the result select dropdown.
+        """Build and cache the result select dropdown with a rescan button.
 
         Returns:
             None.
         """
 
-        options = [
-            {"label": self._format_label(result_file), "value": result_file} for result_file in self._result_files
-        ]
+        options = self._catalog.build_options(self._result_files)
         self._select = html.Div(
             children=[
                 html.Label("Result File"),
-                dcc.Dropdown(options, id="result-select", value=self._selected_result, clearable=False),
+                html.Div(
+                    children=[
+                        dcc.Dropdown(
+                            options,
+                            id="result-select",
+                            value=self._selected_result,
+                            clearable=False,
+                            style={"flex": "1"},
+                        ),
+                        html.Button("Rescan", id="rescan-results", n_clicks=0),
+                    ],
+                    style={"display": "flex", "gap": "8px", "alignItems": "center"},
+                ),
             ],
             style={"display": "flex", "flexDirection": "column", "gap": "4px"},
         )
@@ -217,12 +325,7 @@ class ResultSelectBuilder:
         return self._select
 
     def _format_label(self, result_file: str) -> str:
-        if not self._results_root:
-            return result_file
-        try:
-            return str(Path(result_file).relative_to(self._results_root))
-        except ValueError:
-            return result_file
+        return self._catalog.format_label(result_file)
 
 
 class DashBuilder:
@@ -246,6 +349,7 @@ class DashBuilder:
         self._layout: List[Component] = []
         self._data = pd.DataFrame()
         self._variable_columns: List[str] = []
+        self._results_root: Path | None = None
 
     def build_result_select(
         self,
@@ -273,6 +377,33 @@ class DashBuilder:
         select = result_select.get_select()
         if select is not None:
             self._layout.append(select)
+        if results_root is not None:
+            self._remember_results_root(results_root)
+
+    def build_result_explorer(self, results_root: str | Path | None = None):
+        """Register a callback that rescans results_root subdirectories.
+
+        Args:
+            results_root: Root directory to search for CSV files.
+                Defaults to the current working directory when None.
+
+        Returns:
+            None.
+        """
+
+        self._remember_results_root(results_root if results_root is not None else Path.cwd())
+        self._app.callback(
+            [Output("result-select", "options"), Output("result-select", "value")],
+            Input("rescan-results", "n_clicks"),
+            State("result-select", "value"),
+            prevent_initial_call=True,
+        )(self._refresh_results)
+
+    def _remember_results_root(self, root: str | Path | None) -> None:
+        self._results_root = Path(root) if root is not None else None
+
+    def _current_catalog(self) -> ResultCatalog:
+        return ResultCatalog(self._results_root)
 
     def build_grid_controls(self):
         """Add grid control inputs and a grid container to the layout.
@@ -297,6 +428,7 @@ class DashBuilder:
             Input("result-select", "value"),
             State("rows-input", "value"),
             State("cols-input", "value"),
+            State({"type": "variable-dropdown", "row": ALL, "col": ALL}, "value"),
         )(self._build_graph_grid)
         self._app.callback(
             Output({"type": "graph", "row": ALL, "col": ALL}, "figure"),
@@ -324,6 +456,41 @@ class DashBuilder:
 
         self._app.layout = html.Div(children=self._layout)
         return self._app
+
+    def _refresh_results(self, _, current_value: str | None):
+        """Rescan results_root subdirectories and rebuild dropdown options.
+
+        Args:
+            _: Unused callback input from the rescan button.
+            current_value: Currently selected result file path.
+
+        Returns:
+            Tuple of dropdown options and the value to select.
+            Returns dash.no_update for the value when the current
+            selection is still valid, leaving graphs untouched.
+        """
+
+        catalog = self._current_catalog()
+        result_files = catalog.list_files()
+        options = catalog.build_options(result_files)
+        matched = catalog.find_same_file(current_value, result_files)
+        if matched is None:
+            return options, result_files[0] if result_files else None
+        if matched == current_value:
+            return options, dash.no_update
+        return options, matched
+
+    def _format_result_label(self, result_file: str) -> str:
+        """Shorten a result path relative to the results root.
+
+        Args:
+            result_file: Result file path to format.
+
+        Returns:
+            Relative path when under the results root, else the full path.
+        """
+
+        return format_result_label(result_file, self._results_root)
 
     def _set_data(self, data: pd.DataFrame):
         """Store the data and update available variable columns.
@@ -377,7 +544,7 @@ class DashBuilder:
                 figures.append(px.line(self._data, x="time", y=selected_variable))
         return figures
 
-    def _build_graph_grid(self, _, selected_result: str, rows: int, cols: int):
+    def _build_graph_grid(self, _, selected_result: str, rows: int, cols: int, current_selections=None):
         """Create a grid of graph containers.
 
         Args:
@@ -385,6 +552,9 @@ class DashBuilder:
             selected_result: Selected result file path.
             rows: Number of grid rows.
             cols: Number of grid columns.
+            current_selections: Prior variable-dropdown values in row-major
+                order. Selections still present in the new CSV are kept;
+                only axes with no overlap fall back to the default.
 
         Returns:
             A list of row containers for the grid.
@@ -392,7 +562,8 @@ class DashBuilder:
 
         self._load_results(selected_result)
         graph_grid = GraphGridBuilder(self._variable_columns)
-        graph_grid.build_grid(_, rows, cols)
+        preserved = current_selections if current_selections else None
+        graph_grid.build_grid(_, rows, cols, preserved_values=preserved)
         return graph_grid.get_grid()
 
     @staticmethod

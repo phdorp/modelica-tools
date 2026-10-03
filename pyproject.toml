@@ -4,7 +4,9 @@ version = "0.1.0"
 description = "A set of tools for working with Modelica models"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = ["pydelica~=0.6.3", "hydra-zen~=0.16.0", "pandas~=3.0.2", "dash~=4.1.0"]
+# hydra-core 1.3.7 rejects declarative instantiation of hydra._internal BasicSweeper,
+# which hydra_zen.launch() needs for multirun; cap until hydra-zen supports it.
+dependencies = ["pydelica~=0.6.3", "hydra-zen~=0.16.0", "hydra-core>=1.3.2,<1.3.7", "pandas~=3.0.2", "dash~=4.1.0"]
 
 [project.optional-dependencies]
 dev = ["mypy~=1.20.0", "pytest~=9.0.2", "isort~=8.0.1", "pandas-stubs~=3.0.0", "plotly-stubs~=0.1.3"]
