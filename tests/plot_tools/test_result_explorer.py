@@ -123,3 +123,39 @@ class TestResultExplorerButton:
         values = [option["value"] for option in options]
         assert values == [str(tmp_path / "a.csv"), str(sub_b)]
         assert value == str(sub_b)
+
+
+def _dropdown_values(grid):
+    """Collect variable-dropdown values from a built grid in row-major order."""
+    values = []
+    for row in grid:
+        cells = row.children if isinstance(row.children, (list, tuple)) else [row.children]
+        for cell in cells:
+            children = cell.children if isinstance(cell.children, (list, tuple)) else []
+            dropdown = children[0]
+            values.append(dropdown.value)
+    return values
+
+
+class TestGraphGridPreservesSelections:
+    def test_keeps_available_variables_when_csv_changes(self, tmp_path: Path):
+        new_file = tmp_path / "new.csv"
+        new_file.write_text("time,a,c\n0,1,2\n1,3,4\n")
+
+        app_builder = DashBuilder(__name__)
+        grid = app_builder._build_graph_grid(
+            0, str(new_file), 1, 1, current_selections=[["a", "b"]]
+        )
+
+        assert _dropdown_values(grid) == [["a"]]
+
+    def test_resets_only_missing_variables_to_default(self, tmp_path: Path):
+        new_file = tmp_path / "new.csv"
+        new_file.write_text("time,a,c\n0,1,2\n1,3,4\n")
+
+        app_builder = DashBuilder(__name__)
+        grid = app_builder._build_graph_grid(
+            0, str(new_file), 1, 2, current_selections=[["a", "b"], ["b"]]
+        )
+
+        assert _dropdown_values(grid) == [["a"], ["a"]]

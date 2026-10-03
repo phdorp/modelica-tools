@@ -110,19 +110,23 @@ class GraphGridBuilder:
         self._grid: List[html.Div] | None = None
         self._variable_columns = variable_columns
 
-    def build_grid(self, _, rows: int, cols: int):
+    def build_grid(self, _, rows: int, cols: int, preserved_values=None):
         """Build and cache the grid layout.
 
         Args:
             _: Unused callback input from Dash.
             rows: Number of grid rows.
             cols: Number of grid columns.
+            preserved_values: Prior dropdown selections in row-major order.
+                Entries still present in ``_variable_columns`` are kept;
+                entries without overlap fall back to the default.
+                None (or empty) means no prior state, so defaults apply.
 
         Returns:
             None.
         """
 
-        self._grid = [self._build_row(row, cols) for row in range(rows)]
+        self._grid = [self._build_row(row, cols, preserved_values) for row in range(rows)]
 
     def get_grid(self):
         """Return the cached grid layout.
@@ -133,19 +137,29 @@ class GraphGridBuilder:
 
         return self._grid
 
-    def _build_row(self, row: int, cols: int):
+    _MISSING = object()
+
+    def _build_row(self, row: int, cols: int, preserved_values=None):
         """Build a row container for the grid.
 
         Args:
             row: Row index.
             cols: Number of columns in the row.
+            preserved_values: Prior dropdown selections in row-major order.
 
         Returns:
             A Dash HTML Div representing the row.
         """
 
+        cells = []
+        for col in range(cols):
+            index = row * cols + col
+            if preserved_values is not None and index < len(preserved_values):
+                cells.append(self._build_cell(row, col, preserved_values[index]))
+            else:
+                cells.append(self._build_cell(row, col))
         return html.Div(
-            children=[self._build_cell(row, col) for col in range(cols)],
+            children=cells,
             style={
                 "display": "grid",
                 "gridTemplateColumns": f"repeat({cols}, minmax(0, 1fr))",
@@ -154,12 +168,31 @@ class GraphGridBuilder:
             },
         )
 
-    def _build_cell(self, row: int, col: int):
+    def _resolve_value(self, preserved=_MISSING):
+        """Resolve the dropdown value, keeping selections still available."""
+        default = self._variable_columns[:1]
+        if preserved is self._MISSING:
+            return default
+        if preserved is None:
+            return []
+        if isinstance(preserved, str):
+            normalized = [preserved] if preserved else []
+        else:
+            normalized = [variable for variable in preserved if variable]
+        kept = [variable for variable in normalized if variable in self._variable_columns]
+        if normalized and not kept:
+            return default
+        return kept
+
+    def _build_cell(self, row: int, col: int, preserved=_MISSING):
         """Build a grid cell with a dropdown and graph.
 
         Args:
             row: Row index.
             col: Column index.
+            preserved: Prior selection for this cell. Values still present
+                in ``_variable_columns`` are kept; otherwise the default
+                applies. ``_MISSING`` (no prior state) also uses the default.
 
         Returns:
             A Dash HTML Div containing the controls for the cell.
@@ -170,7 +203,7 @@ class GraphGridBuilder:
                 dcc.Dropdown(
                     [{"label": column, "value": column} for column in self._variable_columns],
                     id={"type": "variable-dropdown", "row": row, "col": col},
-                    value=self._variable_columns[:1],
+                    value=self._resolve_value(preserved),
                     multi=True,
                 ),
                 dcc.Graph(id={"type": "graph", "row": row, "col": col}, style={"width": "100%"}),
@@ -395,6 +428,7 @@ class DashBuilder:
             Input("result-select", "value"),
             State("rows-input", "value"),
             State("cols-input", "value"),
+            State({"type": "variable-dropdown", "row": ALL, "col": ALL}, "value"),
         )(self._build_graph_grid)
         self._app.callback(
             Output({"type": "graph", "row": ALL, "col": ALL}, "figure"),
@@ -510,7 +544,7 @@ class DashBuilder:
                 figures.append(px.line(self._data, x="time", y=selected_variable))
         return figures
 
-    def _build_graph_grid(self, _, selected_result: str, rows: int, cols: int):
+    def _build_graph_grid(self, _, selected_result: str, rows: int, cols: int, current_selections=None):
         """Create a grid of graph containers.
 
         Args:
@@ -518,6 +552,9 @@ class DashBuilder:
             selected_result: Selected result file path.
             rows: Number of grid rows.
             cols: Number of grid columns.
+            current_selections: Prior variable-dropdown values in row-major
+                order. Selections still present in the new CSV are kept;
+                only axes with no overlap fall back to the default.
 
         Returns:
             A list of row containers for the grid.
@@ -525,7 +562,8 @@ class DashBuilder:
 
         self._load_results(selected_result)
         graph_grid = GraphGridBuilder(self._variable_columns)
-        graph_grid.build_grid(_, rows, cols)
+        preserved = current_selections if current_selections else None
+        graph_grid.build_grid(_, rows, cols, preserved_values=preserved)
         return graph_grid.get_grid()
 
     @staticmethod
