@@ -17,8 +17,14 @@ model KinematicVehicle
 
   State state(px(start=state_0.px, fixed=true), py(start=state_0.py, fixed=true), theta(start=state_0.theta, fixed=true));
   Input control(v_norm=v_norm, phi=phi);
+
+protected
+  Real px_dot = der(state.px);
+  Real py_dot = der(state.py);
+  Real theta_dot = der(state.theta);
+
 equation
-  der(state.px) = v_norm * cos(state.theta);
-  der(state.py) = v_norm * sin(state.theta);
-  der(state.theta) = v_norm / l * tan(control.phi);
+  px_dot = v_norm * cos(state.theta);
+  py_dot = v_norm * sin(state.theta);
+  theta_dot = v_norm / l * tan(control.phi);
 end KinematicVehicle;
