@@ -1,6 +1,8 @@
 from kinematic_vehicle.kinematic_vehicle import KinematicVehicle, State, run_default, registry
 import numpy as np
 
+import mtools.session_config as session_config
+
 # Registers experiments that override the parameter group at `session.parameters`.
 registry.register_experiment(
     name="standstill",
@@ -18,5 +20,15 @@ registry.register_experiment(
     name="turn_left",
     base_run_config=run_default,
     overrides={"session/parameters": KinematicVehicle(state_0=State(), v_norm=10.0, phi=float(np.deg2rad(0.5)))},
+)
+
+registry.register_experiment(
+    name="protected_output",
+    base_run_config=run_default,
+    overrides={
+        "session/sim_configurations": session_config.Simulation(
+            solver="rungekutta", output_format="csv", emit_protected=True
+        )
+    },
 )
 registry.add_to_hydra_store()

@@ -43,6 +43,10 @@ simulation_default = session_config.Simulation(
     output_format="csv",
 )
 
+# Register `simulation_default` as a group option for `session.sim_configurations`
+# so experiments can override the runtime options.
+registry.register_group_option("session/sim_configurations", "default", simulation_default, default=True)
+
 # Create and register the run config in one step.
 run_default = registry.create_run(
     model_name=MODEL_NAME,

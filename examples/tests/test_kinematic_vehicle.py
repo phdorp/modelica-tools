@@ -27,6 +27,10 @@ class TestStandstill(Experiment):
         np.testing.assert_array_less(self.results["state.py"].abs(), self.eps, "py should remain ~0.0")
         np.testing.assert_array_less(self.results["state.theta"].abs(), self.eps, "theta should remain ~0.0")
 
+    def test_protected_columns_hidden_by_default(self):
+        for column in ("px_dot", "py_dot", "theta_dot"):
+            assert column not in self.results.columns
+
 
 class TestStraightDriving(ExperimentSweep):
 
@@ -104,3 +108,15 @@ class TestVelocityIncrease(Experiments):
         assert np.all(
             straight_driving["der(state.px)"].to_numpy() - standstill["der(state.px)"].to_numpy() >= -self.eps
         ), "speed should increase monotonically"
+
+
+class TestProtectedOutput(Experiment):
+
+    name = "protected_output"
+
+    def test_protected_columns_present(self):
+        for column in ("px_dot", "py_dot", "theta_dot"):
+            assert column in self.results.columns
+
+    def test_protected_derivatives_match_state_derivatives(self):
+        np.testing.assert_allclose(self.results["px_dot"], self.results["der(state.px)"])
