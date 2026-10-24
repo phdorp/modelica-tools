@@ -288,3 +288,25 @@ class TestCreateRun:
             explicit_cfg.session.build_options, resolve=True
         )
 
+    def test_create_run_propagates_emit_protected_and_allows_override(self):
+        registry = HydraZenRegistry(store=hydra_zen.ZenStore())
+        model_name = "KinematicVehicle"
+        model_path = Path("tests/session_tools/models/kinematic_vehicle.mo").resolve()
+        simulation = session_config.Simulation(solver="rungekutta", output_format="csv", emit_protected=True)
+
+        registry.create_run(
+            model_name=model_name,
+            parameters=KinematicVehicle(state_0=State()),
+            simulation=simulation,
+            model_path=model_path,
+            name="protected",
+        )
+        registry.add_to_hydra_store()
+
+        with initialize(version_base=None, config_path=None):
+            enabled = compose(config_name="protected")
+            disabled = compose(config_name="protected", overrides=["session.sim_configurations.emit_protected=false"])
+
+        assert enabled.session.sim_configurations.emit_protected is True
+        assert disabled.session.sim_configurations.emit_protected is False
+

@@ -108,6 +108,9 @@ class SessionBuilder:
     _sim_configurations: dict[str, Callable] = {
         "solver": lambda session, solver: session.set_solver(solver),
         "output_format": lambda session, format: session.set_output_format(format),
+        "emit_protected": lambda session, value: setattr(
+            session.get_runtime_options(), "emit_protected", value
+        ),
     }
 
     @property

@@ -81,6 +81,10 @@ uv sync --group test
 uv run pytest
 ```
 
+`TestProtectedOutput` runs the `protected_output` experiment to show the `emit_protected` runtime option: setting
+`sim_configurations.emit_protected=True` logs protected Modelica variables (here `px_dot`, `py_dot`, `theta_dot`) as
+extra result columns. The option defaults to `False`, so protected variables are omitted unless enabled.
+
 ## Results
 
 Simulation results are saved as CSV files in Hydra's run output directory (printed to the console during execution). Visualize results with:

@@ -48,3 +48,32 @@ class TestSessionBuilder:
             solution["time"].values[-1]
             == configuration.session.model_configurations["KinematicVehicle"].time_range["stop_time"]
         )
+
+    def test_protected_variables_hidden_by_default(self, tmp_path):
+        job_return = hydra_zen.launch(
+            run_default,
+            simulate,
+            [f"hydra.run.dir={tmp_path}", "hydra.job.chdir=False"],
+            with_log_configuration=False,
+            version_base=None,
+        )
+        solution = job_return.return_value["KinematicVehicle"]
+        for column in ("px_dot", "py_dot", "theta_dot"):
+            assert column not in solution.columns
+
+    def test_protected_variables_emitted_when_enabled(self, tmp_path):
+        job_return = hydra_zen.launch(
+            run_default,
+            simulate,
+            [
+                "session.sim_configurations.emit_protected=true",
+                f"hydra.run.dir={tmp_path}",
+                "hydra.job.chdir=False",
+            ],
+            with_log_configuration=False,
+            version_base=None,
+        )
+        solution = job_return.return_value["KinematicVehicle"]
+        for column in ("px_dot", "py_dot", "theta_dot"):
+            assert column in solution.columns
+        assert np.allclose(solution["px_dot"], solution["der(state.px)"])

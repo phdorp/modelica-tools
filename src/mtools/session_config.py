@@ -77,6 +77,9 @@ class Simulation:
     solver: str
     #: Output format emitted by the simulation runtime.
     output_format: str
+    #: Emit protected model variables to the result file (OMC ``-emit_protected``).
+    #: Applied to the session's default (built) model.
+    emit_protected: bool = False
 
 
 @hydra_zen.hydrated_dataclass(
