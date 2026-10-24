@@ -1,0 +1,3 @@
+[submodule ".claude/skills-src"]
+	path = .claude/skills-src
+	url = https://github.com/phdorp/skills.git
