@@ -4,5 +4,10 @@
     "dockerfile": "Dockerfile",
     "context": ".."
   },
+  "containerEnv": {
+    "UV_PROJECT_ENVIRONMENT": "/home/vscode/.venv",
+    "VIRTUAL_ENV": "/home/vscode/.venv",
+    "UV_LINK_MODE": "copy"
+  },
   "postCreateCommand": "pipx install uv && uv venv && uv pip install -e '.[dev]'"
 }
