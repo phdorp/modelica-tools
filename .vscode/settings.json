@@ -1,4 +1,5 @@
 {
+    "python.defaultInterpreterPath": "/home/vscode/.venv/bin/python",
     "python.testing.pytestArgs": [
         "tests"
     ],

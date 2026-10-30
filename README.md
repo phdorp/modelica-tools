@@ -79,6 +79,8 @@ A [devcontainer](.devcontainer/) is provided for contributors — it installs Op
 
 The container builds from [`.devcontainer/Dockerfile`](.devcontainer/Dockerfile), which installs `omc` and `omlibrary` from the OpenModelica APT repository via [`.devcontainer/install_dependencies.sh`](.devcontainer/install_dependencies.sh). On first start, the [postCreateCommand](.devcontainer/devcontainer.json) installs `uv` via `pipx`, creates a virtual environment, and runs `uv pip install -e '.[dev]'` to install the package with all development dependencies.
 
+The virtual environment is created at `/home/vscode/.venv` inside the container, and `.vscode/settings.json` sets it as the default Python interpreter.
+
 The workspace is mounted into the container, so edits on your host are reflected immediately, and any Python version manager or OpenModelica installation on the host is not needed.
 
 ## Testing
