@@ -601,9 +601,10 @@ class HydraZenRegistry:
     ) -> Any:
         """Compose a config from the local store using Hydra's compose.
 
-        This method temporarily adds all stored entries to Hydra's global
-        config store (if not already present), initializes Hydra, composes
-        the requested config, and returns the composed result.
+        This method adds all stored entries to Hydra's global config store,
+        overwriting entries from other registries with the same names,
+        initializes Hydra, composes the requested config, and returns the
+        composed result.
 
         Args:
             config_name: Name of the primary config to compose.
@@ -612,7 +613,7 @@ class HydraZenRegistry:
         Returns:
             The composed configuration as a DictConfig.
         """
-        self._store.add_to_hydra_store(overwrite_ok=True)
+        self.add_to_hydra_store(overwrite_ok=True)
         GlobalHydra.instance().clear()
         with hydra.initialize(version_base=None, config_path=None):
             return hydra.compose(config_name=config_name, overrides=overrides)

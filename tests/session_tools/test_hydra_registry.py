@@ -1,4 +1,6 @@
 import dataclasses
+import inspect
+from functools import partial
 from pathlib import Path
 from typing import Sequence
 
@@ -97,17 +99,20 @@ class TestHydraRegistryWithHydraComposition:
             name="default",
         )
 
-        registry.register_experiment(
+        HydraZenRegistry.register_experiment(
+            registry,
             name="front_position",
             base_run_config=run_default,
             selections={"parameters/state_0": "front_position"},
         )
-        registry.register_experiment(
+        HydraZenRegistry.register_experiment(
+            registry,
             name="direct_instance_override",
             base_run_config=run_default,
             overrides={"parameters/state_0": State(px=42.0)},
         )
-        registry.register_experiment(
+        HydraZenRegistry.register_experiment(
+            registry,
             name="mixed_selections_and_overrides",
             base_run_config=run_default,
             selections={"parameters/state_0": "front_position"},
@@ -191,7 +196,8 @@ class TestExperimentConfigs:
             include_experiment_group=True,
             name="default",
         )
-        registry.register_experiment(
+        HydraZenRegistry.register_experiment(
+            registry,
             name="fast",
             base_run_config=run_default,
             overrides={"session/parameters": KinematicVehicle(state_0=State(), v_norm=99.0, phi=0.0)},
@@ -213,7 +219,7 @@ class TestExperimentConfigs:
         registry = HydraZenRegistry(store=hydra_zen.ZenStore())
 
         with pytest.raises(ValueError, match="not a registered run config"):
-            registry.register_experiment(name="fast", base_run_config=object())
+            HydraZenRegistry.register_experiment(registry, name="fast", base_run_config=object())
 
     def test_base_without_experiment_group_fails_fast(self):
         registry = HydraZenRegistry(store=hydra_zen.ZenStore())
@@ -226,7 +232,7 @@ class TestExperimentConfigs:
         )
 
         with pytest.raises(ValueError, match="include_experiment_group=True"):
-            registry.register_experiment(name="fast", base_run_config=run_default)
+            HydraZenRegistry.register_experiment(registry, name="fast", base_run_config=run_default)
 
     def test_compose_experiment_applies_experiment(self):
         registry, _ = self._registry_with_experiment()
@@ -242,11 +248,12 @@ class TestExperimentConfigs:
             registry.compose_experiment("missing")
 
 
-def test_switching_registries_with_same_names_reactivates_entries():
-    """Registries reusing config and experiment names can be activated in turn."""
+def test_static_register_experiment_can_be_reused_across_registries():
+    """One partial experiment definition can be applied to multiple registries."""
+    assert isinstance(inspect.getattr_static(HydraZenRegistry, "register_experiment"), staticmethod)
     GlobalHydra.instance().clear()
 
-    def registry_with_v_norm(v_norm: float) -> HydraZenRegistry:
+    def registry_with_v_norm(v_norm: float) -> tuple[HydraZenRegistry, object]:
         registry = HydraZenRegistry(store=hydra_zen.ZenStore())
         parameters = KinematicVehicle(state_0=State(), v_norm=v_norm)
         registry.register_group_option("session/parameters", "default", parameters, default=True)
@@ -258,12 +265,15 @@ def test_switching_registries_with_same_names_reactivates_entries():
             include_experiment_group=True,
             name="default",
         )
-        registry.register_experiment(name="standstill", base_run_config=run_default)
-        return registry
+        return registry, run_default
+
+    register_experiment = partial(HydraZenRegistry.register_experiment, name="standstill")
 
     try:
-        first = registry_with_v_norm(1.0)
-        second = registry_with_v_norm(2.0)
+        first, first_run = registry_with_v_norm(1.0)
+        second, second_run = registry_with_v_norm(2.0)
+        register_experiment(first, base_run_config=first_run)
+        register_experiment(second, base_run_config=second_run)
 
         first.add_to_hydra_store(overwrite_ok=True)
         assert first.compose_experiment("standstill").session.parameters.v_norm == 1.0

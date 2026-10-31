@@ -15,9 +15,10 @@ src/kinematic_vehicle/
 └── experiments.py           # Named experiment registration (e.g. front_position)
 tests/
 ├── __init__.py
-├── experiments.py           # Candidate experiment registrations
-├── reference_experiments.py # Dedicated registry and experiments for the reference model
-├── reference_models/        # Separate Modelica package for the reference model
+├── experiments.py           # Experiment definitions shared by both registries
+├── reference_models/        # Separate Modelica package and registry for the reference model
+│   ├── __init__.py
+│   ├── kinematic_vehicle.py # Reference config dataclasses and registry setup
 │   ├── package.mo
 │   ├── State.mo
 │   ├── Input.mo
@@ -69,7 +70,7 @@ uv run python -m kinematic_vehicle experiment=front_position
 
 Applies the `front_position` experiment defined in `src/kinematic_vehicle/experiments.py`, which overrides the `parameters/state_0` group to `front_position`.
 
-Experiments are registered via `registry.register_experiment()` and compose their configs using Hydra's `override /group` defaults syntax.
+Experiments are registered via `HydraZenRegistry.register_experiment(registry, ...)` and compose their configs using Hydra's `override /group` defaults syntax.
 
 ### Parameter sweep
 
@@ -98,20 +99,35 @@ extra result columns. The option defaults to `False`, so protected variables are
 identical reference model. The candidate lives in the `src/kinematic_vehicle` package, so the
 comparison demonstrates cross-package testing rather than two models in one source file.
 
-The reference model has its own Hydra registry in `tests/reference_experiments.py`. That
-registry owns the reference parameters, model source, model configurations, libraries, and
-simulation settings, and registers experiments under the same names as the candidate
-registry. The test module provides four fixtures: `model_name` selects the candidate,
-`reference_name` selects the reference model, `registry` supplies the candidate experiment
-configurations, and `reference_registry` supplies the reference configurations. Test
-classes inherit `ExperimentReference` for a single experiment or
+The reference model has its own Hydra registry in
+`tests/reference_models/kinematic_vehicle.py`. That registry owns the reference
+parameters, model source, model configurations, libraries, and simulation settings.
+Experiments are defined once in `tests/experiments.py` as partial applications of
+the static `HydraZenRegistry.register_experiment` and applied to both registries
+under the same names. The test module provides four fixtures: `model_name` selects
+the candidate, `reference_name` selects the reference model, `registry` supplies the
+candidate experiment configurations, and `reference_registry` supplies the reference
+configurations. Test classes inherit `ExperimentReference` for a single experiment or
 `ExperimentSweepReference` for a parameter sweep:
 
 ```python
 import pytest
+from kinematic_vehicle.kinematic_vehicle import MODEL_NAME
+
 from mtools.testing import ExperimentReference, ExperimentSweepReference
-from tests import reference_experiments
+from tests.experiments import reference_registry as _reference_registry
 from tests.experiments import registry as kinematic_registry
+from tests.reference_models.kinematic_vehicle import MODEL_NAME as REFERENCE_NAME
+
+
+@pytest.fixture(scope="module")
+def model_name():
+    return MODEL_NAME
+
+
+@pytest.fixture(scope="module")
+def reference_name():
+    return REFERENCE_NAME
 
 
 @pytest.fixture(scope="module")
@@ -121,7 +137,7 @@ def registry():
 
 @pytest.fixture(scope="module")
 def reference_registry():
-    return reference_experiments.registry
+    return _reference_registry
 
 
 class TestStandstillReference(ExperimentReference):

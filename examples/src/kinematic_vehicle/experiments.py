@@ -1,6 +1,9 @@
 from kinematic_vehicle.kinematic_vehicle import registry, run_default
 
-registry.register_experiment(
+from mtools.hydra_registry import HydraZenRegistry
+
+HydraZenRegistry.register_experiment(
+    registry,
     name="front_position",
     base_run_config=run_default,
     selections={"parameters/state_0": "front_position"},

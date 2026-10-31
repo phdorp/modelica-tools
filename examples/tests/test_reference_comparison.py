@@ -1,11 +1,11 @@
 import pytest
 from kinematic_vehicle.kinematic_vehicle import MODEL_NAME
+from tests.experiments import reference_registry as _reference_registry
 from tests.experiments import registry as kinematic_registry
+from tests.reference_models.kinematic_vehicle import \
+    MODEL_NAME as REFERENCE_NAME
 
 from mtools.testing import ExperimentReference, ExperimentSweepReference
-from tests import reference_experiments
-
-REFERENCE_NAME = reference_experiments.MODEL_NAME
 
 
 @pytest.fixture(scope="module")
@@ -25,7 +25,7 @@ def registry():
 
 @pytest.fixture(scope="module")
 def reference_registry():
-    return reference_experiments.registry
+    return _reference_registry
 
 
 class TestStandstillReference(ExperimentReference):

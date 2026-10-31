@@ -12,8 +12,9 @@ to wire `reference_name` and `reference_registry` and use the comparison bases.
 
 - [x] The example candidate package stays in `src`; the reference model is a
       separate Modelica package under `tests`.
-- [x] The reference model has its own registry and experiment registrations in
-      `examples/tests/reference_experiments.py`.
+- [x] The reference model has its own registry in
+      `examples/tests/reference_models/kinematic_vehicle.py`; experiment
+      definitions are shared in `examples/tests/experiments.py`.
 - [x] The example test suite compares a single experiment and a sweep against
       the reference model.
 - [x] The example README documents the new fixtures, bases, and helper.

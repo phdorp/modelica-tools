@@ -17,7 +17,8 @@
 > Core session construction is unchanged; the previous model-selection and
 > configuration-retargeting changes were reverted. The example reference model
 > remains in `examples/tests/reference_models` and now has its own registry in
-> `examples/tests/reference_experiments.py`.
+> `examples/tests/reference_models/kinematic_vehicle.py`. Experiment definitions
+> live once in `examples/tests/experiments.py` and are applied to both registries.
 
 ## Global Constraints
 
@@ -45,12 +46,12 @@
 ## File Structure
 
 - `src/mtools/internal/testing.py` - add `assert_solutions_match` and table comparison helper; make `_SweepPlan.launch` activate its registry's Hydra store before launching.
-- `src/mtools/hydra_registry.py` - make `add_to_hydra_store(overwrite_ok=True)` re-enqueue registered entries so registries sharing names can be activated in turn.
+- `src/mtools/hydra_registry.py` - make `add_to_hydra_store(overwrite_ok=True)` re-enqueue registered entries so registries sharing names can be activated in turn; make `register_experiment` static so one partial definition can be applied to multiple registries.
 - `src/mtools/testing.py` - add `_ReferenceComparisonMixin`, `ExperimentReferenceT`, `ExperimentSweepReferenceT`, four public aliases, exports, and module/fixture documentation.
 - `tests/session_tools/test_testing.py` - unit tests driving the comparison bases with a fake `sim_tools.simulate` and separate candidate/reference registries.
 - `tests/session_tools/test_testing_fixtures.py` - `pytester` wiring test proving `reference_name` and `reference_registry` injection and autouse population.
-- `examples/tests/reference_models/` - separate Modelica package for the reference model.
-- `examples/tests/reference_experiments.py` - dedicated registry and experiments for the reference model.
+- `examples/tests/reference_models/` - separate Modelica package for the reference model, with its registry in `kinematic_vehicle.py`.
+- `examples/tests/experiments.py` - shared experiment definitions applied to both registries.
 - `examples/tests/test_reference_comparison.py` - real single-experiment and sweep comparison tests across registries and packages.
 - `examples/README.md` - document the reference comparison workflow.
 - `README.md` - add reference comparison to the feature list.
