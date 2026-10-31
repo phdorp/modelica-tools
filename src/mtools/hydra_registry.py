@@ -582,10 +582,18 @@ class HydraZenRegistry:
     def add_to_hydra_store(self, overwrite_ok: bool | None = None):
         """Add all registered entries to Hydra's global config store.
 
+        When ``overwrite_ok`` is True, re-enqueues every registered entry first
+        so the same registry can be activated repeatedly. This lets multiple
+        registries that reuse config and experiment names overwrite each other
+        immediately before composing or launching their own runs. Without
+        ``overwrite_ok``, a repeated call is a no-op after the first add.
+
         Args:
             overwrite_ok: If True, existing entries in Hydra's config store
                 may be overwritten. Defaults to the store's setting.
         """
+        if overwrite_ok:
+            self._store.enqueue_all()
         self._store.add_to_hydra_store(overwrite_ok=overwrite_ok)
 
     def compose(
