@@ -522,8 +522,9 @@ class HydraZenRegistry:
                 existing_groups.add(canonical_group)
                 hydra_defaults.append({f"override /{canonical_group}": internal_name})
 
+    @staticmethod
     def register_experiment(
-        self,
+        registry: "HydraZenRegistry",
         *,
         name: str,
         base_run_config: Any,
@@ -534,8 +535,11 @@ class HydraZenRegistry:
 
         The experiment config derives from ``base_run_config`` and overrides
         selected groups using Hydra's ``override /group`` defaults syntax.
+        The method is static so one experiment definition can be partially
+        applied and reused across multiple registries.
 
         Args:
+            registry: Registry to register the experiment in.
             name: Experiment name to register.
             base_run_config: Base run config to extend. Must be a run config
                 previously registered with a name (via ``register_run_config``
@@ -550,7 +554,7 @@ class HydraZenRegistry:
                 or if it does not include the ``experiment`` group (create it
                 with ``include_experiment_group=True``).
         """
-        if self._find_run_config_name(base_run_config) is None:
+        if registry._find_run_config_name(base_run_config) is None:
             raise ValueError(
                 f"base_run_config for experiment '{name}' is not a registered run config; "
                 "register it with a name first via 'register_run_config' or 'create_run'."
@@ -563,12 +567,12 @@ class HydraZenRegistry:
                 "'include_experiment_group=True' so 'compose_experiment' and "
                 "sweeps can select the experiment."
             )
-        self._experiment_bases[name] = base_run_config
-        hydra_defaults = self._build_hydra_defaults(selections=selections, override=True)
+        registry._experiment_bases[name] = base_run_config
+        hydra_defaults = registry._build_hydra_defaults(selections=selections, override=True)
         if overrides:
-            self._register_overrides(name, overrides, hydra_defaults)
+            registry._register_overrides(name, overrides, hydra_defaults)
 
-        experiment_store = self._store(group=EXPERIMENT_GROUP, package="_global_")
+        experiment_store = registry._store(group=EXPERIMENT_GROUP, package="_global_")
         experiment_store(
             hydra_zen.make_config(
                 bases=(base_run_config,),

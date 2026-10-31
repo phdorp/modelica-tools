@@ -18,7 +18,7 @@ tests/
 ├── experiments.py           # Experiment definitions shared by both registries
 ├── reference_models/        # Separate Modelica package and registry for the reference model
 │   ├── __init__.py
-│   ├── kinematic_vehicle.py # Reference config dataclasses and registry setup
+│   ├── kinematic_vehicle.py # Reference registry/run config using shared helpers
 │   ├── package.mo
 │   ├── State.mo
 │   ├── Input.mo
@@ -100,24 +100,26 @@ identical reference model. The candidate lives in the `src/kinematic_vehicle` pa
 comparison demonstrates cross-package testing rather than two models in one source file.
 
 The reference model has its own Hydra registry in
-`tests/reference_models/kinematic_vehicle.py`. That registry owns the reference
-parameters, model source, model configurations, libraries, and simulation settings.
-Experiments are defined once in `tests/experiments.py` as partial applications of
-the static `HydraZenRegistry.register_experiment` and applied to both registries
-under the same names. The test module provides four fixtures: `model_name` selects
-the candidate, `reference_name` selects the reference model, `registry` supplies the
-candidate experiment configurations, and `reference_registry` supplies the reference
-configurations. Test classes inherit `ExperimentReference` for a single experiment or
-`ExperimentSweepReference` for a parameter sweep:
+`tests/reference_models/kinematic_vehicle.py`. Both registries share the
+parameter schema and group-option definitions via `apply_shared_group_options`
+and build their run config with `create_run`; the reference keeps its own
+registry, Modelica source, and run configuration. Experiments are defined once
+in `tests/experiments.py` by `register_experiments` and applied to both
+registries under the same names. The test module provides four fixtures:
+`model_name` selects the candidate, `reference_name` selects the reference
+model, `registry` supplies the candidate experiment configurations, and
+`reference_registry` supplies the reference configurations. Test classes inherit
+`ExperimentReference` for a single experiment or `ExperimentSweepReference` for
+a parameter sweep:
 
 ```python
 import pytest
 from kinematic_vehicle.kinematic_vehicle import MODEL_NAME
 
 from mtools.testing import ExperimentReference, ExperimentSweepReference
-from tests.experiments import reference_registry as _reference_registry
 from tests.experiments import registry as kinematic_registry
 from tests.reference_models.kinematic_vehicle import MODEL_NAME as REFERENCE_NAME
+from tests.reference_models.kinematic_vehicle import registry as _reference_registry
 
 
 @pytest.fixture(scope="module")
