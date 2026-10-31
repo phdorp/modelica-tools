@@ -16,6 +16,8 @@ from collections.abc import Hashable, Mapping
 from itertools import product
 from typing import TYPE_CHECKING, Any
 
+import numpy as np
+import pandas as pd
 from omegaconf import OmegaConf
 
 from mtools import sim_tools
@@ -194,6 +196,76 @@ def _select_job_value(config: Any, path: str) -> Any:
     return node
 
 
+def assert_solutions_match(
+    actual: Any,
+    reference: Any,
+    *,
+    atol: float,
+    context: str,
+    rtol: float = 0.0,
+) -> None:
+    """Recursively assert that candidate solutions match reference solutions.
+
+    Data frame references are compared by output signal set, row count, and
+    positionally per column. Dict references require the same key set and are
+    compared recursively; ``context`` is extended with each key so failures
+    identify the offending experiment or sweep combination.
+
+    Args:
+        actual: Candidate solution structure (data frame or dict of them).
+        reference: Reference solution structure to compare against.
+        atol: Absolute tolerance passed to ``numpy.testing.assert_allclose``.
+        context: Human-readable location prefix used in failure messages.
+        rtol: Relative tolerance passed to ``numpy.testing.assert_allclose``.
+
+    Raises:
+        AssertionError: If the structures, signal sets, lengths, or values
+            differ.
+        TypeError: If ``reference`` is not a supported solution structure.
+    """
+    if isinstance(reference, pd.DataFrame):
+        if not isinstance(actual, pd.DataFrame):
+            raise TypeError(f"{context}: expected a solution table, got {type(actual).__name__!r}")
+        missing = [column for column in reference.columns if column not in actual.columns]
+        extra = [column for column in actual.columns if column not in reference.columns]
+        if missing or extra:
+            raise AssertionError(
+                f"{context}: output signals differ; missing {missing!r}, unexpected {extra!r}"
+            )
+        if len(actual) != len(reference):
+            raise AssertionError(
+                f"{context}: solution length differs ({len(actual)} != {len(reference)})"
+            )
+        for column in reference.columns:
+            np.testing.assert_allclose(
+                actual[column],
+                reference[column],
+                rtol=rtol,
+                atol=atol,
+                err_msg=f"{context}: signal {column!r} differs",
+            )
+        return
+    if isinstance(reference, dict):
+        if not isinstance(actual, dict):
+            raise TypeError(f"{context}: expected a result mapping, got {type(actual).__name__!r}")
+        missing = [key for key in reference if key not in actual]
+        extra = [key for key in actual if key not in reference]
+        if missing or extra:
+            raise AssertionError(
+                f"{context}: result keys differ; missing {missing!r}, unexpected {extra!r}"
+            )
+        for key, reference_solution in reference.items():
+            assert_solutions_match(
+                actual[key],
+                reference_solution,
+                atol=atol,
+                context=f"{context}[{key!r}]",
+                rtol=rtol,
+            )
+        return
+    raise TypeError(f"{context}: unsupported reference solution type {type(reference).__name__!r}")
+
+
 class _SweepPlan:
     """Per-sweep state and steps for one multirun parameter sweep.
 
@@ -269,7 +341,13 @@ class _SweepPlan:
         ]
 
     def launch(self, registry: HydraZenRegistry, tmp_path_factory: Any) -> list:
-        """Fan out via multirun simulate and return the per-job results."""
+        """Fan out via multirun simulate and return the per-job results.
+
+        Args:
+            registry: Hydra registry providing the multirun base run config.
+            tmp_path_factory: Pytest factory used for the sweep directory.
+        """
+        registry.add_to_hydra_store(overwrite_ok=True)
         return sim_tools.simulate(
             registry.get_experiment_run_config(self.experiment),
             overrides=self.build_overrides(),

@@ -242,6 +242,41 @@ class TestExperimentConfigs:
             registry.compose_experiment("missing")
 
 
+def test_switching_registries_with_same_names_reactivates_entries():
+    """Registries reusing config and experiment names can be activated in turn."""
+    GlobalHydra.instance().clear()
+
+    def registry_with_v_norm(v_norm: float) -> HydraZenRegistry:
+        registry = HydraZenRegistry(store=hydra_zen.ZenStore())
+        parameters = KinematicVehicle(state_0=State(), v_norm=v_norm)
+        registry.register_group_option("session/parameters", "default", parameters, default=True)
+        run_default = registry.create_run(
+            model_name="KinematicVehicle",
+            parameters=parameters,
+            simulation=session_config.Simulation(solver="rungekutta", output_format="csv"),
+            model_path=Path("tests/session_tools/models/kinematic_vehicle.mo").resolve(),
+            include_experiment_group=True,
+            name="default",
+        )
+        registry.register_experiment(name="standstill", base_run_config=run_default)
+        return registry
+
+    try:
+        first = registry_with_v_norm(1.0)
+        second = registry_with_v_norm(2.0)
+
+        first.add_to_hydra_store(overwrite_ok=True)
+        assert first.compose_experiment("standstill").session.parameters.v_norm == 1.0
+
+        second.add_to_hydra_store(overwrite_ok=True)
+        assert second.compose_experiment("standstill").session.parameters.v_norm == 2.0
+
+        first.add_to_hydra_store(overwrite_ok=True)
+        assert first.compose_experiment("standstill").session.parameters.v_norm == 1.0
+    finally:
+        GlobalHydra.instance().clear()
+
+
 class TestCreateRun:
     @pytest.fixture(autouse=True)
     def _reset_global_hydra(self):

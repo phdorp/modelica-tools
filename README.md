@@ -9,6 +9,7 @@ A Python toolkit for configuring [Pydelica](https://pypi.org/project/pydelica/) 
 - **Python-native Modelica configuration** — Define simulation parameters, solver settings, and model configurations as typed Python dataclasses.
 - **Hierarchical configuration** with [Hydra](https://hydra.cc) / [hydra-zen](https://github.com/mit-ll/hydra-zen) — Compose, override, and reuse configs across runs.
 - **Parameter sweeps** — Launch multirun sweeps over any simulation parameter from the command line.
+- **Reference-model comparison** — Test a model against a reference implementation registered in a dedicated Hydra registry, comparing output signals and values.
 - **Configuration groups and experiments** — Register reusable config groups (e.g., initial states) and named experiment overrides.
 - **Result visualization** — Interactive [Dash](https://dash.plotly.com/) web app for browsing simulation results (CSV) with a grid of time-series plots.
 - **Unit-testable** — Simulations are driven by config objects that can be instantiated and verified in isolation.

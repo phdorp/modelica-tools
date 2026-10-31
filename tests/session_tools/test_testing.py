@@ -13,13 +13,19 @@ needed. Covered behavior:
   comma-separated ``<prefix>.<param>`` override per entry in
   ``sweep_params``, and maps each cartesian-product tuple to its solution
   table.
+- reference comparison (``ExperimentReference`` / ``ExperimentSweepReference``):
+  runs the candidate from ``registry`` and the reference from a dedicated
+  ``reference_registry``, then compares the two result structures.
 """
 
 import dataclasses
 import typing
 from itertools import product as _product
+from types import SimpleNamespace
 
+import numpy as np
 import pandas as pd
+import pytest
 from omegaconf import OmegaConf
 
 import mtools.internal.testing as internal_testing
@@ -32,17 +38,146 @@ def _frame(tag: str) -> pd.DataFrame:
     return pd.DataFrame({"time": [0.0, 1.0], "tag": [tag, tag]})
 
 
+def _signal_frame(values, signal="signal"):
+    return pd.DataFrame({"time": [float(i) for i in range(len(values))], signal: values})
+
+
+def test_reference_experiment_uses_dedicated_registry(monkeypatch):
+    def fake_simulate(config, **kwargs):
+        model_name = config["model_name"]
+        return {model_name: _frame(model_name)}
+
+    monkeypatch.setattr(sim_tools, "simulate", fake_simulate)
+    registry = FakeRegistry(model_name="my.Model")
+    reference_registry = FakeRegistry(model_name="ref.Model")
+
+    class T(testing.ExperimentReference):
+        name = "standstill"
+
+    T.fetch_reference_experiment(registry, "my.Model", reference_registry, "ref.Model")
+
+    assert registry.calls == [{"compose_experiment": "standstill", "overrides": None}]
+    assert reference_registry.calls == [{"compose_experiment": "standstill", "overrides": None}]
+    assert T.results["tag"].iloc[0] == "my.Model"
+    assert T.reference_results["tag"].iloc[0] == "ref.Model"
+
+
+def test_reference_experiment_multi_name_returns_mappings(monkeypatch):
+    def fake_simulate(config, **kwargs):
+        model_name = config["model_name"]
+        tag = f"{model_name}:{config['composed_experiment']}"
+        return {model_name: _frame(tag)}
+
+    monkeypatch.setattr(sim_tools, "simulate", fake_simulate)
+
+    class T(testing.ExperimentsReference):
+        name = ["a", "b"]
+
+    T.fetch_reference_experiment(
+        FakeRegistry(model_name="my.Model"),
+        "my.Model",
+        FakeRegistry(model_name="ref.Model"),
+        "ref.Model",
+    )
+
+    assert T.results["a"]["tag"].iloc[0] == "my.Model:a"
+    assert T.reference_results["b"]["tag"].iloc[0] == "ref.Model:b"
+
+
+def test_reference_experiment_propagates_missing_reference_solution(monkeypatch):
+    def fake_simulate(config, **kwargs):
+        if config["model_name"] == "ref.Model":
+            raise ValueError("No solution matches the requested model 'ref.Model'.")
+        return {"my.Model": _frame("candidate")}
+
+    monkeypatch.setattr(sim_tools, "simulate", fake_simulate)
+
+    class T(testing.ExperimentReference):
+        name = "standstill"
+
+    with pytest.raises(ValueError, match="No solution matches"):
+        T.fetch_reference_experiment(
+            FakeRegistry(model_name="my.Model"),
+            "my.Model",
+            FakeRegistry(model_name="ref.Model"),
+            "ref.Model",
+        )
+
+
+def test_reference_comparison_passes_for_matching_tables():
+    class T(testing.ExperimentReference):
+        name = "standstill"
+        results = _signal_frame([1.0, 2.0])
+        reference_results = _signal_frame([1.0, 2.0])
+
+    T().assert_matches_reference()
+
+
+def test_reference_comparison_rejects_value_mismatch():
+    class T(testing.ExperimentReference):
+        name = "standstill"
+        results = _signal_frame([1.0, 2.0])
+        reference_results = _signal_frame([1.0, 2.5])
+
+    with pytest.raises(AssertionError, match="signal"):
+        T().assert_matches_reference()
+
+
+def test_reference_comparison_rejects_signal_set_mismatch():
+    class T(testing.ExperimentReference):
+        name = "standstill"
+        results = pd.DataFrame({"time": [0.0, 1.0], "px": [1.0, 2.0]})
+        reference_results = pd.DataFrame({"time": [0.0, 1.0], "py": [1.0, 2.0]})
+
+    with pytest.raises(AssertionError, match="output signals differ"):
+        T().assert_matches_reference()
+
+
+def test_reference_comparison_rejects_length_mismatch():
+    class T(testing.ExperimentReference):
+        name = "standstill"
+        results = _signal_frame([1.0, 2.0])
+        reference_results = _signal_frame([1.0, 2.0, 3.0])
+
+    with pytest.raises(AssertionError, match="length differs"):
+        T().assert_matches_reference()
+
+
+def test_reference_comparison_rejects_nan_against_finite():
+    class T(testing.ExperimentReference):
+        name = "standstill"
+        results = _signal_frame([np.nan])
+        reference_results = _signal_frame([1.0])
+
+    with pytest.raises(AssertionError, match="signal"):
+        T().assert_matches_reference()
+
+
+def test_reference_comparison_eps_is_overridable():
+    class T(testing.ExperimentReference):
+        name = "standstill"
+        eps = 0.5
+        results = _signal_frame([1.0])
+        reference_results = _signal_frame([1.2])
+
+    T().assert_matches_reference()
+
+
 class FakeRegistry:
     """Test double for ``HydraZenRegistry`` recording experiment calls."""
 
-    def __init__(self, runs=None):
+    def __init__(self, runs=None, model_name="my.Model"):
         self.calls: list = []
         self._runs = runs or {}
+        self.model_name = model_name
+
+    def add_to_hydra_store(self, overwrite_ok=None):
+        """Record registry activation as a no-op."""
 
     def compose_experiment(self, name, overrides=None):
         """Record the call and return the name as the composed config."""
         self.calls.append({"compose_experiment": name, "overrides": overrides})
-        return {"composed_experiment": name}
+        return {"composed_experiment": name, "model_name": self.model_name}
 
     def get_experiment_run_config(self, name):
         """Return the run config registered for experiment ``name``."""
@@ -67,7 +202,7 @@ def test_single_experiment_uses_registry_and_model_name(monkeypatch):
     T.fetch_experiment(fake_registry, "my.Model")
 
     assert fake_registry.calls == [{"compose_experiment": "standstill", "overrides": None}]
-    assert captured["config"] == {"composed_experiment": "standstill"}
+    assert captured["config"] == {"composed_experiment": "standstill", "model_name": "my.Model"}
     assert T.results["tag"].iloc[0] == "single"
 
 
@@ -582,3 +717,67 @@ def test_dataclass_helpers_recurse_into_nested_and_tuple_fields():
         ("inner", (("x", 1.0),)),
         ("tags", (1.0, 2.0)),
     )
+
+
+def test_reference_sweep_uses_dedicated_registry_and_matches_combinations(monkeypatch, tmp_path_factory):
+    calls = []
+
+    class FakeJob:
+        def __init__(self, config, solutions):
+            self.config = config
+            self.solutions = solutions
+
+    def fake_simulate(config, *, overrides, multirun, sweep_dir):
+        calls.append({"overrides": list(overrides), "sweep_dir": sweep_dir})
+        assert multirun is True
+        model_name = config.model_name
+        return [
+            FakeJob(
+                {"session": {"parameters": {"phi": phi}}},
+                {model_name: pd.DataFrame({"time": [0.0, 1.0], "signal": [phi, phi]})},
+            )
+            for phi in (0.1, 0.2)
+        ]
+
+    monkeypatch.setattr(sim_tools, "simulate", fake_simulate)
+    registry = FakeRegistry(
+        runs={"turn_left": SimpleNamespace(model_name="my.Model")}, model_name="my.Model"
+    )
+    reference_registry = FakeRegistry(
+        runs={"turn_left": SimpleNamespace(model_name="ref.Model")}, model_name="ref.Model"
+    )
+
+    class T(testing.ExperimentSweepReference):
+        name = "turn_left"
+        sweep_params = {"phi": [0.1, 0.2]}
+
+    T.fetch_reference_sweep("my.Model", "ref.Model", registry, reference_registry, tmp_path_factory)
+
+    assert calls[0]["overrides"] == ["experiment=turn_left", "session.parameters.phi=0.1,0.2"]
+    assert calls[1]["overrides"] == ["experiment=turn_left", "session.parameters.phi=0.1,0.2"]
+    assert calls[0]["sweep_dir"] != calls[1]["sweep_dir"]
+    assert set(T.results) == set(T.reference_results) == {(0.1,), (0.2,)}
+    assert T.reference_results[(0.2,)]["signal"].iloc[0] == 0.2
+    T().assert_matches_reference()
+
+
+def test_reference_sweep_comparison_rejects_missing_combination():
+    class T(testing.ExperimentSweepReference):
+        name = "turn_left"
+        sweep_params = {"phi": [0.1, 0.2]}
+        results = {(0.1,): _signal_frame([0.1])}
+        reference_results = {(0.1,): _signal_frame([0.1]), (0.2,): _signal_frame([0.2])}
+
+    with pytest.raises(AssertionError, match="0.2"):
+        T().assert_matches_reference()
+
+
+def test_reference_sweep_comparison_rejects_value_mismatch():
+    class T(testing.ExperimentSweepReference):
+        name = "turn_left"
+        sweep_params = {"phi": [0.1, 0.2]}
+        results = {(0.1,): _signal_frame([0.1])}
+        reference_results = {(0.1,): _signal_frame([0.2])}
+
+    with pytest.raises(AssertionError, match="signal"):
+        T().assert_matches_reference()
