@@ -11,11 +11,11 @@ src/kinematic_vehicle/
 ├── __init__.py
 ├── __main__.py              # Hydra entry point: composes config and runs simulation
 ├── KinematicVehicle.mo      # Candidate Modelica model
-├── kinematic_vehicle.py     # Config dataclasses, registry setup, group options
-└── experiments.py           # Named experiment registration (e.g. front_position)
+├── shared_config.py         # Shared schema, group options, and run config helper
+├── kinematic_vehicle.py     # Candidate registry and run configuration
+└── experiments.py           # Shared experiment definitions (e.g. front_position)
 tests/
 ├── __init__.py
-├── experiments.py           # Experiment definitions shared by both registries
 ├── reference_models/        # Separate Modelica package and registry for the reference model
 │   ├── __init__.py
 │   ├── kinematic_vehicle.py # Reference registry/run config using shared helpers
@@ -104,8 +104,8 @@ The reference model has its own Hydra registry in
 parameter schema and group-option definitions via `apply_shared_group_options`
 and build their run config with `create_run`; the reference keeps its own
 registry, Modelica source, and run configuration. Experiments are defined once
-in `tests/experiments.py` by `register_experiments` and applied to both
-registries under the same names. The test module provides four fixtures:
+in `src/kinematic_vehicle/experiments.py` by `register_experiments` and applied
+to both registries under the same names. The test module provides four fixtures:
 `model_name` selects the candidate, `reference_name` selects the reference
 model, `registry` supplies the candidate experiment configurations, and
 `reference_registry` supplies the reference configurations. Test classes inherit

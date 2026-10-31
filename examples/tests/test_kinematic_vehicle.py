@@ -5,7 +5,7 @@ import pytest
 from mtools.testing import Experiment, Experiments, ExperimentSweep, SweepValue
 
 from kinematic_vehicle.kinematic_vehicle import MODEL_NAME
-from tests.experiments import registry as kinematic_registry
+from kinematic_vehicle.kinematic_vehicle import registry as kinematic_registry
 
 
 @pytest.fixture(scope="module")

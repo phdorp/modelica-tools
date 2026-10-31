@@ -1,6 +1,5 @@
 import hydra
 from hydra.core.hydra_config import HydraConfig
-import kinematic_vehicle.experiments
 import kinematic_vehicle.kinematic_vehicle
 
 import mtools.session_config as session_config
