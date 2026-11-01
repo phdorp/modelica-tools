@@ -11,9 +11,7 @@ src/kinematic_vehicle/
 ├── __init__.py
 ├── __main__.py              # Hydra entry point: composes config and runs simulation
 ├── KinematicVehicle.mo      # Candidate Modelica model
-├── shared_config.py         # Shared schema and group options
-├── kinematic_vehicle.py     # Shared registry, candidate run config, experiment binding
-└── experiments.py           # Shared experiment definitions (e.g. front_position)
+└── kinematic_vehicle.py     # Registry, group options, run config, and experiments
 tests/
 ├── __init__.py
 ├── reference_models/        # Separate Modelica package for the reference model
@@ -60,7 +58,7 @@ Runs the simulation with default parameters: `v_norm=10.0`, `stop_time=10.0`, in
 uv run python -m kinematic_vehicle parameters/state_0=front_position
 ```
 
-Selects the `front_position` config group, which sets `state_0.px=1.0`. The group is registered via `register_group_name("session.parameters.state_0", "parameters/state_0")` with two options (`zero_state`, `front_position`) in `shared_config.py`.
+Selects the `front_position` config group, which sets `state_0.px=1.0`. The group is registered via `register_group_name("session.parameters.state_0", "parameters/state_0")` with two options (`zero_state`, `front_position`) in `kinematic_vehicle.py`.
 
 ### Experiment override
 
@@ -68,7 +66,7 @@ Selects the `front_position` config group, which sets `state_0.px=1.0`. The grou
 uv run python -m kinematic_vehicle experiment=front_position
 ```
 
-Applies the `front_position` experiment defined in `src/kinematic_vehicle/experiments.py`, which overrides the `parameters/state_0` group to `front_position`.
+Applies the `front_position` experiment defined in `src/kinematic_vehicle/kinematic_vehicle.py`, which overrides the `parameters/state_0` group to `front_position`.
 
 Experiments are registered via `HydraZenRegistry.register_experiment(registry, ...)` and compose their configs using Hydra's `override /group` defaults syntax.
 
@@ -99,17 +97,19 @@ extra result columns. The option defaults to `False`, so protected variables are
 identical reference model. The candidate lives in the `src/kinematic_vehicle` package, so the
 comparison demonstrates cross-package testing rather than two models in one source file.
 
-A single `HydraZenRegistry` is owned by `src/kinematic_vehicle/kinematic_vehicle.py`. It applies
-the shared group options, creates the candidate run config (`name="default"`), and calls
-`register_experiments(EXPERIMENTS, base_run_config=run_default)`. The reference run config is
-added to that same registry by `tests/reference_models/kinematic_vehicle.py`, which imports the
-candidate registry and creates a second run config (`name="reference"`,
-`include_experiment_group=True`) that points at the `tests`-side reference Modelica package.
+A single `HydraZenRegistry` is owned by `src/kinematic_vehicle/kinematic_vehicle.py`. It registers
+the shared group options, creates the candidate run config (`name="default"`), and registers
+each experiment directly with `register_experiment(..., base_run_config=run_default)`. The
+reference run config is added to that same registry by
+`tests/reference_models/kinematic_vehicle.py`, which imports the candidate registry and creates
+a second run config (`name="reference"`, `include_experiment_group=True`) that points at the
+`tests`-side reference Modelica package.
 
 The registry binds every experiment to every run config whose defaults include the `experiment`
 group, now and for any run config registered later. Registering the reference run config is
-therefore all that is needed; there is no separate experiment-sharing call. Experiments are
-defined once in `src/kinematic_vehicle/experiments.py` as `ExperimentSpec` values.
+therefore all that is needed; there is no separate experiment-sharing call. The parameter
+schema, group options, and experiments are all defined once in
+`src/kinematic_vehicle/kinematic_vehicle.py`.
 `compose_experiment(name, run_config=...)` and `get_experiment_run_config(name, run_config=...)`
 accept an optional run config; when omitted they use the run config the experiment was
 registered with.
