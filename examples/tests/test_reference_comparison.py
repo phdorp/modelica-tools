@@ -2,17 +2,17 @@ import pytest
 from kinematic_vehicle.experiments import EXPERIMENTS
 from kinematic_vehicle.kinematic_vehicle import MODEL_NAME
 from kinematic_vehicle.kinematic_vehicle import registry as model_registry
-from tests.reference_models.kinematic_vehicle import MODEL_NAME as REFERENCE_NAME
-from tests.reference_models.kinematic_vehicle import registry as _reference_registry
+from tests.reference_models.kinematic_vehicle import REFERENCE_MODEL_NAME
+from tests.reference_models.kinematic_vehicle import run_reference
 
 from mtools.testing import ExperimentReference, ExperimentSweepReference
 
 
-def test_registries_share_experiment_definitions():
-    """Both registries expose the shared experiments with identical session inputs."""
+def test_registry_shares_one_experiment_set():
+    """One registry composes the shared experiments for both run configs."""
     for experiment in EXPERIMENTS:
         candidate = model_registry.compose_experiment(experiment.name)
-        reference = _reference_registry.compose_experiment(experiment.name)
+        reference = model_registry.compose_experiment(experiment.name, run_config=run_reference)
 
         assert candidate.model_name != reference.model_name
         assert candidate.session.parameters == reference.session.parameters
@@ -26,7 +26,7 @@ def model_name():
 
 @pytest.fixture(scope="module")
 def reference_name():
-    return REFERENCE_NAME
+    return REFERENCE_MODEL_NAME
 
 
 @pytest.fixture(scope="module")
@@ -35,8 +35,8 @@ def registry():
 
 
 @pytest.fixture(scope="module")
-def reference_registry():
-    return _reference_registry
+def reference_run_config():
+    return run_reference
 
 
 class TestStandstillReference(ExperimentReference):
