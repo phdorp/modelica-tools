@@ -3,7 +3,7 @@
 ``test_testing.py`` drives ``fetch_experiment``/``fetch_sweep`` directly,
 so the actual ``@pytest.fixture(autouse=True, scope="class") @classmethod``
 path (argument-name injection of the module-level ``model_name``,
-``registry``, ``reference_name``, and ``reference_registry`` fixtures plus the
+``registry``, ``reference_name``, and ``reference_run_config`` fixtures plus the
 builtin ``tmp_path_factory``) had zero coverage. These tests run a real inner
 pytest session via the ``pytester`` fixture, so a fixture typo surfaces here
 instead of only in the slow example suite.
@@ -74,10 +74,12 @@ INNER_MODULE = textwrap.dedent(
         def add_to_hydra_store(self, overwrite_ok=None):
             pass
 
-        def compose_experiment(self, name, overrides=None):
-            return {"composed_experiment": name, "model_name": self.model_name}
+        def compose_experiment(self, name, run_config=None, overrides=None):
+            return {"composed_experiment": name, "model_name": getattr(run_config, "model_name", self.model_name)}
 
-        def get_experiment_run_config(self, name):
+        def get_experiment_run_config(self, name, run_config=None):
+            if run_config is not None:
+                return run_config
             return self._runs[name]
 
 
@@ -100,11 +102,8 @@ INNER_MODULE = textwrap.dedent(
 
 
     @pytest.fixture(scope="module")
-    def reference_registry():
-        return FakeRegistry(
-            model_name="ref.Model",
-            runs={"turn_left": SimpleNamespace(model_name="ref.Model")},
-        )
+    def reference_run_config():
+        return SimpleNamespace(model_name="ref.Model")
 
 
     class TestSingle(testing.Experiment):

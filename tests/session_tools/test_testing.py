@@ -14,8 +14,8 @@ needed. Covered behavior:
   ``sweep_params``, and maps each cartesian-product tuple to its solution
   table.
 - reference comparison (``ExperimentReference`` / ``ExperimentSweepReference``):
-  runs the candidate from ``registry`` and the reference from a dedicated
-  ``reference_registry``, then compares the two result structures.
+  runs the candidate from the registry's default run config and the reference
+  from a ``reference_run_config``, then compares the two result structures.
 """
 
 import dataclasses
@@ -42,22 +42,24 @@ def _signal_frame(values, signal="signal"):
     return pd.DataFrame({"time": [float(i) for i in range(len(values))], signal: values})
 
 
-def test_reference_experiment_uses_dedicated_registry(monkeypatch):
+def test_reference_experiment_uses_reference_run_config(monkeypatch):
     def fake_simulate(config, **kwargs):
         model_name = config["model_name"]
         return {model_name: _frame(model_name)}
 
     monkeypatch.setattr(sim_tools, "simulate", fake_simulate)
     registry = FakeRegistry(model_name="my.Model")
-    reference_registry = FakeRegistry(model_name="ref.Model")
+    reference_run_config = SimpleNamespace(model_name="ref.Model")
 
     class T(testing.ExperimentReference):
         name = "standstill"
 
-    T.fetch_reference_experiment(registry, "my.Model", reference_registry, "ref.Model")
+    T.fetch_reference_experiment(registry, "my.Model", reference_run_config, "ref.Model")
 
-    assert registry.calls == [{"compose_experiment": "standstill", "overrides": None}]
-    assert reference_registry.calls == [{"compose_experiment": "standstill", "overrides": None}]
+    assert registry.calls == [
+        {"compose_experiment": "standstill", "overrides": None, "run_config": None},
+        {"compose_experiment": "standstill", "overrides": None, "run_config": reference_run_config},
+    ]
     assert T.results["tag"].iloc[0] == "my.Model"
     assert T.reference_results["tag"].iloc[0] == "ref.Model"
 
@@ -73,12 +75,10 @@ def test_reference_experiment_multi_name_returns_mappings(monkeypatch):
     class T(testing.ExperimentsReference):
         name = ["a", "b"]
 
-    T.fetch_reference_experiment(
-        FakeRegistry(model_name="my.Model"),
-        "my.Model",
-        FakeRegistry(model_name="ref.Model"),
-        "ref.Model",
-    )
+    registry = FakeRegistry(model_name="my.Model")
+    reference_run_config = SimpleNamespace(model_name="ref.Model")
+
+    T.fetch_reference_experiment(registry, "my.Model", reference_run_config, "ref.Model")
 
     assert T.results["a"]["tag"].iloc[0] == "my.Model:a"
     assert T.reference_results["b"]["tag"].iloc[0] == "ref.Model:b"
@@ -95,13 +95,11 @@ def test_reference_experiment_propagates_missing_reference_solution(monkeypatch)
     class T(testing.ExperimentReference):
         name = "standstill"
 
+    registry = FakeRegistry(model_name="my.Model")
+    reference_run_config = SimpleNamespace(model_name="ref.Model")
+
     with pytest.raises(ValueError, match="No solution matches"):
-        T.fetch_reference_experiment(
-            FakeRegistry(model_name="my.Model"),
-            "my.Model",
-            FakeRegistry(model_name="ref.Model"),
-            "ref.Model",
-        )
+        T.fetch_reference_experiment(registry, "my.Model", reference_run_config, "ref.Model")
 
 
 def test_reference_comparison_passes_for_matching_tables():
@@ -174,13 +172,16 @@ class FakeRegistry:
     def add_to_hydra_store(self, overwrite_ok=None):
         """Record registry activation as a no-op."""
 
-    def compose_experiment(self, name, overrides=None):
-        """Record the call and return the name as the composed config."""
-        self.calls.append({"compose_experiment": name, "overrides": overrides})
-        return {"composed_experiment": name, "model_name": self.model_name}
+    def compose_experiment(self, name, run_config=None, overrides=None):
+        """Record the call and return a composed config for the selected run config."""
+        self.calls.append({"compose_experiment": name, "overrides": overrides, "run_config": run_config})
+        model_name = getattr(run_config, "model_name", self.model_name)
+        return {"composed_experiment": name, "model_name": model_name}
 
-    def get_experiment_run_config(self, name):
-        """Return the run config registered for experiment ``name``."""
+    def get_experiment_run_config(self, name, run_config=None):
+        """Return the base run config for experiment ``name``."""
+        if run_config is not None:
+            return run_config
         return self._runs[name]
 
 
@@ -201,7 +202,9 @@ def test_single_experiment_uses_registry_and_model_name(monkeypatch):
 
     T.fetch_experiment(fake_registry, "my.Model")
 
-    assert fake_registry.calls == [{"compose_experiment": "standstill", "overrides": None}]
+    assert fake_registry.calls == [
+        {"compose_experiment": "standstill", "overrides": None, "run_config": None}
+    ]
     assert captured["config"] == {"composed_experiment": "standstill", "model_name": "my.Model"}
     assert T.results["tag"].iloc[0] == "single"
 
@@ -417,8 +420,8 @@ def test_sweep_maps_tuples_onto_structured_fields(monkeypatch, tmp_path_factory)
     class StructuredRegistry(FakeRegistry):
         """Fake registry composing a structured config exposing ``state_0`` fields."""
 
-        def compose_experiment(self, name, overrides=None):
-            self.calls.append({"compose_experiment": name, "overrides": overrides})
+        def compose_experiment(self, name, run_config=None, overrides=None):
+            self.calls.append({"compose_experiment": name, "overrides": overrides, "run_config": run_config})
             return OmegaConf.create(
                 {"session": {"parameters": {"state_0": {"px": 0.0, "py": 0.0, "theta": 0.0}}}}
             )
@@ -461,7 +464,7 @@ def test_sweep_tuple_arity_mismatch_raises(monkeypatch, tmp_path_factory):
     class StructuredRegistry(FakeRegistry):
         """Fake registry composing a structured config exposing ``state_0`` fields."""
 
-        def compose_experiment(self, name, overrides=None):
+        def compose_experiment(self, name, run_config=None, overrides=None):
             return OmegaConf.create(
                 {"session": {"parameters": {"state_0": {"px": 0.0, "py": 0.0, "theta": 0.0}}}}
             )
@@ -651,8 +654,8 @@ def test_sweep_dataclass_over_structured_target_needs_no_arity_mapping(monkeypat
     class StructuredRegistry(FakeRegistry):
         """Fake registry composing a structured config exposing ``state_0`` fields."""
 
-        def compose_experiment(self, name, overrides=None):
-            self.calls.append({"compose_experiment": name, "overrides": overrides})
+        def compose_experiment(self, name, run_config=None, overrides=None):
+            self.calls.append({"compose_experiment": name, "overrides": overrides, "run_config": run_config})
             return OmegaConf.create(
                 {"session": {"parameters": {"state_0": {"px": 0.0, "py": 0.0, "theta": 0.0}}}}
             )
@@ -719,7 +722,7 @@ def test_dataclass_helpers_recurse_into_nested_and_tuple_fields():
     )
 
 
-def test_reference_sweep_uses_dedicated_registry_and_matches_combinations(monkeypatch, tmp_path_factory):
+def test_reference_sweep_uses_reference_run_config_and_matches_combinations(monkeypatch, tmp_path_factory):
     calls = []
 
     class FakeJob:
@@ -743,15 +746,13 @@ def test_reference_sweep_uses_dedicated_registry_and_matches_combinations(monkey
     registry = FakeRegistry(
         runs={"turn_left": SimpleNamespace(model_name="my.Model")}, model_name="my.Model"
     )
-    reference_registry = FakeRegistry(
-        runs={"turn_left": SimpleNamespace(model_name="ref.Model")}, model_name="ref.Model"
-    )
+    reference_run_config = SimpleNamespace(model_name="ref.Model")
 
     class T(testing.ExperimentSweepReference):
         name = "turn_left"
         sweep_params = {"phi": [0.1, 0.2]}
 
-    T.fetch_reference_sweep("my.Model", "ref.Model", registry, reference_registry, tmp_path_factory)
+    T.fetch_reference_sweep("my.Model", "ref.Model", registry, reference_run_config, tmp_path_factory)
 
     assert calls[0]["overrides"] == ["experiment=turn_left", "session.parameters.phi=0.1,0.2"]
     assert calls[1]["overrides"] == ["experiment=turn_left", "session.parameters.phi=0.1,0.2"]

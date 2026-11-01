@@ -87,7 +87,9 @@ def _to_hashable(value: Any) -> Hashable:
     return value
 
 
-def _resolve_field_names(registry: Any, experiment_name: str, param: str, prefix: str) -> list[str] | None:
+def _resolve_field_names(
+    registry: Any, experiment_name: str, param: str, prefix: str, run_config: Any = None
+) -> list[str] | None:
     """Return the config keys of the node targeted by a sweep param, if mapping-like.
 
     Used to map positional ``tuple`` sweep values onto field names (e.g.
@@ -100,12 +102,14 @@ def _resolve_field_names(registry: Any, experiment_name: str, param: str, prefix
         experiment_name: Experiment name to compose for inspection.
         param: Sweep parameter name relative to ``prefix``.
         prefix: Hydra package prefix of swept parameters.
+        run_config: Optional run config the experiment is composed with;
+            ``None`` composes the registry's default run config.
 
     Returns:
         Field names in config order, or ``None``.
     """
     try:
-        base = registry.compose_experiment(experiment_name)
+        base = registry.compose_experiment(experiment_name, run_config=run_config)
     except Exception:
         return None
     node = base
@@ -272,7 +276,9 @@ class _SweepPlan:
     Owns the sweep's raw and normalized combinations, the Hydra override
     strings, and the normalized-to-raw key map, so
     ``ExperimentSweepT.run_single_sweep`` reads as plain orchestration:
-    build a plan, launch it, attribute its jobs.
+    build a plan, launch it, attribute its jobs. An optional ``run_config``
+    selects the base run config composed and launched against, defaulting
+    to the registry's default for the swept experiment.
     """
 
     def __init__(
@@ -281,6 +287,7 @@ class _SweepPlan:
         prefix: str,
         experiment: str,
         registry: Any,
+        run_config: Any = None,
     ):
         """Freeze combinations and normalize values up front.
 
@@ -289,10 +296,13 @@ class _SweepPlan:
             prefix: Hydra package prefix of swept parameters.
             experiment: Experiment name being swept.
             registry: Hydra registry used to resolve mapping targets.
+            run_config: Optional run config the experiment is composed and
+                launched against; ``None`` uses the registry's default.
         """
         self.params = list(sweep_params)
         self.prefix = prefix
         self.experiment = experiment
+        self.run_config = run_config
         for param, values in sweep_params.items():
             if not values:
                 raise ValueError(
@@ -326,7 +336,9 @@ class _SweepPlan:
         """Map positional values of one param onto field names when its target is mapping-like."""
         needs_fields = any(isinstance(value, (list, tuple)) for value in values)
         field_names = (
-            _resolve_field_names(registry, experiment, param, self.prefix) if needs_fields else None
+            _resolve_field_names(registry, experiment, param, self.prefix, run_config=self.run_config)
+            if needs_fields
+            else None
         )
         return [_normalize_sweep_value(value, field_names, param) for value in values]
 
@@ -349,7 +361,7 @@ class _SweepPlan:
         """
         registry.add_to_hydra_store(overwrite_ok=True)
         return sim_tools.simulate(
-            registry.get_experiment_run_config(self.experiment),
+            registry.get_experiment_run_config(self.experiment, run_config=self.run_config),
             overrides=self.build_overrides(),
             multirun=True,
             sweep_dir=str(tmp_path_factory.mktemp(f"{self.experiment}_sweep")),
