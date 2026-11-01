@@ -22,7 +22,6 @@ needed. Covered behavior:
 import dataclasses
 import typing
 from itertools import product as _product
-from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
@@ -39,6 +38,16 @@ def _frame(tag: str) -> pd.DataFrame:
     return pd.DataFrame({"time": [0.0, 1.0], "tag": [tag, tag]})
 
 
+
+def _run_config(model_name: str) -> type:
+    """Build a minimal run config type carrying ``model_name``.
+
+    Real run configs are Hydra config types created by ``registry.create_run``;
+    the test doubles only need the ``model_name`` the composed config carries.
+    """
+    return type("RunConfig", (), {"model_name": model_name})
+
+
 def _signal_frame(values, signal="signal"):
     return pd.DataFrame({"time": [float(i) for i in range(len(values))], signal: values})
 
@@ -50,7 +59,7 @@ def test_reference_experiment_uses_reference_run_config(monkeypatch):
 
     monkeypatch.setattr(sim_tools, "simulate", fake_simulate)
     registry = FakeRegistry(model_name="my.Model")
-    reference_run_config = SimpleNamespace(model_name="ref.Model")
+    reference_run_config = _run_config("ref.Model")
 
     class T(testing.ExperimentReference):
         name = "standstill"
@@ -77,7 +86,7 @@ def test_reference_experiment_multi_name_returns_mappings(monkeypatch):
         name = ["a", "b"]
 
     registry = FakeRegistry(model_name="my.Model")
-    reference_run_config = SimpleNamespace(model_name="ref.Model")
+    reference_run_config = _run_config("ref.Model")
 
     T.fetch_reference_experiment(registry, reference_run_config)
 
@@ -97,7 +106,7 @@ def test_reference_experiment_propagates_missing_reference_solution(monkeypatch)
         name = "standstill"
 
     registry = FakeRegistry(model_name="my.Model")
-    reference_run_config = SimpleNamespace(model_name="ref.Model")
+    reference_run_config = _run_config("ref.Model")
 
     with pytest.raises(ValueError, match="No solution matches"):
         T.fetch_reference_experiment(registry, reference_run_config)
@@ -195,7 +204,7 @@ def test_reference_comparison_failure_names_model_pair(monkeypatch):
 
     monkeypatch.setattr(sim_tools, "simulate", fake_simulate)
     registry = FakeRegistry(model_name="my.Model")
-    reference_run_config = SimpleNamespace(model_name="ref.Model")
+    reference_run_config = _run_config("ref.Model")
 
     class T(testing.ExperimentReference):
         name = "standstill"
@@ -303,7 +312,7 @@ def test_sweep_resolves_base_run_from_registry(monkeypatch, tmp_path_factory):
         ]
 
     monkeypatch.setattr(sim_tools, "simulate", fake_simulate)
-    sentinel_run = object()
+    sentinel_run = _run_config("my.Model")
     fake_registry = FakeRegistry(runs={"turn_left": sentinel_run})
 
     class T(testing.ExperimentSweep):
@@ -339,7 +348,7 @@ def test_sweep_results_keyed_by_job_config_not_launch_order(monkeypatch, tmp_pat
         return jobs[::-1]
 
     monkeypatch.setattr(sim_tools, "simulate", fake_simulate)
-    fake_registry = FakeRegistry(runs={"turn_left": object()})
+    fake_registry = FakeRegistry(runs={"turn_left": _run_config("my.Model")})
 
     class T(testing.ExperimentSweep):
         sweep_params = {"phi": [0.1, 0.2]}
@@ -379,7 +388,7 @@ def test_sweep_serializes_hydra_native_types(monkeypatch, tmp_path_factory):
         ]
 
     monkeypatch.setattr(sim_tools, "simulate", fake_simulate)
-    sentinel_run = object()
+    sentinel_run = _run_config("my.Model")
     fake_registry = FakeRegistry(runs={"straight_driving": sentinel_run})
 
     class T(testing.ExperimentSweep):
@@ -438,7 +447,7 @@ def test_sweep_serializes_dict_values_and_freezes_keys(monkeypatch, tmp_path_fac
         ]
 
     monkeypatch.setattr(sim_tools, "simulate", fake_simulate)
-    sentinel_run = object()
+    sentinel_run = _run_config("my.Model")
     fake_registry = FakeRegistry(runs={"straight_driving": sentinel_run})
 
     class T(testing.ExperimentSweep):
@@ -494,7 +503,7 @@ def test_sweep_maps_tuples_onto_structured_fields(monkeypatch, tmp_path_factory)
         ]
 
     monkeypatch.setattr(sim_tools, "simulate", fake_simulate)
-    sentinel_run = object()
+    sentinel_run = _run_config("my.Model")
     fake_registry = StructuredRegistry(runs={"straight_driving": sentinel_run})
 
     class T(testing.ExperimentSweep):
@@ -525,7 +534,7 @@ def test_sweep_tuple_arity_mismatch_raises(monkeypatch, tmp_path_factory):
         raise AssertionError("simulate must not run when tuple arity mismatches")
 
     monkeypatch.setattr(sim_tools, "simulate", fake_simulate)
-    fake_registry = StructuredRegistry(runs={"straight_driving": object()})
+    fake_registry = StructuredRegistry(runs={"straight_driving": _run_config("my.Model")})
 
     class T(testing.ExperimentSweep):
         sweep_params = {"state_0": [(0.0, 0.0)]}
@@ -565,7 +574,7 @@ def test_sweep_over_multiple_parameters_uses_cartesian_product(monkeypatch, tmp_
         return [jobs[i] for i in (2, 0, 3, 1)]
 
     monkeypatch.setattr(sim_tools, "simulate", fake_simulate)
-    sentinel_run = object()
+    sentinel_run = _run_config("my.Model")
     fake_registry = FakeRegistry(runs={"straight_driving": sentinel_run})
 
     class T(testing.ExperimentSweep):
@@ -618,7 +627,7 @@ def test_sweep_serializes_dataclass_values_like_dicts(monkeypatch, tmp_path_fact
         ]
 
     monkeypatch.setattr(sim_tools, "simulate", fake_simulate)
-    sentinel_run = object()
+    sentinel_run = _run_config("my.Model")
     fake_registry = FakeRegistry(runs={"straight_driving": sentinel_run})
 
     class T(testing.ExperimentSweep):
@@ -646,7 +655,7 @@ def test_sweep_duplicate_frozen_keys_raise(monkeypatch, tmp_path_factory):
         raise AssertionError("simulate must not run when frozen keys collide")
 
     monkeypatch.setattr(sim_tools, "simulate", fake_simulate)
-    fake_registry = FakeRegistry(runs={"exp": object()})
+    fake_registry = FakeRegistry(runs={"exp": _run_config("exp.Model")})
 
     class T(testing.ExperimentSweep):
         sweep_params = {"flag": [True, 1]}
@@ -667,7 +676,7 @@ def test_sweep_empty_value_list_raises(monkeypatch, tmp_path_factory):
         raise AssertionError("simulate must not run with empty value lists")
 
     monkeypatch.setattr(sim_tools, "simulate", fake_simulate)
-    fake_registry = FakeRegistry(runs={"exp": object()})
+    fake_registry = FakeRegistry(runs={"exp": _run_config("exp.Model")})
 
     class T(testing.ExperimentSweep):
         sweep_params = {"phi": []}
@@ -730,7 +739,7 @@ def test_sweep_dataclass_over_structured_target_needs_no_arity_mapping(monkeypat
         ]
 
     monkeypatch.setattr(sim_tools, "simulate", fake_simulate)
-    fake_registry = StructuredRegistry(runs={"straight_driving": object()})
+    fake_registry = StructuredRegistry(runs={"straight_driving": _run_config("my.Model")})
 
     class T(testing.ExperimentSweep):
         sweep_params = {"state_0": [_State(), _State(px=1.0, py=2.0, theta=3.0)]}
@@ -796,9 +805,9 @@ def test_reference_sweep_uses_reference_run_config_and_matches_combinations(monk
 
     monkeypatch.setattr(sim_tools, "simulate", fake_simulate)
     registry = FakeRegistry(
-        runs={"turn_left": SimpleNamespace(model_name="my.Model")}, model_name="my.Model"
+        runs={"turn_left": _run_config("my.Model")}, model_name="my.Model"
     )
-    reference_run_config = SimpleNamespace(model_name="ref.Model")
+    reference_run_config = _run_config("ref.Model")
 
     class T(testing.ExperimentSweepReference):
         name = "turn_left"
@@ -836,12 +845,12 @@ def test_multi_experiment_reference_sweep_maps_each_name_to_both_sides(monkeypat
     monkeypatch.setattr(sim_tools, "simulate", fake_simulate)
     registry = FakeRegistry(
         runs={
-            "turn_left": SimpleNamespace(model_name="my.Model"),
-            "straight_driving": SimpleNamespace(model_name="my.Model"),
+            "turn_left": _run_config("my.Model"),
+            "straight_driving": _run_config("my.Model"),
         },
         model_name="my.Model",
     )
-    reference_run_config = SimpleNamespace(model_name="ref.Model")
+    reference_run_config = _run_config("ref.Model")
 
     class T(testing.ExperimentSweepsReference):
         name = ["turn_left", "straight_driving"]
@@ -892,9 +901,9 @@ def test_reference_sweep_launches_reference_pass_with_reference_run_config(monke
         ]
 
     monkeypatch.setattr(sim_tools, "simulate", fake_simulate)
-    default_run = SimpleNamespace(model_name="my.Model")
+    default_run = _run_config("my.Model")
     registry = RecordingRegistry(runs={"turn_left": default_run}, model_name="my.Model")
-    reference_run_config = SimpleNamespace(model_name="ref.Model")
+    reference_run_config = _run_config("ref.Model")
 
     class T(testing.ExperimentSweepReference):
         name = "turn_left"
@@ -945,7 +954,7 @@ def test_sweep_job_config_missing_model_name_raises(monkeypatch, tmp_path_factor
         ]
 
     monkeypatch.setattr(sim_tools, "simulate", fake_simulate)
-    fake_registry = FakeRegistry(runs={"turn_left": SimpleNamespace(model_name="my.Model")})
+    fake_registry = FakeRegistry(runs={"turn_left": _run_config("my.Model")})
 
     class T(testing.ExperimentSweep):
         name = "turn_left"
@@ -962,7 +971,7 @@ def test_reference_comparison_accepts_same_run_config_for_both_models(monkeypatc
         return {config["model_name"]: _signal_frame([1.0, 2.0])}
 
     monkeypatch.setattr(sim_tools, "simulate", fake_simulate)
-    shared = SimpleNamespace(model_name="my.Model")
+    shared = _run_config("my.Model")
     registry = FakeRegistry(model_name="my.Model")
 
     class T(testing.ExperimentReference):
@@ -989,7 +998,7 @@ def test_multi_experiment_reference_keys_each_name_by_its_own_model_name(monkeyp
 
     monkeypatch.setattr(sim_tools, "simulate", fake_simulate)
     registry = PerNameRegistry()
-    reference_run_config = SimpleNamespace(model_name="ref.Model")
+    reference_run_config = _run_config("ref.Model")
 
     class T(testing.ExperimentsReference):
         name = ["a", "b"]

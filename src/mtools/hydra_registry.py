@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 from collections.abc import Iterable, Mapping
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Optional, TypeAlias, cast
 
 import hydra
 import hydra_zen
@@ -10,6 +10,7 @@ import pydantic
 from hydra.core.global_hydra import GlobalHydra
 from hydra_zen import MISSING, ZenStore
 from hydra_zen.typing._implementations import _MISSING_TYPE, DefaultsList
+from omegaconf import DictConfig
 
 import mtools.session_config as session_config
 
@@ -19,8 +20,12 @@ if TYPE_CHECKING:
 #: Hydra group under which experiments are registered.
 EXPERIMENT_GROUP = "experiment"
 
+#: A run config: the Hydra config *type* created by :meth:`HydraZenRegistry.create_run`,
+#: :meth:`HydraZenRegistry.build_run_config`, or an equivalent ``hydra_zen.make_config`` call.
+RunConfig: TypeAlias = type[session_config.SimulationRun]
 
-def _run_config_defaults(run_config: Any) -> list | None:
+
+def _run_config_defaults(run_config: object) -> list | None:
     """Best-effort extraction of the Hydra defaults list from a run config.
 
     Args:
@@ -92,7 +97,7 @@ class ExperimentSpec:
     #: Experiment name registered under the ``experiment`` group.
     name: str
     #: Mapping of hierarchy path to config instance.
-    overrides: Mapping[str, Any] | None = None
+    overrides: Mapping[str, DataClass] | None = None
     #: Mapping of hierarchy path to group option name.
     selections: Mapping[str, str] | None = None
 
@@ -131,14 +136,14 @@ class HydraZenRegistry:
         # Map from registered run config name to the run config type, so
         # callers (e.g. multirun sweeps) can retrieve it without keeping
         # their own reference.
-        self._run_configs: dict[str, Any] = {}
+        self._run_configs: dict[str, RunConfig] = {}
         # Map from experiment name to the tuple of run configs it binds to
         # (every registered run config whose defaults include the experiment
         # group). Immutable tuples so callers cannot mutate the binding.
-        self._experiment_bases: dict[str, tuple[Any, ...]] = {}
+        self._experiment_bases: dict[str, tuple[RunConfig, ...]] = {}
         # Default run config per experiment, used when compose_experiment /
         # get_experiment_run_config are called without an explicit run config.
-        self._experiment_default_run_config: dict[str, Any] = {}
+        self._experiment_default_run_config: dict[str, RunConfig] = {}
         # Pre-built Hydra defaults list per experiment, reused on every rebind.
         self._experiment_defaults: dict[str, list] = {}
 
@@ -221,7 +226,9 @@ class HydraZenRegistry:
         return group_id
 
 
-    def register_group_option(self, group_id: str, name: str, config: Any, default: bool = False):
+    def register_group_option(
+        self, group_id: str, name: str, config: DataClass | type[DataClass], default: bool = False
+    ):
         """Register a named option under a hierarchical config group.
 
         The ``group_id`` argument may be either:
@@ -270,7 +277,10 @@ class HydraZenRegistry:
                 self._hydra_defaults[canonical_group] = name
 
     def register_group_options(
-        self, group_id: str, options: Mapping[str, Any], default: Optional[str] = None
+        self,
+        group_id: str,
+        options: Mapping[str, DataClass | type[DataClass]],
+        default: Optional[str] = None,
     ) -> None:
         """Register several named options under one hierarchical group.
 
@@ -328,13 +338,13 @@ class HydraZenRegistry:
     def build_run_config(
         self,
         *,
-        base: type[Any],
+        base: type[DataClass],
         model_name: str,
         session: type[DataClass],
         selections: Mapping[str, str] | None = None,
         include_experiment_group: bool = False,
         name: Optional[str] = None,
-    ):
+    ) -> RunConfig:
         """Create a run config type with Hydra defaults.
 
         Args:
@@ -366,12 +376,16 @@ class HydraZenRegistry:
             hydra_defaults=default,
         )
 
+        # ``hydra_zen.make_config`` is typed as returning ``type[DataClass]`` although
+        # it derives from ``bases``; narrow it back to the run config type it builds.
+        run_config_type = cast(RunConfig, run_config)
+
         # If a name is provided, register the created run config in the
         # root store so callers can create-and-register in one call.
         if name is not None:
-            self.register_run_config(name=name, run_config=run_config)
+            self.register_run_config(name=name, run_config=run_config_type)
 
-        return run_config
+        return run_config_type
 
     def create_run(
         self,
@@ -386,7 +400,7 @@ class HydraZenRegistry:
         selections: Mapping[str, str] | None = None,
         include_experiment_group: bool = False,
         name: Optional[str] = None,
-    ) -> type:
+    ) -> RunConfig:
         """Create and register a run config from raw session inputs.
 
         This is a convenience wrapper around ``build_run_config`` that builds
@@ -441,12 +455,12 @@ class HydraZenRegistry:
             name=name,
         )
 
-    def register_run_config(self, name: str, run_config: Any):
+    def register_run_config(self, name: str, run_config: RunConfig):
         """Register a run config in the root store.
 
         Args:
             name: Registered config name.
-            run_config: Config object or type to register.
+            run_config: Run config type to register.
         """
         self._store(run_config, name=name)
         self._run_configs[name] = run_config
@@ -455,16 +469,16 @@ class HydraZenRegistry:
             for experiment_name in list(self._experiment_defaults):
                 self._rebind_experiment(experiment_name)
 
-    def get_run_config(self, name: str) -> Any:
+    def get_run_config(self, name: str) -> RunConfig:
         """Return the run config registered under ``name``.
 
         Args:
             name: Registered config name.
 
         Returns:
-            The run config object or type registered via
-            ``register_run_config`` (also called implicitly by
-            ``build_run_config``/``create_run`` when ``name`` is given).
+            The run config type registered via ``register_run_config`` (also
+            called implicitly by ``build_run_config``/``create_run`` when
+            ``name`` is given).
 
         Raises:
             KeyError: If no run config is registered under ``name``.
@@ -474,22 +488,22 @@ class HydraZenRegistry:
         except KeyError:
             raise KeyError(f"unknown run config '{name}'") from None
 
-    def _find_run_config_name(self, run_config: Any) -> str | None:
+    def _find_run_config_name(self, run_config: object) -> str | None:
         """Return the registered name for a run config type, if any.
 
         Args:
-            run_config: Run config object or type to look up by identity.
+            run_config: Object to look up by identity.
 
         Returns:
             The registered name, or ``None`` if the config is not registered.
         """
         return next((name for name, registered in self._run_configs.items() if registered is run_config), None)
 
-    def _resolve_run_config_name(self, run_config: Any) -> str:
-        """Resolve a run config name or object to its registered name.
+    def _resolve_run_config_name(self, run_config: RunConfig | str) -> str:
+        """Resolve a run config name or type to its registered name.
 
         Args:
-            run_config: Registered run config name or config object.
+            run_config: Registered run config name or run config type.
 
         Returns:
             The registered name of the run config.
@@ -510,9 +524,9 @@ class HydraZenRegistry:
             )
         return name
 
-    def _experiment_targets(self) -> list[Any]:
+    def _experiment_targets(self) -> list[RunConfig]:
         """Run configs whose defaults include the experiment group, in registration order."""
-        targets = []
+        targets: list[RunConfig] = []
         for run_config in self._run_configs.values():
             defaults = _run_config_defaults(run_config)
             if defaults is not None and _defaults_include_group(defaults, EXPERIMENT_GROUP):
@@ -537,18 +551,20 @@ class HydraZenRegistry:
             name=name,
         )
 
-    def get_experiment_run_config(self, name: str, run_config: Any = None) -> Any:
+    def get_experiment_run_config(
+        self, name: str, run_config: RunConfig | str | None = None
+    ) -> RunConfig:
         """Return the base run config used to sweep experiment ``name``.
 
         Args:
             name: Experiment name registered via ``register_experiment``.
-            run_config: Registered run config name or config object. Optional;
-                when omitted the run config the experiment was registered with
-                is returned.
+            run_config: Registered run config name or run config type.
+                Optional; when omitted the run config the experiment was
+                registered with is returned.
 
         Returns:
-            The run config object or type, suitable as multirun base for
-            sweeps over this experiment.
+            The run config type, suitable as multirun base for sweeps over
+            this experiment.
 
         Raises:
             KeyError: If no experiment is registered under ``name``, or if
@@ -572,14 +588,18 @@ class HydraZenRegistry:
         )
 
     def compose_experiment(
-        self, name: str, run_config: Any = None, overrides: list[str] | None = None
-    ) -> Any:
+        self,
+        name: str,
+        run_config: RunConfig | str | None = None,
+        overrides: list[str] | None = None,
+    ) -> DictConfig:
         """Compose the config for experiment ``name``.
 
         Args:
             name: Experiment name registered via ``register_experiment``.
-            run_config: Registered run config name or config object. Optional;
-                defaults to the run config the experiment was registered with.
+            run_config: Registered run config name or run config type.
+                Optional; defaults to the run config the experiment was
+                registered with.
             overrides: Optional additional Hydra override strings.
 
         Returns:
@@ -656,10 +676,10 @@ class HydraZenRegistry:
         self,
         *,
         name: str,
-        base_run_config: Any,
+        base_run_config: RunConfig,
         selections: Mapping[str, str] | None = None,
         overrides: Mapping[str, DataClass] | None = None,
-    ):
+    ) -> None:
         """Register an experiment config under the ``experiment`` group.
 
         The experiment config derives from ``base_run_config`` and overrides
@@ -674,7 +694,7 @@ class HydraZenRegistry:
 
         Args:
             name: Experiment name to register.
-            base_run_config: Base run config to extend. Must be a run config
+            base_run_config: Base run config type to extend. Must be a run config
                 previously registered with a name (via ``register_run_config``
                 or ``create_run`` with ``name``), so the experiment stays
                 connected to it. It defaults for ``compose_experiment`` /
@@ -708,7 +728,7 @@ class HydraZenRegistry:
         self._rebind_experiment(name)
 
     def register_experiments(
-        self, experiments: Iterable[ExperimentSpec], *, base_run_config: Any
+        self, experiments: Iterable[ExperimentSpec], *, base_run_config: RunConfig
     ) -> None:
         """Register several experiments defined as ``ExperimentSpec`` values.
 
@@ -721,8 +741,8 @@ class HydraZenRegistry:
 
         Args:
             experiments: Experiment specs to register.
-            base_run_config: Base run config the experiments derive from. It
-                must already be registered in this registry and include the
+            base_run_config: Base run config type the experiments derive from.
+                It must already be registered in this registry and include the
                 ``experiment`` group. It is the default run config for
                 ``compose_experiment`` / ``get_experiment_run_config`` when no
                 run config is given.
@@ -754,7 +774,7 @@ class HydraZenRegistry:
 
     def compose(
         self, config_name: str, overrides: list[str] | None = None
-    ) -> Any:
+    ) -> DictConfig:
         """Compose a config from the local store using Hydra's compose.
 
         This method adds all stored entries to Hydra's global config store,

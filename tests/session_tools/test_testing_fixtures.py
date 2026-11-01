@@ -59,12 +59,15 @@ def _fake_simulate(config, **kwargs):
 
 INNER_MODULE = textwrap.dedent(
     """\
-    from types import SimpleNamespace
-
     import pytest
     from omegaconf import OmegaConf
 
     from mtools import testing
+
+
+    def _run_config(model_name):
+        # Minimal run config type; real ones are Hydra config types.
+        return type("RunConfig", (), {"model_name": model_name})
 
 
     class FakeRegistry:
@@ -90,13 +93,13 @@ INNER_MODULE = textwrap.dedent(
     def registry():
         return FakeRegistry(
             model_name="my.Model",
-            runs={"turn_left": SimpleNamespace(model_name="my.Model")},
+            runs={"turn_left": _run_config("my.Model")},
         )
 
 
     @pytest.fixture(scope="module")
     def reference_run_config():
-        return SimpleNamespace(model_name="ref.Model")
+        return _run_config("ref.Model")
 
 
     class TestSingle(testing.Experiment):

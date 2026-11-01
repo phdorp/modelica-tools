@@ -14,21 +14,26 @@ import json
 import re
 from collections.abc import Hashable, Mapping
 from itertools import product
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, TypeAlias, cast
 
 import numpy as np
 import pandas as pd
-from omegaconf import OmegaConf
+import pytest
+from omegaconf import DictConfig, OmegaConf
 
 from mtools import sim_tools
 from mtools.hydra_registry import EXPERIMENT_GROUP
 
 if TYPE_CHECKING:
-    from mtools.hydra_registry import HydraZenRegistry
-    from mtools.testing import SweepValue
+    from mtools.hydra_registry import RunConfig
+    from mtools.testing import Registry, SweepValue
+
+#: A solution structure: one solution table, or a mapping (by experiment name
+#: or sweep combination) to further solution structures.
+Solution: TypeAlias = pd.DataFrame | dict[Hashable, "Solution"]
 
 
-def _to_hydra_value(value: Any) -> str:
+def _to_hydra_value(value: SweepValue) -> str:
     """Serialize a sweep value to Hydra override grammar.
 
     Args:
@@ -70,7 +75,7 @@ def _to_hydra_value(value: Any) -> str:
     raise TypeError(f"sweep value of type {type(value).__name__!r} is not supported by Hydra overrides")
 
 
-def _to_hashable(value: Any) -> Hashable:
+def _to_hashable(value: SweepValue) -> Hashable:
     """Return a hashable form of a sweep value for use in result keys.
 
     ``list``/``tuple`` become ``tuple`` (recursively frozen); ``dict``
@@ -84,11 +89,15 @@ def _to_hashable(value: Any) -> Hashable:
         return tuple(sorted(((key, _to_hashable(item)) for key, item in value.items()), key=str))
     if isinstance(value, (list, tuple)):
         return tuple(_to_hashable(item) for item in value)
-    return value
+    return cast(Hashable, value)
 
 
 def _resolve_field_names(
-    registry: Any, experiment_name: str, param: str, prefix: str, run_config: Any = None
+    registry: Registry,
+    experiment_name: str,
+    param: str,
+    prefix: str,
+    run_config: RunConfig | None = None,
 ) -> list[str] | None:
     """Return the config keys of the node targeted by a sweep param, if mapping-like.
 
@@ -122,9 +131,9 @@ def _resolve_field_names(
             else:
                 node = getattr(node, part)
         if OmegaConf.is_dict(node):
-            return list(node.keys())
+            return cast(list[str], list(node.keys()))
         if isinstance(node, Mapping):
-            return list(node.keys())
+            return cast(list[str], list(node.keys()))
     except Exception:
         return None
     return None
@@ -166,7 +175,7 @@ def _ensure_unique(keys: list, message: str) -> None:
         raise ValueError(message)
 
 
-def _select_job_value(config: Any, path: str) -> Any:
+def _select_job_value(config: object, path: str) -> object:
     """Extract the value at ``path`` from a job's composed config.
 
     Handles Hydra ``DictConfig``/``ListConfig`` nodes (via
@@ -180,13 +189,14 @@ def _select_job_value(config: Any, path: str) -> Any:
             or ``"model_name"`` for the simulated model's name).
 
     Returns:
-        The plain-Python value at ``path``.
+        The plain-Python value at ``path``. The type is whatever the config
+        holds, so callers narrow it to what they expect.
 
     Raises:
         ValueError: If ``path`` is absent from the job config.
     """
     if OmegaConf.is_config(config):
-        value = OmegaConf.select(config, path, default=_JOB_VALUE_MISSING)
+        value = OmegaConf.select(cast("DictConfig", config), path, default=_JOB_VALUE_MISSING)
         if value is _JOB_VALUE_MISSING:
             raise ValueError(f"config path {path!r} not found in sweep job config")
         if OmegaConf.is_config(value):
@@ -202,8 +212,8 @@ def _select_job_value(config: Any, path: str) -> Any:
 
 
 def assert_solutions_match(
-    actual: Any,
-    reference: Any,
+    actual: Solution,
+    reference: Solution,
     *,
     atol: float,
     context: str,
@@ -256,11 +266,11 @@ def assert_solutions_match(
     if isinstance(reference, dict):
         if not isinstance(actual, dict):
             raise TypeError(f"{context}: expected a result mapping, got {type(actual).__name__!r}")
-        missing = [key for key in reference if key not in actual]
-        extra = [key for key in actual if key not in reference]
-        if missing or extra:
+        missing_keys = [key for key in reference if key not in actual]
+        extra_keys = [key for key in actual if key not in reference]
+        if missing_keys or extra_keys:
             raise AssertionError(
-                f"{context}: result keys differ; missing {missing!r}, unexpected {extra!r}"
+                f"{context}: result keys differ; missing {missing_keys!r}, unexpected {extra_keys!r}"
             )
         for key, reference_solution in reference.items():
             assert_solutions_match(
@@ -290,8 +300,8 @@ class _SweepPlan:
         sweep_params: dict[str, list[SweepValue]],
         prefix: str,
         experiment: str,
-        registry: Any,
-        run_config: Any = None,
+        registry: Registry,
+        run_config: RunConfig | None = None,
     ):
         """Freeze combinations and normalize values up front.
 
@@ -337,7 +347,7 @@ class _SweepPlan:
         self.norm_to_raw = dict(zip(self.norm_combos, self.frozen_combos))
 
     def _normalize_param(
-        self, param: str, values: list[SweepValue], registry: Any, experiment: str
+        self, param: str, values: list[SweepValue], registry: Registry, experiment: str
     ) -> list[SweepValue]:
         """Map positional values of one param onto field names when its target is mapping-like."""
         needs_fields = any(isinstance(value, (list, tuple)) for value in values)
@@ -358,7 +368,9 @@ class _SweepPlan:
             ),
         ]
 
-    def launch(self, registry: HydraZenRegistry, tmp_path_factory: Any) -> list:
+    def launch(
+        self, registry: Registry, tmp_path_factory: pytest.TempPathFactory
+    ) -> list[sim_tools.SweepResult]:
         """Fan out via multirun simulate and return the per-job results.
 
         Args:
@@ -373,10 +385,11 @@ class _SweepPlan:
             sweep_dir=str(tmp_path_factory.mktemp(f"{self.experiment}_sweep")),
         )
 
-    def key_of(self, job: Any) -> tuple:
+    def key_of(self, job: sim_tools.SweepResult) -> tuple[Hashable, ...]:
         """Attribute one job to its raw combination via its own composed config."""
         job_key = tuple(
-            _to_hashable(_select_job_value(job.config, f"{self.prefix}.{param}")) for param in self.params
+            _to_hashable(cast("SweepValue", _select_job_value(job.config, f"{self.prefix}.{param}")))
+            for param in self.params
         )
         try:
             return self.norm_to_raw[job_key]
@@ -385,7 +398,9 @@ class _SweepPlan:
                 f"sweep job config {job_key!r} matches no swept combination for params {self.params}"
             ) from None
 
-    def attribute(self, sweep_results: list) -> dict:
+    def attribute(
+        self, sweep_results: list[sim_tools.SweepResult]
+    ) -> dict[tuple[Hashable, ...], pd.DataFrame]:
         """Map each job's solution table to its raw combination key.
 
         The model name keying a job's solutions is read from that job's own
@@ -399,6 +414,8 @@ class _SweepPlan:
             if raw_key in results:
                 raise ValueError(f"duplicate sweep job for combination {raw_key!r}")
             model_name = _select_job_value(job.config, "model_name")
+            if not isinstance(model_name, str):
+                raise ValueError("config path 'model_name' is not a string in sweep job config")
             if model_name not in self.model_names:
                 self.model_names.append(model_name)
             results[raw_key] = job.solutions[model_name]

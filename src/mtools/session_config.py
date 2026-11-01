@@ -45,7 +45,7 @@ class DataclassType(Protocol):
     """Protocol describing objects that expose dataclass field metadata."""
 
     #: Dataclass field definitions exposed by dataclass instances.
-    __dataclass_fields__: ClassVar[Dict[str, Any]]
+    __dataclass_fields__: ClassVar[Dict[str, dataclasses.Field[Any]]]
 
 
 @dataclasses.dataclass
