@@ -17,27 +17,41 @@ suffices, and a per-class fixture definition overrides the module-level
 one for that class)::
 
     @pytest.fixture(scope="module")
-    def model_name():
-        return MODEL_NAME
-
-    @pytest.fixture(scope="module")
     def registry():
         return kinematic_registry
 
 Which fixtures each alias needs:
 
-- :data:`Experiment` / :data:`Experiments`: ``model_name`` + ``registry``.
-- :data:`ExperimentSweep` / :data:`ExperimentSweeps`: ``model_name`` + ``registry``.
+- :data:`Experiment` / :data:`Experiments`: ``registry``.
+- :data:`ExperimentSweep` / :data:`ExperimentSweeps`: ``registry``.
+- :data:`ExperimentReference` / :data:`ExperimentsReference`:
+  ``registry`` + ``reference_run_config``.
+- :data:`ExperimentSweepReference` / :data:`ExperimentSweepsReference`:
+  ``registry`` + ``reference_run_config``.
+
+A run config holds exactly one ``model_name``, so each base reads the
+simulated model's name from its composed config instead of a separate fixture.
+The reference comparison bases simulate the candidate model composed from the
+experiment's registered (default) run config and the reference model composed
+from the same ``registry`` with ``reference_run_config``. The two run configs
+own their own parameters, model source, model configurations, libraries,
+simulation settings, and model name. The bases then expose both result sets
+and ``assert_matches_reference()``.
 
 Experiments are resolved by name: single runs compose via
-``registry.compose_experiment(name)``, sweeps use
-``registry.get_experiment_run_config(name)`` as multirun base.
+``registry.compose_experiment(name)`` (and
+``registry.compose_experiment(name, run_config=reference_run_config)`` for the
+reference) and read the selected model name from the composed config; sweeps
+use ``registry.get_experiment_run_config(name)`` (and the
+``run_config=reference_run_config`` overload) as multirun base and read each
+job's model name from its composed config.
 """
 
 from __future__ import annotations
 
+import dataclasses
 from abc import ABC
-from collections.abc import Hashable
+from collections.abc import Hashable, Mapping, Sequence
 from typing import (TYPE_CHECKING, Any, ClassVar, Generic, Protocol, TypeAlias,
                     TypeVar, cast, runtime_checkable)
 
@@ -49,14 +63,22 @@ import mtools.internal.testing as _internal
 from mtools import sim_tools
 
 if TYPE_CHECKING:
-    from mtools.hydra_registry import HydraZenRegistry
+    from omegaconf import DictConfig
+
+    import mtools.session_config as session_config
+    from mtools.hydra_registry import RunConfig
 
 __all__ = [
     "DataclassInstance",
     "Experiment",
+    "ExperimentReference",
     "ExperimentSweep",
+    "ExperimentSweepReference",
     "ExperimentSweeps",
+    "ExperimentSweepsReference",
     "Experiments",
+    "ExperimentsReference",
+    "Registry",
     "SweepScalar",
     "SweepValue",
 ]
@@ -69,7 +91,7 @@ SweepScalar: TypeAlias = bool | int | float | str | None
 class DataclassInstance(Protocol):
     """Structural type for dataclass instances accepted as sweep values."""
 
-    __dataclass_fields__: ClassVar[dict[str, Any]]
+    __dataclass_fields__: ClassVar[dict[str, dataclasses.Field[Any]]]
 
 
 #: All sweep value types expressible in Hydra override grammar: scalars,
@@ -84,28 +106,106 @@ ResultType = TypeVar("ResultType")
 SweepResultType = TypeVar("SweepResultType")
 
 
+def _format_model_names(model_names: Mapping[str, str | Sequence[str]]) -> str:
+    """Return quoted, distinct model names from an experiment-to-names mapping.
+
+    Values are either a single model name (single-run bases) or a sequence of
+    names (sweep bases, where every job is inspected).
+    """
+    names: set[str] = set()
+    for value in model_names.values():
+        if isinstance(value, str):
+            names.add(value)
+        else:
+            names.update(value)
+    return ", ".join(repr(name) for name in sorted(names))
+
+
+@runtime_checkable
+class Registry(Protocol):
+    """Registry seam required by the experiment test bases.
+
+    :class:`mtools.hydra_registry.HydraZenRegistry` satisfies it; test doubles
+    only need to implement these three methods.
+    """
+
+    def add_to_hydra_store(self, overwrite_ok: bool | None = None) -> None:
+        """Add every registered entry to Hydra's global config store."""
+        ...
+
+    def compose_experiment(
+        self,
+        name: str,
+        run_config: RunConfig | str | None = None,
+        overrides: list[str] | None = None,
+    ) -> DictConfig:
+        """Compose the config for experiment ``name``."""
+        ...
+
+    def get_experiment_run_config(
+        self, name: str, run_config: RunConfig | str | None = None
+    ) -> RunConfig:
+        """Return the run config experiment ``name`` is swept with."""
+        ...
+
+
 class ExperimentBase(ABC):
     """Shared config for experiment tests.
 
-    Requires the ``model_name`` pytest fixture (the simulated model name
-    used to select solution tables) and the ``registry`` pytest fixture
-    (the Hydra registry experiments are composed from and sweeps resolve
-    their base config from). Test modules provide each fixture once, e.g.::
+    Requires the ``registry`` pytest fixture (the Hydra registry experiments
+    are composed from and sweeps resolve their base config from). Test modules
+    provide it once, e.g.::
 
         @pytest.fixture(scope="module")
-        def model_name():
-            return MODEL_NAME
+        def registry():
+            return kinematic_registry
     """
 
     #: Absolute tolerance used by test assertions.
     eps: ClassVar[float] = np.finfo(float).eps
 
 
+class _ReferenceComparisonMixin(Generic[ResultType]):
+    """Compare candidate results against reference results on demand."""
+
+    #: Absolute tolerance used by :meth:`assert_matches_reference`.
+    eps: ClassVar[float]
+    results: ResultType
+    reference_results: ResultType
+
+    def _comparison_context(self) -> str:
+        """Return the failure context naming the test class and model pair.
+
+        The model pair is included when the fetch phase recorded it on the
+        class (``_candidate_model_names`` / ``_reference_model_names``);
+        direct calls that never ran a fetch fall back to the class and
+        experiment name only.
+        """
+        context = f"{type(self).__name__}(name={getattr(self, 'name', None)!r}"
+        candidate = getattr(type(self), "_candidate_model_names", None)
+        reference = getattr(type(self), "_reference_model_names", None)
+        if candidate and reference:
+            context += (
+                f", candidate={_format_model_names(candidate)}"
+                f" vs reference={_format_model_names(reference)}"
+            )
+        return f"{context})"
+
+    def assert_matches_reference(self) -> None:
+        """Assert that every candidate solution matches its reference solution."""
+        _internal.assert_solutions_match(
+            cast("_internal.Solution", self.results),
+            cast("_internal.Solution", self.reference_results),
+            atol=self.eps,
+            context=self._comparison_context(),
+        )
+
+
 class ExperimentT(ExperimentBase, Generic[NameType, ResultType]):
     """Run one experiment per name via ``registry.compose_experiment`` + single-run simulate.
 
-    Requires the ``model_name`` and ``registry`` pytest fixtures (see
-    :class:`ExperimentBase`).
+    Requires the ``registry`` pytest fixture (see :class:`ExperimentBase`); the
+    simulated model's name is read from each composed config.
 
     Subclasses set ``name`` to a single experiment name (via
     :data:`Experiment`) or a list of names (via :data:`Experiments`); after
@@ -117,24 +217,35 @@ class ExperimentT(ExperimentBase, Generic[NameType, ResultType]):
     name: NameType
     #: Solution table(s) populated by the ``run_experiment`` fixture.
     results: ResultType
+    #: Model name per experiment recorded by the fetch phase (private).
+    _candidate_model_names: ClassVar[dict[str, str]]
 
     @classmethod
-    def fetch_experiment(cls, registry: HydraZenRegistry, model_name: str):
+    def fetch_experiment(cls, registry: Registry):
         """Run each experiment in ``cls.name`` and store solution tables in ``cls.results``.
 
         Args:
-            registry: Hydra registry used to compose the run config.
-            model_name: Simulated model name selecting the solution table.
+            registry: Hydra registry used to compose each run config. The
+                composed config's ``model_name`` keys the model's solution
+                table.
         """
         names = [cls.name] if isinstance(cls.name, str) else cls.name
-        results = {name: sim_tools.simulate(registry.compose_experiment(name))[model_name] for name in names}
+        results = {}
+        candidate_model_names = {}
+        for name in names:
+            config = registry.compose_experiment(name)
+            candidate_model_names[name] = config.model_name
+            results[name] = sim_tools.simulate(cast("session_config.SimulationRun", config))[
+                config.model_name
+            ]
+        cls._candidate_model_names = candidate_model_names
         cls.results = cast(ResultType, results[cls.name] if isinstance(cls.name, str) else results)
 
     @pytest.fixture(autouse=True, scope="class")
     @classmethod
-    def run_experiment(cls, registry: HydraZenRegistry, model_name: str):
+    def run_experiment(cls, registry: Registry):
         """Class-scoped fixture populating ``results`` before any test runs."""
-        cls.fetch_experiment(registry, model_name)
+        cls.fetch_experiment(registry)
 
 
 # Single experiment: ``name`` is one experiment name, ``results`` its solution table.
@@ -143,13 +254,76 @@ Experiment = ExperimentT[str, pd.DataFrame]
 Experiments = ExperimentT[list[str], dict[str, pd.DataFrame]]
 
 
+class ExperimentReferenceT(
+    ExperimentT[NameType, ResultType], _ReferenceComparisonMixin[ResultType]
+):
+    """Run an experiment for a candidate and a reference model.
+
+    Requires the ``registry`` and ``reference_run_config`` pytest fixtures.
+    The candidate experiment is composed from ``registry``'s default run
+    config; the reference experiment with the same name is composed from the
+    same ``registry`` with ``run_config=reference_run_config``. The two run
+    configs own their own parameters, model source, model configurations,
+    libraries, simulation settings, and model name. Each side's model name is
+    read from its composed config.
+    """
+
+    reference_results: ResultType
+    #: Reference model name per experiment recorded by the fetch phase (private).
+    _reference_model_names: ClassVar[dict[str, str]]
+
+    @classmethod
+    def fetch_reference_experiment(
+        cls,
+        registry: Registry,
+        reference_run_config: RunConfig,
+    ) -> None:
+        """Run the experiment for both the candidate and reference models.
+
+        Args:
+            registry: Hydra registry used to compose both run configs.
+            reference_run_config: Run config composing the reference experiment.
+        """
+        super().fetch_experiment(registry)
+        names = [cls.name] if isinstance(cls.name, str) else cls.name
+        reference_results = {}
+        reference_model_names = {}
+        for name in names:
+            config = registry.compose_experiment(name, run_config=reference_run_config)
+            reference_model_names[name] = config.model_name
+            reference_results[name] = sim_tools.simulate(cast("session_config.SimulationRun", config))[
+                config.model_name
+            ]
+        cls._reference_model_names = reference_model_names
+        cls.reference_results = cast(
+            ResultType,
+            reference_results[cls.name] if isinstance(cls.name, str) else reference_results,
+        )
+
+    @pytest.fixture(autouse=True, scope="class")
+    @classmethod
+    def run_experiment(
+        cls,
+        registry: Registry,
+        reference_run_config: RunConfig,
+    ):
+        """Class-scoped fixture populating candidate and reference results."""
+        cls.fetch_reference_experiment(registry, reference_run_config)
+
+
+# Single reference comparison: ``results`` and ``reference_results`` are solution tables.
+ExperimentReference = ExperimentReferenceT[str, pd.DataFrame]
+# Multiple reference comparisons: each result attribute maps name to solution table.
+ExperimentsReference = ExperimentReferenceT[list[str], dict[str, pd.DataFrame]]
+
+
 class ExperimentSweepT(ExperimentBase, Generic[NameType, SweepResultType]):
     """Sweep parameters across ``sweep_params`` via multirun simulate.
 
-    Requires the ``model_name`` and ``registry`` pytest fixtures (see
-    :class:`ExperimentBase`); the multirun base config is the run config
-    the swept experiment was registered with, resolved via
-    ``registry.get_experiment_run_config(name)``.
+    Requires the ``registry`` pytest fixture (see :class:`ExperimentBase`);
+    the multirun base config is the run config the swept experiment was
+    registered with, resolved via ``registry.get_experiment_run_config(name)``.
+    Each job's model name is read from its composed config.
 
     Subclasses set ``name`` to a single experiment name (via
     :data:`ExperimentSweep`) or a list of names (via
@@ -177,19 +351,28 @@ class ExperimentSweepT(ExperimentBase, Generic[NameType, SweepResultType]):
     name: NameType
     #: Per-value solution table(s) populated by the ``run_sweep`` fixture.
     results: SweepResultType
+    #: Candidate model names per experiment recorded by the sweep phase (private).
+    _candidate_model_names: ClassVar[dict[str, list[str]]]
+    #: Reference model names per experiment recorded by a reference sweep (private).
+    _reference_model_names: ClassVar[dict[str, list[str]]]
 
     @classmethod
     def run_single_sweep(
-        cls, name: str, model_name: str, registry: HydraZenRegistry, tmp_path_factory: Any
-    ):
+        cls,
+        name: str,
+        registry: Registry,
+        tmp_path_factory: pytest.TempPathFactory,
+        run_config: RunConfig | None = None,
+    ) -> dict[tuple[Hashable, ...], pd.DataFrame]:
         """Run one multirun sweep and map each parameter combination to its solution table.
 
         Args:
             name: Experiment name to sweep.
-            model_name: Simulated model name selecting the solution table.
             registry: Hydra registry providing the experiment's base run
                 config via ``get_experiment_run_config(name)``.
             tmp_path_factory: Pytest factory used for the sweep directory.
+            run_config: Optional run config whose experiment is swept;
+                ``None`` uses the registry's default.
 
         Returns:
             Mapping of cartesian-product tuple (in ``sweep_params``
@@ -203,34 +386,43 @@ class ExperimentSweepT(ExperimentBase, Generic[NameType, SweepResultType]):
             ValueError: If distinct sweep values freeze to the same result
                 key (e.g. ``True`` vs ``1``, or ``1`` vs ``1.0``, which
                 compare equal as dict keys); if normalized sweep values
-                are ambiguous; or if a job's composed config matches no
-                swept combination or matches twice.
+                are ambiguous; if a job's composed config matches no
+                swept combination or matches twice; or if a job's composed
+                config lacks ``model_name``.
         """
-        plan = _internal._SweepPlan(cls.sweep_params, cls.sweep_param_prefix, name, registry)
+        plan = _internal._SweepPlan(cls.sweep_params, cls.sweep_param_prefix, name, registry, run_config=run_config)
         sweep_results = plan.launch(registry, tmp_path_factory)
         assert len(sweep_results) == len(plan.combos), (
             f"expected {len(plan.combos)} sweep results, got {len(sweep_results)}"
         )
-        return plan.attribute(sweep_results, model_name)
+        results = plan.attribute(sweep_results)
+        if run_config is None:
+            candidate_model_names = dict(getattr(cls, "_candidate_model_names", {}))
+            candidate_model_names[name] = plan.model_names
+            cls._candidate_model_names = candidate_model_names
+        else:
+            reference_model_names = dict(getattr(cls, "_reference_model_names", {}))
+            reference_model_names[name] = plan.model_names
+            cls._reference_model_names = reference_model_names
+        return results
 
     @pytest.fixture(autouse=True, scope="class")
     @classmethod
-    def run_sweep(cls, model_name: str, registry: HydraZenRegistry, tmp_path_factory):
+    def run_sweep(cls, registry: Registry, tmp_path_factory: pytest.TempPathFactory):
         """Class-scoped fixture populating ``results`` before any test runs."""
-        cls.fetch_sweep(model_name, registry, tmp_path_factory)
+        cls.fetch_sweep(registry, tmp_path_factory)
 
     @classmethod
-    def fetch_sweep(cls, model_name: str, registry: HydraZenRegistry, tmp_path_factory):
+    def fetch_sweep(cls, registry: Registry, tmp_path_factory: pytest.TempPathFactory) -> None:
         """Sweep each experiment in ``cls.name`` and store per-combination solution tables in ``cls.results``.
 
         Args:
-            model_name: Simulated model name selecting the solution table.
             registry: Hydra registry providing each experiment's base run
                 config via ``get_experiment_run_config(name)``.
             tmp_path_factory: Pytest factory used for the sweep directory.
         """
         names = [cls.name] if isinstance(cls.name, str) else cls.name
-        results = {name: cls.run_single_sweep(name, model_name, registry, tmp_path_factory) for name in names}
+        results = {name: cls.run_single_sweep(name, registry, tmp_path_factory) for name in names}
         cls.results = cast(SweepResultType, results[cls.name] if isinstance(cls.name, str) else results)
 
 
@@ -238,3 +430,92 @@ class ExperimentSweepT(ExperimentBase, Generic[NameType, SweepResultType]):
 ExperimentSweep = ExperimentSweepT[str, dict[tuple[Hashable, ...], pd.DataFrame]]
 # Multiple sweeps: ``results`` maps each experiment name to such a per-combination mapping.
 ExperimentSweeps = ExperimentSweepT[list[str], dict[str, dict[tuple[Hashable, ...], pd.DataFrame]]]
+
+
+class ExperimentSweepReferenceT(
+    ExperimentSweepT[NameType, SweepResultType], _ReferenceComparisonMixin[SweepResultType]
+):
+    """Sweep an experiment for a candidate and a reference model.
+
+    Requires the ``registry`` and ``reference_run_config`` pytest fixtures plus
+    the builtin ``tmp_path_factory``. The reference sweep uses the same
+    parameter combinations and result attribution as the candidate sweep but
+    composes its base run config from the same ``registry`` with
+    ``run_config=reference_run_config`` and writes to its own temporary sweep
+    directory. Each job's model name is read from its composed config. The two
+    run configs own their own parameters, model source, model configurations,
+    libraries, and simulation settings.
+    """
+
+    reference_results: SweepResultType
+
+    @classmethod
+    def run_single_reference_sweep(
+        cls,
+        name: str,
+        registry: Registry,
+        reference_run_config: RunConfig,
+        tmp_path_factory: pytest.TempPathFactory,
+    ) -> dict[tuple[Hashable, ...], pd.DataFrame]:
+        """Run one reference sweep by reusing the candidate sweep with a different base run config.
+
+        Args:
+            name: Experiment name to sweep in ``registry``.
+            registry: Hydra registry providing the reference experiment's
+                base run config via
+                ``get_experiment_run_config(name, run_config=reference_run_config)``.
+            reference_run_config: Run config composing the reference sweep.
+            tmp_path_factory: Pytest factory used for the sweep directory.
+
+        Returns:
+            Mapping of cartesian-product tuple to reference solution table.
+        """
+        return super().run_single_sweep(
+            name, registry, tmp_path_factory, run_config=reference_run_config
+        )
+
+    @classmethod
+    def fetch_reference_sweep(
+        cls,
+        registry: Registry,
+        reference_run_config: RunConfig,
+        tmp_path_factory: pytest.TempPathFactory,
+    ) -> None:
+        """Sweep the experiment for both the candidate and reference models.
+
+        Args:
+            registry: Hydra registry providing each experiment's base run
+                config via ``get_experiment_run_config(name)``.
+            reference_run_config: Run config composing each reference
+                experiment's base run config.
+            tmp_path_factory: Pytest factory used for the sweep directories.
+        """
+        super().fetch_sweep(registry, tmp_path_factory)
+        names = [cls.name] if isinstance(cls.name, str) else cls.name
+        reference_results = {
+            name: cls.run_single_reference_sweep(name, registry, reference_run_config, tmp_path_factory)
+            for name in names
+        }
+        cls.reference_results = cast(
+            SweepResultType,
+            reference_results[cls.name] if isinstance(cls.name, str) else reference_results,
+        )
+
+    @pytest.fixture(autouse=True, scope="class")
+    @classmethod
+    def run_sweep(
+        cls,
+        registry: Registry,
+        reference_run_config: RunConfig,
+        tmp_path_factory: pytest.TempPathFactory,
+    ):
+        """Class-scoped fixture populating candidate and reference sweep results."""
+        cls.fetch_reference_sweep(registry, reference_run_config, tmp_path_factory)
+
+
+# Single reference sweep: both result attributes map each combination to its table.
+ExperimentSweepReference = ExperimentSweepReferenceT[str, dict[tuple[Hashable, ...], pd.DataFrame]]
+# Multiple reference sweeps: both result attributes map name to such a mapping.
+ExperimentSweepsReference = ExperimentSweepReferenceT[
+    list[str], dict[str, dict[tuple[Hashable, ...], pd.DataFrame]]
+]

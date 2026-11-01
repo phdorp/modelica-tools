@@ -176,9 +176,9 @@ def _compile_without_source_copy(
         if _gen.stderr:
             self._logger.error(_gen.stderr)
 
-    _make_file = glob.glob(os.path.join(_temp_build_dir, "*.makefile"))
+    _make_files = glob.glob(os.path.join(_temp_build_dir, "*.makefile"))
 
-    if not _make_file:
+    if not _make_files:
         self._logger.error(
             "Output directory contents [%s]: %s",
             _temp_build_dir,
@@ -189,6 +189,7 @@ def _compile_without_source_copy(
             "Modelica failed to generated required files."
         )
 
+    _make_cmd: str
     if platform.system() == "Windows":
         _make_binaries = glob.glob(
             os.path.join(
@@ -207,13 +208,13 @@ def _compile_without_source_copy(
             )
 
         _make_cmd = _make_binaries[0]
-    elif not shutil.which("make"):
-        raise pde.BinaryNotFoundError("Could not find GNU-Make on this system")
     else:
-        _make_cmd = shutil.which("make")
+        _make_path = shutil.which("make")
+        if _make_path is None:
+            raise pde.BinaryNotFoundError("Could not find GNU-Make on this system")
+        _make_cmd = _make_path
 
-    _make_file = _make_file[0]
-    _build_cmd = [_make_cmd, "-f", _make_file]
+    _build_cmd: list[str] = [_make_cmd, "-f", _make_files[0]]
 
     if platform.system() == "Windows":
         _build_cmd.extend(("-w", "OMC_LDFLAGS_LINK_TYPE=static"))

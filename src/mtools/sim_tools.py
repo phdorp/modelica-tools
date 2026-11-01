@@ -67,7 +67,13 @@ def simulate(
         raise ValueError("Multirun simulate() requires 'overrides' with sweep values.")
     full_overrides = _internal.build_multirun_overrides(overrides, sweep_dir)
     job_iter = _internal.launch_sweep(config, full_overrides)  # type: ignore[arg-type]
-    return [SweepResult(config=job.cfg, solutions=job.return_value) for job in job_iter]
+    results = []
+    for job in job_iter:
+        # A multirun job always carries its composed config; hydra-zen types it
+        # as optional because single-run returns may omit it.
+        assert job.cfg is not None
+        results.append(SweepResult(config=job.cfg, solutions=job.return_value))
+    return results
 
 
 def save_solutions(solutions: dict[str, pandas.DataFrame], output_path: str):

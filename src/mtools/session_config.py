@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 import dataclasses
 from typing import Any, ClassVar, Dict, Protocol
 
@@ -44,7 +45,7 @@ class DataclassType(Protocol):
     """Protocol describing objects that expose dataclass field metadata."""
 
     #: Dataclass field definitions exposed by dataclass instances.
-    __dataclass_fields__: ClassVar[Dict[str, Any]]
+    __dataclass_fields__: ClassVar[Dict[str, dataclasses.Field[Any]]]
 
 
 @dataclasses.dataclass
@@ -71,12 +72,16 @@ class Model:
 
 @dataclasses.dataclass
 class Simulation:
-    """Global simulation runtime settings."""
+    """Global simulation runtime settings.
+
+    ``solver`` and ``output_format`` are defaulted so a bare ``Simulation()`` is a valid
+    ``session/sim_configurations`` group default that experiments override selectively.
+    """
 
     #: Solver backend name used for simulation.
-    solver: str
+    solver: str = "rungekutta"
     #: Output format emitted by the simulation runtime.
-    output_format: str
+    output_format: str = "csv"
     #: Emit protected model variables to the result file (OMC ``-emit_protected``).
     #: Applied to the session's default (built) model.
     emit_protected: bool = False

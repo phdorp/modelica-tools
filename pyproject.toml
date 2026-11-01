@@ -23,3 +23,19 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/mtools"]
+
+# `src/mtools` and `tests` are implicit namespace packages (no `__init__.py`),
+# so mypy needs the package roots declared to map paths to module names instead
+# of seeing e.g. `mtools/sim_tools.py` and `mtools/internal/sim_tools.py` both
+# as top-level `sim_tools`. `tests/session_tools` is listed as a root because
+# the tests import the Modelica fixtures as `models.kinematic_vehicle`.
+[tool.mypy]
+mypy_path = ["src", "tests/session_tools"]
+namespace_packages = true
+explicit_package_bases = true
+
+# `pydelica` ships no `py.typed` marker, so its imports would otherwise be
+# reported as untyped. Its API is used directly, so ignore the missing stubs.
+[[tool.mypy.overrides]]
+module = ["pydelica.*"]
+ignore_missing_imports = true
