@@ -379,14 +379,19 @@ class _SweepPlan:
                 f"sweep job config {job_key!r} matches no swept combination for params {self.params}"
             ) from None
 
-    def attribute(self, sweep_results: list, model_name: str) -> dict:
-        """Map each job's solution table to its raw combination key."""
+    def attribute(self, sweep_results: list) -> dict:
+        """Map each job's solution table to its raw combination key.
+
+        The model name keying a job's solutions is read from that job's own
+        composed config, so a job whose config lacks ``model_name`` fails here
+        rather than returning a mis-keyed table.
+        """
         results = {}
         for job in sweep_results:
             raw_key = self.key_of(job)
             if raw_key in results:
                 raise ValueError(f"duplicate sweep job for combination {raw_key!r}")
-            results[raw_key] = job.solutions[model_name]
+            results[raw_key] = job.solutions[_select_job_value(job.config, "model_name")]
         assert len(results) == len(self.combos), (
             f"expected {len(self.combos)} sweep results, got {len(results)}"
         )

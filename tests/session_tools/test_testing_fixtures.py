@@ -2,11 +2,11 @@
 
 ``test_testing.py`` drives ``fetch_experiment``/``fetch_sweep`` directly,
 so the actual ``@pytest.fixture(autouse=True, scope="class") @classmethod``
-path (argument-name injection of the module-level ``model_name``,
-``registry``, ``reference_name``, and ``reference_run_config`` fixtures plus the
-builtin ``tmp_path_factory``) had zero coverage. These tests run a real inner
-pytest session via the ``pytester`` fixture, so a fixture typo surfaces here
-instead of only in the slow example suite.
+path (argument-name injection of the module-level ``registry`` and
+``reference_run_config`` fixtures plus the builtin ``tmp_path_factory``) had
+zero coverage. These tests run a real inner pytest session via the ``pytester``
+fixture, so a fixture typo surfaces here instead of only in the slow example
+suite.
 """
 
 import textwrap
@@ -47,7 +47,7 @@ def _fake_simulate(config, **kwargs):
         is_reference = model_name == "ref.Model"
         return [
             _FakeJob(
-                {"session": {"parameters": {"phi": phi}}},
+                {"model_name": model_name, "session": {"parameters": {"phi": phi}}},
                 {model_name: _frame(f"ref={phi}" if is_reference else f"phi={phi}")},
             )
             for phi in (0.1, 0.2)
@@ -62,6 +62,7 @@ INNER_MODULE = textwrap.dedent(
     from types import SimpleNamespace
 
     import pytest
+    from omegaconf import OmegaConf
 
     from mtools import testing
 
@@ -75,22 +76,14 @@ INNER_MODULE = textwrap.dedent(
             pass
 
         def compose_experiment(self, name, run_config=None, overrides=None):
-            return {"composed_experiment": name, "model_name": getattr(run_config, "model_name", self.model_name)}
+            return OmegaConf.create(
+                {"composed_experiment": name, "model_name": getattr(run_config, "model_name", self.model_name)}
+            )
 
         def get_experiment_run_config(self, name, run_config=None):
             if run_config is not None:
                 return run_config
             return self._runs[name]
-
-
-    @pytest.fixture(scope="module")
-    def model_name():
-        return "my.Model"
-
-
-    @pytest.fixture(scope="module")
-    def reference_name():
-        return "ref.Model"
 
 
     @pytest.fixture(scope="module")
@@ -140,7 +133,7 @@ INNER_MODULE = textwrap.dedent(
 )
 
 
-def test_classmethod_fixtures_wire_model_name_registry_and_tmp_path(pytester, monkeypatch):
+def test_classmethod_fixtures_wire_registry_and_tmp_path(pytester, monkeypatch):
     """The autouse class-scoped fixtures populate ``results`` from module fixtures."""
     monkeypatch.setattr(sim_tools, "simulate", _fake_simulate)
     pytester.makepyfile(test_wired_inner=INNER_MODULE)
