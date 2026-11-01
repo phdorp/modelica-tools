@@ -766,6 +766,56 @@ def test_reference_sweep_uses_reference_run_config_and_matches_combinations(monk
     T().assert_matches_reference()
 
 
+def test_reference_sweep_launches_reference_pass_with_reference_run_config(monkeypatch, tmp_path_factory):
+    """The reference pass launches against ``reference_run_config``; the candidate uses the default.
+
+    Pins the delegation's central guarantee: dropping ``run_config`` from the reference
+    pass would launch both sides against the registry default and still compare matching
+    tables, so only the resolved run configs distinguish the two.
+    """
+
+    class RecordingRegistry(FakeRegistry):
+        """Fake registry recording the run config each sweep launch resolved."""
+
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.run_config_calls: list = []
+
+        def get_experiment_run_config(self, name, run_config=None):
+            self.run_config_calls.append(run_config)
+            return super().get_experiment_run_config(name, run_config=run_config)
+
+    class FakeJob:
+        def __init__(self, config, solutions):
+            self.config = config
+            self.solutions = solutions
+
+    def fake_simulate(config, *, overrides, multirun, sweep_dir):
+        model_name = config.model_name
+        return [
+            FakeJob(
+                {"model_name": model_name, "session": {"parameters": {"phi": phi}}},
+                {model_name: _signal_frame([phi])},
+            )
+            for phi in (0.1, 0.2)
+        ]
+
+    monkeypatch.setattr(sim_tools, "simulate", fake_simulate)
+    default_run = SimpleNamespace(model_name="my.Model")
+    registry = RecordingRegistry(runs={"turn_left": default_run}, model_name="my.Model")
+    reference_run_config = SimpleNamespace(model_name="ref.Model")
+
+    class T(testing.ExperimentSweepReference):
+        name = "turn_left"
+        sweep_params = {"phi": [0.1, 0.2]}
+
+    T.fetch_reference_sweep(registry, reference_run_config, tmp_path_factory)
+
+    assert registry.run_config_calls == [None, reference_run_config]
+    assert set(T.results) == set(T.reference_results) == {(0.1,), (0.2,)}
+    T().assert_matches_reference()
+
+
 def test_reference_sweep_comparison_rejects_missing_combination():
     class T(testing.ExperimentSweepReference):
         name = "turn_left"
