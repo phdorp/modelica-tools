@@ -201,6 +201,10 @@ def _select_job_value(config: Any, path: str) -> Any:
     return node
 
 
+#: Solution-table column holding simulation time; not an output signal.
+_TIME_COLUMN = "time"
+
+
 def assert_solutions_match(
     actual: Any,
     reference: Any,
@@ -212,9 +216,13 @@ def assert_solutions_match(
     """Recursively assert that candidate solutions match reference solutions.
 
     Data frame references are compared by output signal set, row count, and
-    positionally per column. Dict references require the same key set and are
-    compared recursively; ``context`` is extended with each key so failures
-    identify the offending experiment or sweep combination.
+    positionally per column. The ``_TIME_COLUMN`` (``"time"``) column is not
+    treated as an output signal: it is exempt from the signal-set check and
+    its values are never compared, so candidate and reference runs may use
+    different solver sample grids as long as the tables have equal length.
+    Dict references require the same key set and are compared recursively;
+    ``context`` is extended with each key so failures identify the offending
+    experiment or sweep combination.
 
     Args:
         actual: Candidate solution structure (data frame or dict of them).
@@ -231,8 +239,14 @@ def assert_solutions_match(
     if isinstance(reference, pd.DataFrame):
         if not isinstance(actual, pd.DataFrame):
             raise TypeError(f"{context}: expected a solution table, got {type(actual).__name__!r}")
-        missing = [column for column in reference.columns if column not in actual.columns]
-        extra = [column for column in actual.columns if column not in reference.columns]
+        missing = [
+            column
+            for column in reference.columns
+            if column != _TIME_COLUMN and column not in actual.columns
+        ]
+        extra = [
+            column for column in actual.columns if column != _TIME_COLUMN and column not in reference.columns
+        ]
         if missing or extra:
             raise AssertionError(
                 f"{context}: output signals differ; missing {missing!r}, unexpected {extra!r}"
@@ -242,6 +256,8 @@ def assert_solutions_match(
                 f"{context}: solution length differs ({len(actual)} != {len(reference)})"
             )
         for column in reference.columns:
+            if column == _TIME_COLUMN:
+                continue
             np.testing.assert_allclose(
                 actual[column],
                 reference[column],
@@ -304,6 +320,8 @@ class _SweepPlan:
         self.prefix = prefix
         self.experiment = experiment
         self.run_config = run_config
+        #: Distinct model names seen while attributing sweep jobs.
+        self.model_names: list[str] = []
         for param, values in sweep_params.items():
             if not values:
                 raise ValueError(
@@ -385,14 +403,18 @@ class _SweepPlan:
 
         The model name keying a job's solutions is read from that job's own
         composed config, so a job whose config lacks ``model_name`` fails here
-        rather than returning a mis-keyed table.
+        rather than returning a mis-keyed table. The distinct names seen are
+        exposed on :attr:`model_names` for failure-context reporting.
         """
         results = {}
         for job in sweep_results:
             raw_key = self.key_of(job)
             if raw_key in results:
                 raise ValueError(f"duplicate sweep job for combination {raw_key!r}")
-            results[raw_key] = job.solutions[_select_job_value(job.config, "model_name")]
+            model_name = _select_job_value(job.config, "model_name")
+            if model_name not in self.model_names:
+                self.model_names.append(model_name)
+            results[raw_key] = job.solutions[model_name]
         assert len(results) == len(self.combos), (
             f"expected {len(self.combos)} sweep results, got {len(results)}"
         )

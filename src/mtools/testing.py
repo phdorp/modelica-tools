@@ -50,7 +50,7 @@ job's model name from its composed config.
 from __future__ import annotations
 
 from abc import ABC
-from collections.abc import Hashable
+from collections.abc import Hashable, Mapping
 from typing import (TYPE_CHECKING, Any, ClassVar, Generic, Protocol, TypeAlias,
                     TypeVar, cast, runtime_checkable)
 
@@ -101,6 +101,21 @@ ResultType = TypeVar("ResultType")
 SweepResultType = TypeVar("SweepResultType")
 
 
+def _format_model_names(model_names: Mapping[str, Any]) -> str:
+    """Return quoted, distinct model names from an experiment-to-names mapping.
+
+    Values are either a single model name (single-run bases) or a sequence of
+    names (sweep bases, where every job is inspected).
+    """
+    names: set[str] = set()
+    for value in model_names.values():
+        if isinstance(value, str):
+            names.add(value)
+        else:
+            names.update(value)
+    return ", ".join(repr(name) for name in sorted(names))
+
+
 class ExperimentBase(ABC):
     """Shared config for experiment tests.
 
@@ -121,9 +136,27 @@ class _ReferenceComparisonMixin:
     """Compare candidate results against reference results on demand."""
 
     #: Absolute tolerance used by :meth:`assert_matches_reference`.
-    eps: ClassVar[float] = np.finfo(float).eps
+    eps: ClassVar[float]
     results: Any
     reference_results: Any
+
+    def _comparison_context(self) -> str:
+        """Return the failure context naming the test class and model pair.
+
+        The model pair is included when the fetch phase recorded it on the
+        class (``_candidate_model_names`` / ``_reference_model_names``);
+        direct calls that never ran a fetch fall back to the class and
+        experiment name only.
+        """
+        context = f"{type(self).__name__}(name={getattr(self, 'name', None)!r}"
+        candidate = getattr(type(self), "_candidate_model_names", None)
+        reference = getattr(type(self), "_reference_model_names", None)
+        if candidate and reference:
+            context += (
+                f", candidate={_format_model_names(candidate)}"
+                f" vs reference={_format_model_names(reference)}"
+            )
+        return f"{context})"
 
     def assert_matches_reference(self) -> None:
         """Assert that every candidate solution matches its reference solution."""
@@ -131,7 +164,7 @@ class _ReferenceComparisonMixin:
             self.results,
             self.reference_results,
             atol=self.eps,
-            context=f"{type(self).__name__}(name={getattr(self, 'name', None)!r})",
+            context=self._comparison_context(),
         )
 
 
@@ -151,6 +184,8 @@ class ExperimentT(ExperimentBase, Generic[NameType, ResultType]):
     name: NameType
     #: Solution table(s) populated by the ``run_experiment`` fixture.
     results: ResultType
+    #: Model name per experiment recorded by the fetch phase (private).
+    _candidate_model_names: ClassVar[dict[str, str]]
 
     @classmethod
     def fetch_experiment(cls, registry: HydraZenRegistry):
@@ -163,9 +198,12 @@ class ExperimentT(ExperimentBase, Generic[NameType, ResultType]):
         """
         names = [cls.name] if isinstance(cls.name, str) else cls.name
         results = {}
+        candidate_model_names = {}
         for name in names:
             config = registry.compose_experiment(name)
+            candidate_model_names[name] = config.model_name
             results[name] = sim_tools.simulate(config)[config.model_name]
+        cls._candidate_model_names = candidate_model_names
         cls.results = cast(ResultType, results[cls.name] if isinstance(cls.name, str) else results)
 
     @pytest.fixture(autouse=True, scope="class")
@@ -194,6 +232,8 @@ class ExperimentReferenceT(_ReferenceComparisonMixin, ExperimentT[NameType, Resu
     """
 
     reference_results: ResultType
+    #: Reference model name per experiment recorded by the fetch phase (private).
+    _reference_model_names: ClassVar[dict[str, str]]
 
     @classmethod
     def fetch_reference_experiment(
@@ -210,9 +250,12 @@ class ExperimentReferenceT(_ReferenceComparisonMixin, ExperimentT[NameType, Resu
         super().fetch_experiment(registry)
         names = [cls.name] if isinstance(cls.name, str) else cls.name
         reference_results = {}
+        reference_model_names = {}
         for name in names:
             config = registry.compose_experiment(name, run_config=reference_run_config)
+            reference_model_names[name] = config.model_name
             reference_results[name] = sim_tools.simulate(config)[config.model_name]
+        cls._reference_model_names = reference_model_names
         cls.reference_results = cast(
             ResultType,
             reference_results[cls.name] if isinstance(cls.name, str) else reference_results,
@@ -269,6 +312,10 @@ class ExperimentSweepT(ExperimentBase, Generic[NameType, SweepResultType]):
     name: NameType
     #: Per-value solution table(s) populated by the ``run_sweep`` fixture.
     results: SweepResultType
+    #: Candidate model names per experiment recorded by the sweep phase (private).
+    _candidate_model_names: ClassVar[dict[str, list[str]]]
+    #: Reference model names per experiment recorded by a reference sweep (private).
+    _reference_model_names: ClassVar[dict[str, list[str]]]
 
     @classmethod
     def run_single_sweep(
@@ -305,7 +352,16 @@ class ExperimentSweepT(ExperimentBase, Generic[NameType, SweepResultType]):
         assert len(sweep_results) == len(plan.combos), (
             f"expected {len(plan.combos)} sweep results, got {len(sweep_results)}"
         )
-        return plan.attribute(sweep_results)
+        results = plan.attribute(sweep_results)
+        if run_config is None:
+            candidate_model_names = dict(getattr(cls, "_candidate_model_names", {}))
+            candidate_model_names[name] = plan.model_names
+            cls._candidate_model_names = candidate_model_names
+        else:
+            reference_model_names = dict(getattr(cls, "_reference_model_names", {}))
+            reference_model_names[name] = plan.model_names
+            cls._reference_model_names = reference_model_names
+        return results
 
     @pytest.fixture(autouse=True, scope="class")
     @classmethod

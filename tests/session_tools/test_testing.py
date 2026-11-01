@@ -162,6 +162,53 @@ def test_reference_comparison_eps_is_overridable():
     T().assert_matches_reference()
 
 
+def test_reference_comparison_ignores_time_column_values():
+    """Different solver sample grids pass when signal values and row count match."""
+
+    class T(testing.ExperimentReference):
+        name = "standstill"
+        results = pd.DataFrame({"time": [0.0, 0.5], "signal": [1.0, 2.0]})
+        reference_results = pd.DataFrame({"time": [0.0, 1.0], "signal": [1.0, 2.0]})
+
+    T().assert_matches_reference()
+
+
+def test_reference_comparison_rejects_extra_non_time_column():
+    """Only the literal ``time`` column is exempt from the signal-set check."""
+
+    class T(testing.ExperimentReference):
+        name = "standstill"
+        results = pd.DataFrame({"time": [0.0, 1.0], "signal": [1.0, 2.0], "extra": [1.0, 2.0]})
+        reference_results = pd.DataFrame({"time": [0.0, 1.0], "signal": [1.0, 2.0]})
+
+    with pytest.raises(AssertionError, match="unexpected"):
+        T().assert_matches_reference()
+
+
+def test_reference_comparison_failure_names_model_pair(monkeypatch):
+    """Value-mismatch failures name both the candidate and reference models."""
+
+    def fake_simulate(config, **kwargs):
+        signal = [1.0, 2.0] if config["model_name"] == "my.Model" else [1.0, 2.5]
+        return {config["model_name"]: _signal_frame(signal)}
+
+    monkeypatch.setattr(sim_tools, "simulate", fake_simulate)
+    registry = FakeRegistry(model_name="my.Model")
+    reference_run_config = SimpleNamespace(model_name="ref.Model")
+
+    class T(testing.ExperimentReference):
+        name = "standstill"
+
+    T.fetch_reference_experiment(registry, reference_run_config)
+
+    with pytest.raises(AssertionError) as excinfo:
+        T().assert_matches_reference()
+
+    message = str(excinfo.value)
+    assert "my.Model" in message
+    assert "ref.Model" in message
+
+
 class FakeRegistry:
     """Test double for ``HydraZenRegistry`` recording experiment calls."""
 
@@ -763,6 +810,49 @@ def test_reference_sweep_uses_reference_run_config_and_matches_combinations(monk
     assert calls[0]["sweep_dir"] != calls[1]["sweep_dir"]
     assert set(T.results) == set(T.reference_results) == {(0.1,), (0.2,)}
     assert T.reference_results[(0.2,)]["signal"].iloc[0] == 0.2
+    T().assert_matches_reference()
+
+
+def test_multi_experiment_reference_sweep_maps_each_name_to_both_sides(monkeypatch, tmp_path_factory):
+    """``ExperimentSweepsReference`` maps every experiment name to both per-combination mappings."""
+
+    class FakeJob:
+        def __init__(self, config, solutions):
+            self.config = config
+            self.solutions = solutions
+
+    def fake_simulate(config, *, overrides, multirun, sweep_dir):
+        assert multirun is True
+        model_name = config.model_name
+        return [
+            FakeJob(
+                {"model_name": model_name, "session": {"parameters": {"phi": phi}}},
+                {model_name: _signal_frame([phi])},
+            )
+            for phi in (0.1, 0.2)
+        ]
+
+    monkeypatch.setattr(sim_tools, "simulate", fake_simulate)
+    registry = FakeRegistry(
+        runs={
+            "turn_left": SimpleNamespace(model_name="my.Model"),
+            "straight_driving": SimpleNamespace(model_name="my.Model"),
+        },
+        model_name="my.Model",
+    )
+    reference_run_config = SimpleNamespace(model_name="ref.Model")
+
+    class T(testing.ExperimentSweepsReference):
+        name = ["turn_left", "straight_driving"]
+        sweep_params = {"phi": [0.1, 0.2]}
+
+    T.fetch_reference_sweep(registry, reference_run_config, tmp_path_factory)
+
+    assert set(T.results) == set(T.reference_results) == {"turn_left", "straight_driving"}
+    for name in ("turn_left", "straight_driving"):
+        assert set(T.results[name]) == set(T.reference_results[name]) == {(0.1,), (0.2,)}
+        assert T.results[name][(0.2,)]["signal"].iloc[0] == 0.2
+        assert T.reference_results[name][(0.2,)]["signal"].iloc[0] == 0.2
     T().assert_matches_reference()
 
 
