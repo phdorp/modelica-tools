@@ -24,13 +24,15 @@ experiment configuration and expose both result sets plus a built-in assertion
 helper.
 
 The model under test comes from the existing `model_name` fixture and the
-candidate's `registry` fixture. The reference model comes from a new
-`reference_name` fixture and a dedicated `reference_registry` fixture. Each
-registry owns its own parameters, model source, model configurations, libraries,
-and simulation settings; the reference registry may therefore use different
-parameters or a separate Modelica package from the candidate. Both registries
-register the same experiment name. Tests opt in to the comparison with
-`assert_matches_reference()`.
+shared `registry` fixture. Both models are composed from that one registry: the
+candidate from the registry's default run config and the reference from a
+`reference_run_config` fixture holding a run config added to the same registry.
+The reference run config lives under `tests/` and may point at a separate
+Modelica package with its own parameters, model source, model configurations,
+libraries, and simulation settings, while the reference model name itself comes
+from a new `reference_name` fixture. The registry registers the same experiment
+name for every experiment-capable run config. Tests opt in to the comparison
+with `assert_matches_reference()`.
 
 Both single experiments and parameter sweeps are supported, including the
 existing multi-experiment variants.
@@ -41,9 +43,10 @@ existing multi-experiment variants.
    selected by `model_name` against the model selected by `reference_name`, so
    that I can verify a refactor against an established implementation without
    duplicating comparison code.
-2. As a model developer, I want each model to be simulated from its own Hydra
-   registry, so that the reference model can define different parameters, model
-   source, model configurations, libraries, and solver settings.
+2. As a model developer, I want the reference model to be simulated from its own
+   run config in the shared registry, so that it can define different
+   parameters, model source, model configurations, libraries, and solver
+   settings.
 3. As a model developer, I want the candidate solution table exposed as
    `results` and the reference solution table exposed as `reference_results`,
    so that I can write custom domain assertions when the built-in comparison is
@@ -73,10 +76,10 @@ existing multi-experiment variants.
     package from the candidate, so that I can keep production models in `src`
     and test-only reference models in `tests`.
 12. As a model developer, I want a reference model that is absent from the
-    reference registry's configured source to fail with the existing simulation
+    reference run config's configured source to fail with the existing simulation
     error, so that I know the reference name and source do not match.
 13. As a model developer, I want missing `reference_name` or
-    `reference_registry` fixtures to fail at test setup with a normal pytest
+    `reference_run_config` fixtures to fail at test setup with a normal pytest
     fixture error, so that the wiring mistake is obvious.
 14. As a model developer, I want the comparison to run only when I call the
     helper, so that I can first assert physical properties and then compare
@@ -108,16 +111,28 @@ fixture so both candidate and reference results are populated before tests run.
 ### Reference selection
 
 `reference_name` is a Modelica model name, not a run-config name and not a
-stored result file. The reference model is owned by a dedicated
-`reference_registry` fixture. That registry registers its own base run config
-under the same experiment name as the candidate, including the reference model's
+stored result file. The reference model is composed from a `reference_run_config`
+added to the shared `registry`; that run config carries the reference model's
 parameters, source file or package, model configurations, libraries, and
-simulation settings.
+simulation settings, and it lives under `tests/`.
 
-The comparison bases compose the candidate experiment from `registry` and the
-reference experiment with the same name from `reference_registry`. No extra
-Hydra overrides are added. The registries are independent, so the reference may
-use different parameters, group selections, or a separate Modelica package.
+The registry binds every experiment to every run config whose defaults include
+the `experiment` group. `register_experiment` (and its `register_experiments`
+batch wrapper) records the base run config it was registered with as the
+experiment's default and automatically rebinds the experiment to any
+experiment-capable run config registered now or later, so adding the reference
+run config is enough to make every experiment available for the reference side.
+
+The comparison bases compose the candidate experiment from the registry's default
+run config via `compose_experiment(name)`, and the reference experiment with the
+same name via `compose_experiment(name, run_config=reference_run_config)`. No
+extra Hydra overrides are added. The two run configs are independent, so the
+reference may use different parameters, group selections, or a separate Modelica
+package.
+
+`compose_experiment(name, run_config=None, overrides=None)` and
+`get_experiment_run_config(name, run_config=None)` accept the optional run config;
+when omitted they use the run config the experiment was registered with.
 
 The existing simulation API maps results under each run's configured model name.
 The comparison bases therefore select the candidate table with `model_name` and
@@ -127,8 +142,9 @@ the reference table with `reference_name`.
 
 A reference sweep uses the same sweep planner, the same parameter combinations,
 and the same result attribution as the candidate sweep. It resolves its base run
-config from `reference_registry` instead of `registry`, and writes to its own
-temporary sweep directory. Results are attributed from each job's composed
+config from the same `registry` with `run_config=reference_run_config` instead of
+the registry default, and writes to its own temporary sweep directory. Results
+are attributed from each job's composed
 config, not from launch order, exactly as candidate sweeps already are.
 
 ### Comparison helper
@@ -155,7 +171,7 @@ behaviour first and call the comparison afterwards.
 ### Fixtures
 
 The comparison bases require the existing `model_name` and `registry` fixtures
-plus the new `reference_name` and `reference_registry` fixtures. Sweep
+plus the new `reference_name` and `reference_run_config` fixtures. Sweep
 comparison bases additionally use the built-in `tmp_path_factory`, as existing
 sweep bases do.
 
@@ -181,12 +197,13 @@ Seams:
   `fetch_experiment` / `fetch_sweep` tests.
 - `tests/session_tools/test_testing_fixtures.py` runs a real inner pytest
   session with the `pytester` fixture to prove that `reference_name` and
-  `reference_registry` are injected and the comparison bases' autouse fixtures
+  `reference_run_config` are injected and the comparison bases' autouse fixtures
   actually populate both result attributes.
 - `examples/tests/test_reference_comparison.py` runs the real candidate package
   from `src` and a separate reference package from `tests` through OpenModelica,
-  each from its own registry, proving the dedicated-registry workflow end to
-  end.
+  both from the shared registry - the candidate from its default run config and
+  the reference from `reference_run_config` - proving the single-registry
+  workflow end to end.
 
 Covered failure modes:
 
@@ -204,23 +221,24 @@ sweep bases through direct class methods and `pytester`.
 ## Out of Scope
 
 - Comparing a subset of signals. Both models must expose the same signals.
-- Verifying that the candidate and reference registries define physically
-  equivalent parameter sets. Each registry owns its own parameters; the
+- Verifying that the candidate and reference run configs define physically
+  equivalent parameter sets. Each run config owns its own parameters; the
   comparison checks output signals and values.
 - Stored or golden reference results. The reference is simulated live.
 - Sweeping candidate and reference parameters independently. The same
-  `sweep_params` mapping is applied to both registries.
+  `sweep_params` mapping is applied to both run configs.
 - Generating diff plots or comparison reports.
 
 ## Further Notes
 
-The comparison bases activate each registry's Hydra store immediately before
-composing or launching its run. `HydraZenRegistry.add_to_hydra_store(overwrite_ok=True)`
-re-enqueues all registered entries, so candidate and reference registries can
-reuse the same config and experiment names without colliding in Hydra's global
+The candidate and reference run configs share one registry, so the same config
+and experiment names are composed from it in turn. The comparison bases activate
+that registry's Hydra store immediately before composing or launching each run.
+`HydraZenRegistry.add_to_hydra_store(overwrite_ok=True)` re-enqueues all
+registered entries, so repeated activation does not collide in Hydra's global
 store.
 
 The reference model is built from the source file or package configured in
-`reference_registry`. If the reference model name is missing from that source,
+`reference_run_config`. If the reference model name is missing from that source,
 the existing simulation error path reports that no solution matches the
 requested model.

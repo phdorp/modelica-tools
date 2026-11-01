@@ -1,8 +1,8 @@
 # Reference Model Comparison Implementation Plan
 
-**Goal:** Add pytest test bases that simulate a candidate model and a reference model from their own Hydra registries, expose both result sets, and assert that their output signals and values match. The reference model may use different parameters and live in a separate Modelica package.
+**Goal:** Add pytest test bases that simulate a candidate model and a reference model from two run configs in one shared Hydra registry, expose both result sets, and assert that their output signals and values match. The reference model may use different parameters and live in a separate Modelica package.
 
-**Architecture:** New public comparison bases in `mtools.testing` reuse the existing `Experiment` and `ExperimentSweep` machinery for the candidate run from `registry`, then run the same experiment name from a dedicated `reference_registry`. Each registry owns its own parameters, model source, model configurations, libraries, and simulation settings. A shared comparison helper recursively checks result keys, signal columns, and values. Sweeps reuse the existing sweep planner and attribution against each registry's base run config and write to independent temporary sweep directories. Core session construction stays unchanged; no model-selection overrides or configuration retargeting are needed.
+**Architecture:** New public comparison bases in `mtools.testing` reuse the existing `Experiment` and `ExperimentSweep` machinery for the candidate run from the shared `registry`'s default run config, then run the same experiment name from the same registry composed with `reference_run_config`. The two run configs are independent, so each owns its own parameters, model source, model configurations, libraries, and simulation settings. The registry automatically binds every experiment to every run config whose defaults include the `experiment` group, so registering a new experiment-capable run config is all that is needed. A shared comparison helper recursively checks result keys, signal columns, and values. Sweeps reuse the existing sweep planner and attribution against each run config and write to independent temporary sweep directories. Core session construction stays unchanged; no model-selection overrides or configuration retargeting are needed.
 
 **Tech Stack:** Python 3.11, pytest, pandas, numpy, Hydra / hydra-zen, Modelica via pydelica.
 
@@ -19,13 +19,32 @@
 > remains in `examples/tests/reference_models` and now has its own registry in
 > `examples/tests/reference_models/kinematic_vehicle.py`. Experiment definitions
 > live once in `examples/tests/experiments.py` and are applied to both registries.
+>
+> **Revision (2026-11-01):** The design moved to a single registry with
+> automatic experiment binding. The candidate's `registry` is now the only
+> registry: it applies the shared group options, creates the default run config
+> (`name="default"`), and registers the shared experiments. The reference run
+> config (`name="reference"`, under `examples/tests/reference_models/`) is added
+> to that same registry, and the registry automatically binds every experiment to
+> every run config whose defaults include the `experiment` group - including run
+> configs registered later - so `share_experiments` and `shared_with` are gone.
+> `compose_experiment(name, run_config=None, overrides=None)` and
+> `get_experiment_run_config(name, run_config=None)` accept an optional run
+> config and default to the run config the experiment was registered with. The
+> comparison bases therefore require `reference_run_config` instead of
+> `reference_registry` and compose the reference with
+> `compose_experiment(name, run_config=reference_run_config)`. The run-config-bound
+> `for_run_config` view and `RunConfigScope` no longer exist. The task sections
+> below are historical and may still use the superseded names; the architecture
+> summary, fixture lines, and example task steps have been updated to the new
+> design.
 
 ## Global Constraints
 
 - Python >= 3.11.
 - Public API lives in `mtools.testing`; private helpers live in `mtools.internal.testing`.
-- `reference_name` is a Modelica model name; the dedicated `reference_registry` owns its source file or package. The reference source may be a separate package from the candidate.
-- Candidate and reference registries register the same experiment name. The reference config adds no model or source overrides.
+- `reference_name` is a Modelica model name; `reference_run_config` owns its source file or package. The reference source may be a separate package from the candidate.
+- The registry registers the same experiment name for every experiment-capable run config. The reference run config adds no model or source overrides.
 - Comparison uses `rtol=0` and `atol=eps`.
 - `eps` defaults to `numpy.finfo(float).eps` and is overridable per test class.
 - The comparison is explicit; it never runs automatically at fixture time.
@@ -41,18 +60,18 @@
 - Two solution tables with different row counts must fail with a length message, not an opaque numpy broadcast error.
 - A sweep with a missing or extra parameter combination must fail and name the combination.
 - A NaN versus a finite value must fail rather than pass silently.
-- Candidate and reference registries may reuse the same config and experiment names; activating one registry must replace the other's entries in Hydra's global store.
+- The shared registry must be re-activatable before each compose or launch; `add_to_hydra_store(overwrite_ok=True)` re-enqueues registered entries so repeated activation reuses the same config and experiment names without colliding in Hydra's global store.
 
 ## File Structure
 
 - `src/mtools/internal/testing.py` - add `assert_solutions_match` and table comparison helper; make `_SweepPlan.launch` activate its registry's Hydra store before launching.
-- `src/mtools/hydra_registry.py` - make `add_to_hydra_store(overwrite_ok=True)` re-enqueue registered entries so registries sharing names can be activated in turn; make `register_experiment` static so one partial definition can be applied to multiple registries.
+- `src/mtools/hydra_registry.py` - make `add_to_hydra_store(overwrite_ok=True)` re-enqueue registered entries so the shared registry can be activated repeatedly; make `register_experiment` static and bind every experiment to every experiment-capable run config.
 - `src/mtools/testing.py` - add `_ReferenceComparisonMixin`, `ExperimentReferenceT`, `ExperimentSweepReferenceT`, four public aliases, exports, and module/fixture documentation.
-- `tests/session_tools/test_testing.py` - unit tests driving the comparison bases with a fake `sim_tools.simulate` and separate candidate/reference registries.
-- `tests/session_tools/test_testing_fixtures.py` - `pytester` wiring test proving `reference_name` and `reference_registry` injection and autouse population.
-- `examples/tests/reference_models/` - separate Modelica package for the reference model, with its registry in `kinematic_vehicle.py`.
-- `examples/tests/experiments.py` - shared experiment definitions applied to both registries.
-- `examples/tests/test_reference_comparison.py` - real single-experiment and sweep comparison tests across registries and packages.
+- `tests/session_tools/test_testing.py` - unit tests driving the comparison bases with a fake `sim_tools.simulate` and a shared registry with candidate/reference run configs.
+- `tests/session_tools/test_testing_fixtures.py` - `pytester` wiring test proving `reference_name` and `reference_run_config` injection and autouse population.
+- `examples/tests/reference_models/` - separate Modelica package for the reference model, with the run config that adds it to the shared registry in `kinematic_vehicle.py`.
+- `examples/src/kinematic_vehicle/experiments.py` - shared experiment definitions registered once with the shared registry.
+- `examples/tests/test_reference_comparison.py` - real single-experiment and sweep comparison tests across run configs and packages.
 - `examples/README.md` - document the reference comparison workflow.
 - `README.md` - add reference comparison to the feature list.
 
@@ -546,8 +565,10 @@ git commit -m "feat: add sweep reference model comparison base"
 ### Task 3: Example model, example tests, and documentation
 
 **Files:**
-- Create: `examples/src/kinematic_vehicle/KinematicVehicleReference.mo`
+- Create: `examples/tests/reference_models/` Modelica package (`package.mo`, `State.mo`, `Input.mo`, `KinematicVehicle.mo`)
+- Create: `examples/tests/reference_models/kinematic_vehicle.py`
 - Create: `examples/tests/test_reference_comparison.py`
+- Modify: `examples/src/kinematic_vehicle/kinematic_vehicle.py`
 - Modify: `examples/README.md`
 - Modify: `README.md`
 
@@ -555,14 +576,14 @@ git commit -m "feat: add sweep reference model comparison base"
 - Consumes: `mtools.testing.ExperimentReference`, `mtools.testing.ExperimentSweepReference`, and their `assert_matches_reference()` method from Tasks 1 and 2.
 - Produces: no library API; a working example and user-facing documentation.
 
-- [ ] **Step 1: Add the reference Modelica model**
+- [ ] **Step 1: Add the reference Modelica package and run config**
 
-Create `examples/src/kinematic_vehicle/KinematicVehicleReference.mo` with:
+Create `examples/tests/reference_models/` as a separate Modelica package whose `KinematicVehicle` model mirrors the candidate:
 
 ```modelica
-within kinematic_vehicle;
+within reference_models;
 
-model KinematicVehicleReference
+model KinematicVehicle
   parameter Real v_norm = 10 "velocity";
   parameter Real phi = 0.1 "steering angle";
   parameter Real l = 2 "wheelbase";
@@ -580,8 +601,29 @@ equation
   px_dot = v_norm * cos(state.theta);
   py_dot = v_norm * sin(state.theta);
   theta_dot = v_norm / l * tan(control.phi);
-end KinematicVehicleReference;
+end KinematicVehicle;
 ```
+
+Then create `examples/tests/reference_models/kinematic_vehicle.py`, which imports the candidate registry and adds the reference run config to it:
+
+```python
+from pathlib import Path
+
+from kinematic_vehicle.kinematic_vehicle import registry
+
+REFERENCE_MODEL_NAME = "reference_models.KinematicVehicle"
+
+run_reference = registry.create_run(
+    model_name=REFERENCE_MODEL_NAME,
+    model_path=(Path(__file__).parent / "package.mo").resolve(),
+    include_experiment_group=True,
+    name="reference",
+)
+
+__all__ = ["REFERENCE_MODEL_NAME", "run_reference"]
+```
+
+The registry automatically binds every experiment to every run config that includes the `experiment` group, so no separate experiment-sharing step is needed. `examples/src/kinematic_vehicle/kinematic_vehicle.py` owns the single registry: it applies the shared group options, creates the default run config, and calls `register_experiments(EXPERIMENTS, base_run_config=run_default)`.
 
 - [ ] **Step 2: Add the example comparison tests**
 
@@ -589,12 +631,13 @@ Create `examples/tests/test_reference_comparison.py` with:
 
 ```python
 import pytest
-from mtools.testing import ExperimentReference, ExperimentSweepReference
-
+from kinematic_vehicle.experiments import EXPERIMENTS
 from kinematic_vehicle.kinematic_vehicle import MODEL_NAME
-from tests.experiments import registry as kinematic_registry
+from kinematic_vehicle.kinematic_vehicle import registry as model_registry
+from tests.reference_models.kinematic_vehicle import REFERENCE_MODEL_NAME
+from tests.reference_models.kinematic_vehicle import run_reference
 
-REFERENCE_NAME = "kinematic_vehicle.KinematicVehicleReference"
+from mtools.testing import ExperimentReference, ExperimentSweepReference
 
 
 @pytest.fixture(scope="module")
@@ -604,12 +647,17 @@ def model_name():
 
 @pytest.fixture(scope="module")
 def reference_name():
-    return REFERENCE_NAME
+    return REFERENCE_MODEL_NAME
 
 
 @pytest.fixture(scope="module")
 def registry():
-    return kinematic_registry
+    return model_registry
+
+
+@pytest.fixture(scope="module")
+def reference_run_config():
+    return run_reference
 
 
 class TestStandstillReference(ExperimentReference):
@@ -631,22 +679,23 @@ class TestTurnLeftReference(ExperimentSweepReference):
 
 Run: `uv pip install -e 'examples[test]' && cd examples && uv run pytest tests/test_reference_comparison.py -v`
 
-Expected: PASS for both comparison classes. A failure here means the reference model is not visible from the package source or the `model_name` override is not reaching the simulation.
+Expected: PASS for both comparison classes. A failure here means the reference model is not visible from the reference run config's source or the run config is not bound to the experiment.
 
 - [ ] **Step 4: Document the example**
 
 In `examples/README.md`, add a "Compare against a reference model" section that explains:
 
 - the candidate lives in `src` and the reference model is a separate Modelica package in `tests`;
-- the reference model has its own registry and experiment registrations;
-- the test module provides `model_name`, `reference_name`, `registry`, and `reference_registry` fixtures;
+- one shared registry owns both run configs, and the reference run config is added to it under `tests`;
+- the registry binds every experiment to every experiment-capable run config automatically;
+- the test module provides `model_name`, `reference_name`, `registry`, and `reference_run_config` fixtures;
 - the test class inherits `ExperimentReference` or `ExperimentSweepReference`;
 - `assert_matches_reference()` compares signal sets and values within `eps`.
 
 In `README.md`, add a feature bullet:
 
 ```markdown
-- **Reference-model comparison** — Test a model against a reference implementation registered in a dedicated Hydra registry, comparing output signals and values.
+- **Reference-model comparison** — Test a model against a reference implementation from a run config in a shared Hydra registry, comparing output signals and values.
 ```
 
 - [ ] **Step 5: Run the full verification**
@@ -666,15 +715,15 @@ Expected: all tests pass, mypy reports no errors, isort reports no changes.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add examples/src/kinematic_vehicle/KinematicVehicleReference.mo examples/tests/test_reference_comparison.py examples/README.md README.md
+git add examples/tests/reference_models examples/tests/test_reference_comparison.py examples/src/kinematic_vehicle/kinematic_vehicle.py examples/README.md README.md
 git commit -m "docs: demonstrate reference model comparison"
 ```
 
 ## Self-review
 
-- Spec coverage: single and multi-experiment comparison, sweeps, `reference_name` semantics, dedicated reference registry, per-registry parameters, signal checking, tolerance, errors, docs, and example are covered by Tasks 1-3.
+- Spec coverage: single and multi-experiment comparison, sweeps, `reference_name` semantics, the shared registry with a reference run config, per-run-config parameters, signal checking, tolerance, errors, docs, and example are covered by Tasks 1-3.
 - Step scan: every task has a failing test, an implementation step with exact signatures, a passing test run, and a commit.
-- Type consistency: `reference_results`, `assert_matches_reference`, `fetch_reference_experiment`, `fetch_reference_sweep`, `reference_registry`, and `_SweepPlan.launch(registry, tmp_path_factory)` are used consistently across tasks.
+- Type consistency: `reference_results`, `assert_matches_reference`, `fetch_reference_experiment`, `fetch_reference_sweep`, `reference_run_config`, `compose_experiment(name, run_config=...)`, and `get_experiment_run_config(name, run_config=...)` are used consistently across tasks.
 - Review Focus: missing reference solution, signal mismatch, length mismatch, sweep key mismatch, and NaN versus finite each have a named test in the owning task.
 - Proportion: the plan names interfaces and test assertions; bodies are limited to the comparison helper and the two base implementations where the decisions are not obvious from signatures.
 
