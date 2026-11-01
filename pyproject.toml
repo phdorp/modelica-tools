@@ -14,3 +14,9 @@ packages = ["src/mtools"]
 mypy_path = ["src", "tests/session_tools"]
 namespace_packages = true
 explicit_package_bases = true
+
+# `pydelica` ships no `py.typed` marker, so its imports would otherwise be
+# reported as untyped. Its API is used directly, so ignore the missing stubs.
+[[tool.mypy.overrides]]
+module = ["pydelica.*"]
+ignore_missing_imports = true
