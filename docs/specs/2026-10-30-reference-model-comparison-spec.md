@@ -46,7 +46,7 @@ existing multi-experiment variants.
 2. As a model developer, I want the reference model to be simulated from its own
    run config in the shared registry, so that it can define different
    parameters, model source, model configurations, libraries, and solver
-   settings.
+   settings, as long as the resulting time grid matches the candidate's.
 3. As a model developer, I want the candidate solution table exposed as
    `results` and the reference solution table exposed as `reference_results`,
    so that I can write custom domain assertions when the built-in comparison is
@@ -163,10 +163,13 @@ candidate and reference result structures:
 - For single-experiment results, it compares two solution tables.
 - For multi-experiment and sweep results, it first requires the same key sets,
   then compares each matching table.
-- Two solution tables must have equal length and the same set of output signal
-  columns.
-- Every signal column is compared positionally with
+- Two solution tables must have equal length and the same set of columns,
+  including `time`.
+- Every column, including `time`, is compared positionally with
   `numpy.testing.assert_allclose` using `rtol=0` and `atol=self.eps`.
+- Both models are simulated under the same conditions, so the time grid must
+  match as well: a `time` mismatch indicates a differing simulation setup
+  rather than a difference between the model implementations.
 - `eps` defaults to `numpy.finfo(float).eps`, matching the existing experiment
   bases, and may be overridden per test class.
 - Failures are assertions with context naming the test class, experiment name,

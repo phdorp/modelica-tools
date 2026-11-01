@@ -162,19 +162,20 @@ def test_reference_comparison_eps_is_overridable():
     T().assert_matches_reference()
 
 
-def test_reference_comparison_ignores_time_column_values():
-    """Different solver sample grids pass when signal values and row count match."""
+def test_reference_comparison_rejects_time_grid_mismatch():
+    """Matching signals on a different time grid fail: the setups differ."""
 
     class T(testing.ExperimentReference):
         name = "standstill"
         results = pd.DataFrame({"time": [0.0, 0.5], "signal": [1.0, 2.0]})
         reference_results = pd.DataFrame({"time": [0.0, 1.0], "signal": [1.0, 2.0]})
 
-    T().assert_matches_reference()
+    with pytest.raises(AssertionError, match="time"):
+        T().assert_matches_reference()
 
 
-def test_reference_comparison_rejects_extra_non_time_column():
-    """Only the literal ``time`` column is exempt from the signal-set check."""
+def test_reference_comparison_rejects_extra_column():
+    """An extra output signal is still reported, alongside the compared ``time`` column."""
 
     class T(testing.ExperimentReference):
         name = "standstill"

@@ -201,10 +201,6 @@ def _select_job_value(config: Any, path: str) -> Any:
     return node
 
 
-#: Solution-table column holding simulation time; not an output signal.
-_TIME_COLUMN = "time"
-
-
 def assert_solutions_match(
     actual: Any,
     reference: Any,
@@ -215,14 +211,13 @@ def assert_solutions_match(
 ) -> None:
     """Recursively assert that candidate solutions match reference solutions.
 
-    Data frame references are compared by output signal set, row count, and
-    positionally per column. The ``_TIME_COLUMN`` (``"time"``) column is not
-    treated as an output signal: it is exempt from the signal-set check and
-    its values are never compared, so candidate and reference runs may use
-    different solver sample grids as long as the tables have equal length.
-    Dict references require the same key set and are compared recursively;
-    ``context`` is extended with each key so failures identify the offending
-    experiment or sweep combination.
+    Data frame references are compared by column set, row count, and
+    positionally per column. The ``time`` column is compared like any other
+    column: both models must be simulated under the same conditions, so a
+    time mismatch indicates a differing simulation setup. Dict references
+    require the same key set and are compared recursively; ``context`` is
+    extended with each key so failures identify the offending experiment or
+    sweep combination.
 
     Args:
         actual: Candidate solution structure (data frame or dict of them).
@@ -239,14 +234,8 @@ def assert_solutions_match(
     if isinstance(reference, pd.DataFrame):
         if not isinstance(actual, pd.DataFrame):
             raise TypeError(f"{context}: expected a solution table, got {type(actual).__name__!r}")
-        missing = [
-            column
-            for column in reference.columns
-            if column != _TIME_COLUMN and column not in actual.columns
-        ]
-        extra = [
-            column for column in actual.columns if column != _TIME_COLUMN and column not in reference.columns
-        ]
+        missing = [column for column in reference.columns if column not in actual.columns]
+        extra = [column for column in actual.columns if column not in reference.columns]
         if missing or extra:
             raise AssertionError(
                 f"{context}: output signals differ; missing {missing!r}, unexpected {extra!r}"
@@ -256,8 +245,6 @@ def assert_solutions_match(
                 f"{context}: solution length differs ({len(actual)} != {len(reference)})"
             )
         for column in reference.columns:
-            if column == _TIME_COLUMN:
-                continue
             np.testing.assert_allclose(
                 actual[column],
                 reference[column],
