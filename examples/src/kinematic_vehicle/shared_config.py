@@ -1,8 +1,8 @@
-"""Shared parameter schema and group options for the kinematic vehicle registries.
+"""Shared parameter schema and group options for the kinematic vehicle registry.
 
-Both the candidate and the reference registry import these definitions so
-their Hydra option names and defaults stay in sync, while each registry still
-owns its Modelica source and run configuration.
+The candidate and reference run configs of the single shared registry import
+these definitions so their Hydra option names and defaults stay in sync, while
+each run config still owns its Modelica source.
 """
 
 import dataclasses
