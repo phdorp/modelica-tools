@@ -1,5 +1,4 @@
 import dataclasses
-import inspect
 from functools import partial
 from pathlib import Path
 from typing import Sequence
@@ -99,20 +98,17 @@ class TestHydraRegistryWithHydraComposition:
             name="default",
         )
 
-        HydraZenRegistry.register_experiment(
-            registry,
+        registry.register_experiment(
             name="front_position",
             base_run_config=run_default,
             selections={"parameters/state_0": "front_position"},
         )
-        HydraZenRegistry.register_experiment(
-            registry,
+        registry.register_experiment(
             name="direct_instance_override",
             base_run_config=run_default,
             overrides={"parameters/state_0": State(px=42.0)},
         )
-        HydraZenRegistry.register_experiment(
-            registry,
+        registry.register_experiment(
             name="mixed_selections_and_overrides",
             base_run_config=run_default,
             selections={"parameters/state_0": "front_position"},
@@ -196,8 +192,7 @@ class TestExperimentConfigs:
             include_experiment_group=True,
             name="default",
         )
-        HydraZenRegistry.register_experiment(
-            registry,
+        registry.register_experiment(
             name="fast",
             base_run_config=run_default,
             overrides={"session/parameters": KinematicVehicle(state_0=State(), v_norm=99.0, phi=0.0)},
@@ -219,7 +214,7 @@ class TestExperimentConfigs:
         registry = HydraZenRegistry(store=hydra_zen.ZenStore())
 
         with pytest.raises(ValueError, match="not a registered run config"):
-            HydraZenRegistry.register_experiment(registry, name="fast", base_run_config=object())
+            registry.register_experiment(name="fast", base_run_config=object())
 
     def test_base_without_experiment_group_fails_fast(self):
         registry = HydraZenRegistry(store=hydra_zen.ZenStore())
@@ -232,7 +227,7 @@ class TestExperimentConfigs:
         )
 
         with pytest.raises(ValueError, match="include_experiment_group=True"):
-            HydraZenRegistry.register_experiment(registry, name="fast", base_run_config=run_default)
+            registry.register_experiment(name="fast", base_run_config=run_default)
 
     def test_compose_experiment_applies_experiment(self):
         registry, _ = self._registry_with_experiment()
@@ -241,6 +236,29 @@ class TestExperimentConfigs:
 
         assert cfg.session.parameters.v_norm == 99.0
 
+    def test_register_experiment_is_callable_as_instance_method(self):
+        registry = HydraZenRegistry(store=hydra_zen.ZenStore())
+        registry.register_group_option(
+            "session/parameters",
+            name="default_params",
+            config=KinematicVehicle(state_0=State()),
+            default=True,
+        )
+        run_default = registry.create_run(
+            model_name="KinematicVehicle",
+            parameters=KinematicVehicle(state_0=State()),
+            simulation=session_config.Simulation(solver="rungekutta", output_format="csv"),
+            model_path=Path("tests/session_tools/models/kinematic_vehicle.mo").resolve(),
+            include_experiment_group=True,
+            name="default",
+        )
+
+        registry.register_experiment(name="fast", base_run_config=run_default)
+
+        assert registry.get_experiment_run_config("fast") is run_default
+        cfg = registry.compose_experiment("fast")
+        assert cfg.model_name == "KinematicVehicle"
+
     def test_compose_experiment_unknown_raises_key_error(self):
         registry, _ = self._registry_with_experiment()
 
@@ -248,9 +266,8 @@ class TestExperimentConfigs:
             registry.compose_experiment("missing")
 
 
-def test_static_register_experiment_can_be_reused_across_registries():
+def test_register_experiment_can_be_reused_across_registries():
     """One partial experiment definition can be applied to multiple registries."""
-    assert isinstance(inspect.getattr_static(HydraZenRegistry, "register_experiment"), staticmethod)
     GlobalHydra.instance().clear()
 
     def registry_with_v_norm(v_norm: float) -> tuple[HydraZenRegistry, object]:

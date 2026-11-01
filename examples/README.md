@@ -68,7 +68,7 @@ uv run python -m kinematic_vehicle experiment=front_position
 
 Applies the `front_position` experiment defined in `src/kinematic_vehicle/kinematic_vehicle.py`, which overrides the `parameters/state_0` group to `front_position`.
 
-Experiments are registered via `HydraZenRegistry.register_experiment(registry, ...)` and compose their configs using Hydra's `override /group` defaults syntax.
+Experiments are registered via `registry.register_experiment(...)` and compose their configs using Hydra's `override /group` defaults syntax.
 
 ### Parameter sweep
 

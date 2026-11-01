@@ -136,9 +136,9 @@ class HydraZenRegistry:
         # (every registered run config whose defaults include the experiment
         # group). Immutable tuples so callers cannot mutate the binding.
         self._experiment_bases: dict[str, tuple[Any, ...]] = {}
-        # Default run config used when compose_experiment /
+        # Default run config per experiment, used when compose_experiment /
         # get_experiment_run_config are called without an explicit run config.
-        self._experiment_default: dict[str, Any] = {}
+        self._experiment_default_run_config: dict[str, Any] = {}
         # Pre-built Hydra defaults list per experiment, reused on every rebind.
         self._experiment_defaults: dict[str, list] = {}
 
@@ -561,7 +561,7 @@ class HydraZenRegistry:
             raise KeyError(f"unknown experiment '{name}'") from None
 
         if run_config is None:
-            return self._experiment_default[name]
+            return self._experiment_default_run_config[name]
 
         requested = self._resolve_run_config_name(run_config)
         for base in bases:
@@ -652,9 +652,8 @@ class HydraZenRegistry:
                 existing_groups.add(canonical_group)
                 hydra_defaults.append({f"override /{canonical_group}": internal_name})
 
-    @staticmethod
     def register_experiment(
-        registry: "HydraZenRegistry",
+        self,
         *,
         name: str,
         base_run_config: Any,
@@ -667,12 +666,13 @@ class HydraZenRegistry:
         selected groups using Hydra's ``override /group`` defaults syntax.
         The experiment is automatically bound to every run config currently
         registered that includes the ``experiment`` group, and to any such run
-        config registered later. The method is static so one experiment
-        definition can be partially applied and reused across multiple
-        registries.
+        config registered later. One experiment definition can be reused
+        across multiple registries by partially applying the unbound method,
+        e.g. ``partial(HydraZenRegistry.register_experiment, name="standstill")``;
+        calling the result as ``register_experiment(registry, base_run_config=...)``
+        binds ``self`` as the first positional argument.
 
         Args:
-            registry: Registry to register the experiment in.
             name: Experiment name to register.
             base_run_config: Base run config to extend. Must be a run config
                 previously registered with a name (via ``register_run_config``
@@ -688,8 +688,8 @@ class HydraZenRegistry:
                 or if it does not include the ``experiment`` group (create it
                 with ``include_experiment_group=True``).
         """
-        targets = registry._experiment_targets()
-        if registry._find_run_config_name(base_run_config) is None:
+        targets = self._experiment_targets()
+        if self._find_run_config_name(base_run_config) is None:
             raise ValueError(
                 f"base_run_config for experiment '{name}' is not a registered run config; "
                 "register it with a name first via 'register_run_config' or 'create_run'."
@@ -700,19 +700,19 @@ class HydraZenRegistry:
                 f"'{EXPERIMENT_GROUP}' group; create it with "
                 "'include_experiment_group=True' so 'compose_experiment' and sweeps can select the experiment."
             )
-        hydra_defaults = registry._build_hydra_defaults(selections=selections, override=True)
+        hydra_defaults = self._build_hydra_defaults(selections=selections, override=True)
         if overrides:
-            registry._register_overrides(name, overrides, hydra_defaults)
-        registry._experiment_defaults[name] = hydra_defaults
-        registry._experiment_default[name] = base_run_config
-        registry._rebind_experiment(name)
+            self._register_overrides(name, overrides, hydra_defaults)
+        self._experiment_defaults[name] = hydra_defaults
+        self._experiment_default_run_config[name] = base_run_config
+        self._rebind_experiment(name)
 
     def register_experiments(
         self, experiments: Iterable[ExperimentSpec], *, base_run_config: Any
     ) -> None:
         """Register several experiments defined as ``ExperimentSpec`` values.
 
-        This is a batch convenience wrapper around the static
+        This is a batch convenience wrapper around the
         ``register_experiment`` method, allowing one experiment set to be
         applied to multiple registries (for example a candidate and a
         reference model) with a single call per registry. Each experiment is
@@ -728,8 +728,7 @@ class HydraZenRegistry:
                 run config is given.
         """
         for experiment in experiments:
-            HydraZenRegistry.register_experiment(
-                self,
+            self.register_experiment(
                 name=experiment.name,
                 base_run_config=base_run_config,
                 selections=experiment.selections,

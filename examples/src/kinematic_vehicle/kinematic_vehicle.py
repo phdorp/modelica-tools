@@ -70,34 +70,29 @@ run_default = registry.create_run(
 
 # Register the experiments directly. Each is bound to every experiment-capable
 # run config in the registry, now and in the future.
-hydra_registry.HydraZenRegistry.register_experiment(
-    registry,
+registry.register_experiment(
     name="standstill",
     base_run_config=run_default,
     overrides={"session/parameters": KinematicVehicle(state_0=State(), v_norm=0.0, phi=0)},
 )
-hydra_registry.HydraZenRegistry.register_experiment(
-    registry,
+registry.register_experiment(
     name="straight_driving",
     base_run_config=run_default,
     overrides={"session/parameters": KinematicVehicle(state_0=State(), v_norm=10.0, phi=0.0)},
 )
-hydra_registry.HydraZenRegistry.register_experiment(
-    registry,
+registry.register_experiment(
     name="turn_left",
     base_run_config=run_default,
     overrides={
         "session/parameters": KinematicVehicle(state_0=State(), v_norm=10.0, phi=float(np.deg2rad(0.5)))
     },
 )
-hydra_registry.HydraZenRegistry.register_experiment(
-    registry,
+registry.register_experiment(
     name="front_position",
     base_run_config=run_default,
     selections={"parameters/state_0": "front_position"},
 )
-hydra_registry.HydraZenRegistry.register_experiment(
-    registry,
+registry.register_experiment(
     name="protected_output",
     base_run_config=run_default,
     overrides={"session/sim_configurations": session_config.Simulation(emit_protected=True)},
