@@ -72,7 +72,11 @@ class Model:
 
 @dataclasses.dataclass
 class Simulation:
-    """Global simulation runtime settings."""
+    """Global simulation runtime settings.
+
+    ``solver`` and ``output_format`` are defaulted so a bare ``Simulation()`` is a valid
+    ``session/sim_configurations`` group default that experiments override selectively.
+    """
 
     #: Solver backend name used for simulation.
     solver: str = "rungekutta"

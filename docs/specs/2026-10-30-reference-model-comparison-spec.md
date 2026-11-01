@@ -131,6 +131,12 @@ extra Hydra overrides are added. The two run configs are independent, so the
 reference may use different parameters, group selections, or a separate Modelica
 package.
 
+`Simulation.solver` and `Simulation.output_format` carry defaults, so a single
+`Simulation()` option can be registered as the shared
+`session/sim_configurations` group default for every run config and overridden
+selectively per experiment. Run configs rely on that default instead of
+restating the runtime settings.
+
 `compose_experiment(name, run_config=None, overrides=None)` and
 `get_experiment_run_config(name, run_config=None)` accept the optional run config;
 when omitted they use the run config the experiment was registered with.
