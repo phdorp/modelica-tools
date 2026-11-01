@@ -519,3 +519,81 @@ def test_create_run_uses_group_defaults_for_parameters_and_simulation():
     finally:
         GlobalHydra.instance().clear()
 
+
+class TestAutomaticExperimentSharing:
+    """Experiments bind to every experiment-capable run config in the registry."""
+
+    @pytest.fixture(autouse=True)
+    def _reset_global_hydra(self):
+        GlobalHydra.instance().clear()
+        yield
+        GlobalHydra.instance().clear()
+
+    MODEL = Path("tests/session_tools/models/kinematic_vehicle.mo").resolve()
+
+    def _registry(self):
+        registry = HydraZenRegistry(store=hydra_zen.ZenStore())
+        registry.register_group_options(
+            "session/parameters", {"default": KinematicVehicle(state_0=State())}, default="default"
+        )
+        registry.register_group_options(
+            "session/sim_configurations", {"default": session_config.Simulation()}, default="default"
+        )
+        candidate = registry.create_run(
+            model_name="CandidateModel",
+            model_path=self.MODEL,
+            include_experiment_group=True,
+            name="candidate",
+        )
+        registry.register_experiments(
+            [
+                ExperimentSpec(
+                    name="standstill",
+                    overrides={"session/parameters": KinematicVehicle(state_0=State(), v_norm=0.0)},
+                )
+            ],
+            base_run_config=candidate,
+        )
+        return registry, candidate
+
+    def _add_reference(self, registry):
+        return registry.create_run(
+            model_name="ReferenceModel",
+            model_path=self.MODEL,
+            include_experiment_group=True,
+            name="reference",
+        )
+
+    def test_experiment_composes_for_a_run_config_added_after_registration(self):
+        registry, _ = self._registry()
+        reference = self._add_reference(registry)
+
+        cfg = registry.compose_experiment("standstill", run_config=reference)
+
+        assert cfg.model_name == "ReferenceModel"
+        assert cfg.session.parameters.v_norm == 0.0
+
+    def test_default_run_config_is_the_registration_base(self):
+        registry, candidate = self._registry()
+        self._add_reference(registry)
+
+        assert registry.get_experiment_run_config("standstill") is candidate
+        assert registry.compose_experiment("standstill").model_name == "CandidateModel"
+
+    def test_run_config_without_experiment_group_is_not_bound(self):
+        registry, _ = self._registry()
+        other = registry.create_run(
+            model_name="OtherModel",
+            model_path=self.MODEL,
+            include_experiment_group=False,
+            name="other",
+        )
+
+        with pytest.raises(ValueError, match="not one of the run configs bound"):
+            registry.get_experiment_run_config("standstill", run_config=other)
+
+    def test_unknown_run_config_raises(self):
+        registry, _ = self._registry()
+
+        with pytest.raises(KeyError, match="unknown run config"):
+            registry.compose_experiment("standstill", run_config="missing")
