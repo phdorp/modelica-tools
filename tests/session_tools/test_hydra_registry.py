@@ -11,7 +11,7 @@ from hydra.core.global_hydra import GlobalHydra
 from omegaconf import OmegaConf
 
 import mtools.session_config as session_config
-from mtools.hydra_registry import HydraZenRegistry
+from mtools.hydra_registry import ExperimentSpec, HydraZenRegistry
 
 
 @dataclasses.dataclass
@@ -354,4 +354,168 @@ class TestCreateRun:
 
         assert enabled.session.sim_configurations.emit_protected is True
         assert disabled.session.sim_configurations.emit_protected is False
+
+
+class TestRegisterGroupOptions:
+    """Batch group-option registration selects a default and exposes the rest."""
+
+    @pytest.fixture(autouse=True)
+    def _reset_global_hydra(self):
+        GlobalHydra.instance().clear()
+        yield
+        GlobalHydra.instance().clear()
+
+    def test_registers_options_and_selects_default(self):
+        registry = HydraZenRegistry(store=hydra_zen.ZenStore())
+        registry.register_group_name("session.parameters.state_0", "parameters/state_0")
+        registry.register_group_options(
+            "parameters/state_0",
+            {"zero_state": State(), "front_position": State(px=1.0)},
+            default="zero_state",
+        )
+        registry.create_run(
+            model_name="KinematicVehicle",
+            parameters=KinematicVehicle(state_0=State()),
+            simulation=session_config.Simulation(solver="rungekutta", output_format="csv"),
+            model_path=Path("tests/session_tools/models/kinematic_vehicle.mo").resolve(),
+            selections={"parameters/state_0": "zero_state"},
+            name="default",
+        )
+        registry.add_to_hydra_store(overwrite_ok=True)
+
+        with initialize(version_base=None, config_path=None):
+            default_cfg = compose(config_name="default")
+            front_cfg = compose(config_name="default", overrides=["parameters/state_0=front_position"])
+
+        assert default_cfg.session.parameters.state_0.px == 0.0
+        assert front_cfg.session.parameters.state_0.px == 1.0
+
+    def test_unknown_default_raises_value_error(self):
+        registry = HydraZenRegistry(store=hydra_zen.ZenStore())
+
+        with pytest.raises(ValueError, match="default option"):
+            registry.register_group_options(
+                "session/parameters",
+                {"default": KinematicVehicle(state_0=State())},
+                default="missing",
+            )
+
+
+class TestRegisterExperiments:
+    """``ExperimentSpec`` values can be applied to one or more registries."""
+
+    @pytest.fixture(autouse=True)
+    def _reset_global_hydra(self):
+        GlobalHydra.instance().clear()
+        yield
+        GlobalHydra.instance().clear()
+
+    def test_register_experiments_applies_all_specs(self):
+        registry = HydraZenRegistry(store=hydra_zen.ZenStore())
+        registry.register_group_name("session.parameters.state_0", "parameters/state_0")
+        registry.register_group_options(
+            "parameters/state_0",
+            {"zero_state": State(), "front_position": State(px=1.0)},
+            default="zero_state",
+        )
+        registry.register_group_options(
+            "session/parameters", {"default": KinematicVehicle(state_0=State())}, default="default"
+        )
+        registry.register_group_options(
+            "session/sim_configurations", {"default": session_config.Simulation()}, default="default"
+        )
+        run_default = registry.create_run(
+            model_name="KinematicVehicle",
+            model_path=Path("tests/session_tools/models/kinematic_vehicle.mo").resolve(),
+            include_experiment_group=True,
+            name="default",
+        )
+
+        registry.register_experiments(
+            [
+                ExperimentSpec(
+                    name="slow",
+                    overrides={"session/parameters": KinematicVehicle(state_0=State(), v_norm=1.0)},
+                ),
+                ExperimentSpec(
+                    name="fast",
+                    overrides={"session/parameters": KinematicVehicle(state_0=State(), v_norm=99.0)},
+                ),
+                ExperimentSpec(name="with_selection", selections={"parameters/state_0": "front_position"}),
+            ],
+            base_run_config=run_default,
+        )
+
+        assert registry.compose_experiment("slow").session.parameters.v_norm == 1.0
+        assert registry.compose_experiment("fast").session.parameters.v_norm == 99.0
+        assert registry.compose_experiment("with_selection").session.parameters.state_0.px == 1.0
+
+    def test_register_experiments_reused_across_registries(self):
+        specs = [ExperimentSpec(name="standstill")]
+
+        def registry_with_v_norm(v_norm: float) -> HydraZenRegistry:
+            registry = HydraZenRegistry(store=hydra_zen.ZenStore())
+            registry.register_group_options(
+                "session/parameters",
+                {"default": KinematicVehicle(state_0=State(), v_norm=v_norm)},
+                default="default",
+            )
+            registry.register_group_options(
+                "session/sim_configurations", {"default": session_config.Simulation()}, default="default"
+            )
+            run_default = registry.create_run(
+                model_name="KinematicVehicle",
+                model_path=Path("tests/session_tools/models/kinematic_vehicle.mo").resolve(),
+                include_experiment_group=True,
+                name="default",
+            )
+            registry.register_experiments(specs, base_run_config=run_default)
+            return registry
+
+        try:
+            first = registry_with_v_norm(1.0)
+            second = registry_with_v_norm(2.0)
+
+            first.add_to_hydra_store(overwrite_ok=True)
+            assert first.compose_experiment("standstill").session.parameters.v_norm == 1.0
+
+            second.add_to_hydra_store(overwrite_ok=True)
+            assert second.compose_experiment("standstill").session.parameters.v_norm == 2.0
+
+            first.add_to_hydra_store(overwrite_ok=True)
+            assert first.compose_experiment("standstill").session.parameters.v_norm == 1.0
+        finally:
+            GlobalHydra.instance().clear()
+
+
+def test_simulation_defaults_are_rungekutta_csv():
+    assert session_config.Simulation() == session_config.Simulation(solver="rungekutta", output_format="csv")
+
+
+def test_create_run_uses_group_defaults_for_parameters_and_simulation():
+    """Omitting ``parameters`` and ``simulation`` resolves both from group defaults."""
+    GlobalHydra.instance().clear()
+    try:
+        registry = HydraZenRegistry(store=hydra_zen.ZenStore())
+        registry.register_group_options(
+            "session/parameters", {"default": KinematicVehicle(state_0=State())}, default="default"
+        )
+        registry.register_group_options(
+            "session/sim_configurations", {"default": session_config.Simulation()}, default="default"
+        )
+        registry.create_run(
+            model_name="KinematicVehicle",
+            model_path=Path("tests/session_tools/models/kinematic_vehicle.mo").resolve(),
+            name="default",
+        )
+        registry.add_to_hydra_store(overwrite_ok=True)
+
+        with initialize(version_base=None, config_path=None):
+            cfg = compose(config_name="default")
+
+        assert cfg.session.parameters.v_norm == 10.0
+        assert cfg.session.sim_configurations.solver == "rungekutta"
+        assert cfg.session.sim_configurations.output_format == "csv"
+    finally:
+        GlobalHydra.instance().clear()
 

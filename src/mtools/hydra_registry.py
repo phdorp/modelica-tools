@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING, Any, Optional
 
 import hydra
@@ -72,6 +72,29 @@ def _defaults_include_group(defaults: list, group: str) -> bool:
             if entry in candidates or entry.replace(".", "/") in candidates:
                 return True
     return False
+
+
+@dataclasses.dataclass(frozen=True)
+class ExperimentSpec:
+    """Declarative definition of one experiment.
+
+    A spec can be registered against any number of registries via
+    :meth:`HydraZenRegistry.register_experiments`, so the same experiment set
+    can be replayed for a candidate model and a reference model.
+
+    Attributes:
+        name: Experiment name registered under the ``experiment`` group.
+        overrides: Mapping of hierarchy path to config instance, replacing the
+            selected group's default.
+        selections: Mapping of hierarchy path to group option name.
+    """
+
+    #: Experiment name registered under the ``experiment`` group.
+    name: str
+    #: Mapping of hierarchy path to config instance.
+    overrides: Mapping[str, Any] | None = None
+    #: Mapping of hierarchy path to group option name.
+    selections: Mapping[str, str] | None = None
 
 
 class HydraZenRegistry:
@@ -240,6 +263,33 @@ class HydraZenRegistry:
             else:
                 self._hydra_defaults[canonical_group] = name
 
+    def register_group_options(
+        self, group_id: str, options: Mapping[str, Any], default: Optional[str] = None
+    ) -> None:
+        """Register several named options under one hierarchical group.
+
+        This is a batch convenience wrapper around ``register_group_option``
+        for the common case where a package exposes a set of interchangeable
+        options and one of them is the default.
+
+        Args:
+            group_id: Either the Hydra group identifier or the package path
+                corresponding to a previously-registered group.
+            options: Mapping of option name to config object or factory.
+            default: Name of the option to add to the Hydra defaults list.
+                When ``None`` (the default), no option is selected.
+
+        Raises:
+            ValueError: If ``default`` is not one of the provided ``options``.
+        """
+        if default is not None and default not in options:
+            raise ValueError(
+                f"default option {default!r} is not among the registered options {sorted(options)}"
+            )
+
+        for name, config in options.items():
+            self.register_group_option(group_id, name=name, config=config, default=(name == default))
+
     def _build_hydra_defaults(
         self, selections: Mapping[str, str] | None = None, include_self: bool = True, override: bool = False
     ) -> DefaultsList:
@@ -322,7 +372,7 @@ class HydraZenRegistry:
         *,
         model_name: str,
         parameters: session_config.DataclassType | _MISSING_TYPE = MISSING,
-        simulation: session_config.Simulation,
+        simulation: session_config.Simulation | _MISSING_TYPE = MISSING,
         model_path: pydantic.FilePath,
         build_options: dict | None = None,
         model_configurations: dict[str, session_config.Model] | None = None,
@@ -342,7 +392,8 @@ class HydraZenRegistry:
                 configurations, and the default build options.
             parameters: Dataclass object containing model parameter values.
                 Defaults to ``hydra_zen.MISSING``.
-            simulation: Simulation-wide runtime configuration.
+            simulation: Simulation-wide runtime configuration. Defaults to
+                ``hydra_zen.MISSING``.
             model_path: Path to the model source file to build.
             build_options: Optional keyword arguments for model building.
                 Defaults to ``{"model_addr": model_name}``.
@@ -582,6 +633,30 @@ class HydraZenRegistry:
             ),
             name=name,
         )
+
+    def register_experiments(
+        self, experiments: Iterable[ExperimentSpec], *, base_run_config: Any
+    ) -> None:
+        """Register several experiments defined as ``ExperimentSpec`` values.
+
+        This is a batch convenience wrapper around the static
+        ``register_experiment`` method, allowing one experiment set to be
+        applied to multiple registries (for example a candidate and a
+        reference model) with a single call per registry.
+
+        Args:
+            experiments: Experiment specs to register.
+            base_run_config: Base run config the experiments derive from. It
+                must already be registered in this registry.
+        """
+        for experiment in experiments:
+            HydraZenRegistry.register_experiment(
+                self,
+                name=experiment.name,
+                base_run_config=base_run_config,
+                selections=experiment.selections,
+                overrides=experiment.overrides,
+            )
 
     def add_to_hydra_store(self, overwrite_ok: bool | None = None):
         """Add all registered entries to Hydra's global config store.

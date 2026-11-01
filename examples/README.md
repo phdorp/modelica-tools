@@ -11,7 +11,7 @@ src/kinematic_vehicle/
 ├── __init__.py
 ├── __main__.py              # Hydra entry point: composes config and runs simulation
 ├── KinematicVehicle.mo      # Candidate Modelica model
-├── shared_config.py         # Shared schema, group options, and run config helper
+├── shared_config.py         # Shared schema and group options
 ├── kinematic_vehicle.py     # Candidate registry and run configuration
 └── experiments.py           # Shared experiment definitions (e.g. front_position)
 tests/
@@ -60,7 +60,7 @@ Runs the simulation with default parameters: `v_norm=10.0`, `stop_time=10.0`, in
 uv run python -m kinematic_vehicle parameters/state_0=front_position
 ```
 
-Selects the `front_position` config group, which sets `state_0.px=1.0`. The group is registered via `register_group_name("session.parameters.state_0", "parameters/state_0")` with two options (`zero_state`, `front_position`) in `kinematic_vehicle.py`.
+Selects the `front_position` config group, which sets `state_0.px=1.0`. The group is registered via `register_group_name("session.parameters.state_0", "parameters/state_0")` with two options (`zero_state`, `front_position`) in `shared_config.py`.
 
 ### Experiment override
 
@@ -102,10 +102,11 @@ comparison demonstrates cross-package testing rather than two models in one sour
 The reference model has its own Hydra registry in
 `tests/reference_models/kinematic_vehicle.py`. Both registries share the
 parameter schema and group-option definitions via `apply_shared_group_options`
-and build their run config with `create_run`; the reference keeps its own
-registry, Modelica source, and run configuration. Experiments are defined once
-in `src/kinematic_vehicle/experiments.py` by `register_experiments` and applied
-to both registries under the same names. The test module provides four fixtures:
+and build their run config with `registry.create_run`; the reference keeps its
+own registry, Modelica source, and run configuration. Experiments are defined
+once in `src/kinematic_vehicle/experiments.py` as `ExperimentSpec` values and
+applied to both registries with `registry.register_experiments` under the same
+names. The test module provides four fixtures:
 `model_name` selects the candidate, `reference_name` selects the reference
 model, `registry` supplies the candidate experiment configurations, and
 `reference_registry` supplies the reference configurations. Test classes inherit
@@ -115,9 +116,9 @@ a parameter sweep:
 ```python
 import pytest
 from kinematic_vehicle.kinematic_vehicle import MODEL_NAME
+from kinematic_vehicle.kinematic_vehicle import registry as kinematic_registry
 
 from mtools.testing import ExperimentReference, ExperimentSweepReference
-from tests.experiments import registry as kinematic_registry
 from tests.reference_models.kinematic_vehicle import MODEL_NAME as REFERENCE_NAME
 from tests.reference_models.kinematic_vehicle import registry as _reference_registry
 
