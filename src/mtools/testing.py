@@ -296,8 +296,9 @@ class ExperimentSweepT(ExperimentBase, Generic[NameType, SweepResultType]):
             ValueError: If distinct sweep values freeze to the same result
                 key (e.g. ``True`` vs ``1``, or ``1`` vs ``1.0``, which
                 compare equal as dict keys); if normalized sweep values
-                are ambiguous; or if a job's composed config matches no
-                swept combination or matches twice.
+                are ambiguous; if a job's composed config matches no
+                swept combination or matches twice; or if a job's composed
+                config lacks ``model_name``.
         """
         plan = _internal._SweepPlan(cls.sweep_params, cls.sweep_param_prefix, name, registry, run_config=run_config)
         sweep_results = plan.launch(registry, tmp_path_factory)
@@ -355,7 +356,7 @@ class ExperimentSweepReferenceT(_ReferenceComparisonMixin, ExperimentSweepT[Name
         reference_run_config: Any,
         tmp_path_factory: Any,
     ) -> dict[tuple[Hashable, ...], pd.DataFrame]:
-        """Run one reference sweep and map each parameter combination to its table.
+        """Run one reference sweep by reusing the candidate sweep with a different base run config.
 
         Args:
             name: Experiment name to sweep in ``registry``.
@@ -368,11 +369,9 @@ class ExperimentSweepReferenceT(_ReferenceComparisonMixin, ExperimentSweepT[Name
         Returns:
             Mapping of cartesian-product tuple to reference solution table.
         """
-        plan = _internal._SweepPlan(
-            cls.sweep_params, cls.sweep_param_prefix, name, registry, run_config=reference_run_config
+        return super().run_single_sweep(
+            name, registry, tmp_path_factory, run_config=reference_run_config
         )
-        sweep_results = plan.launch(registry, tmp_path_factory)
-        return plan.attribute(sweep_results)
 
     @classmethod
     def fetch_reference_sweep(

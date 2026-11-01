@@ -156,7 +156,7 @@ def _normalize_sweep_value(value: SweepValue, field_names: list[str] | None, par
     return value
 
 
-#: Sentinel marking a sweep path absent from a job's composed config.
+#: Sentinel marking a config path absent from a job's composed config.
 _JOB_VALUE_MISSING = object()
 
 
@@ -167,7 +167,7 @@ def _ensure_unique(keys: list, message: str) -> None:
 
 
 def _select_job_value(config: Any, path: str) -> Any:
-    """Extract the swept value at ``path`` from a job's composed config.
+    """Extract the value at ``path`` from a job's composed config.
 
     Handles Hydra ``DictConfig``/``ListConfig`` nodes (via
     :func:`OmegaConf.select`, converting containers with
@@ -176,7 +176,8 @@ def _select_job_value(config: Any, path: str) -> Any:
 
     Args:
         config: A sweep job's composed config.
-        path: Dot-separated config path (e.g. ``"session.parameters.phi"``).
+        path: Dot-separated config path (e.g. ``"session.parameters.phi"``,
+            or ``"model_name"`` for the simulated model's name).
 
     Returns:
         The plain-Python value at ``path``.
@@ -187,7 +188,7 @@ def _select_job_value(config: Any, path: str) -> Any:
     if OmegaConf.is_config(config):
         value = OmegaConf.select(config, path, default=_JOB_VALUE_MISSING)
         if value is _JOB_VALUE_MISSING:
-            raise ValueError(f"sweep path {path!r} not found in sweep job config")
+            raise ValueError(f"config path {path!r} not found in sweep job config")
         if OmegaConf.is_config(value):
             return OmegaConf.to_container(value, resolve=True)
         return value
@@ -196,7 +197,7 @@ def _select_job_value(config: Any, path: str) -> Any:
         for part in path.split("."):
             node = node[part] if isinstance(node, Mapping) else getattr(node, part)
     except (KeyError, AttributeError, TypeError) as exc:
-        raise ValueError(f"sweep path {path!r} not found in sweep job config") from exc
+        raise ValueError(f"config path {path!r} not found in sweep job config") from exc
     return node
 
 
