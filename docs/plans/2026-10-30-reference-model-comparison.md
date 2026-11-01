@@ -38,6 +38,13 @@
 > below are historical and may still use the superseded names; the architecture
 > summary, fixture lines, and example task steps have been updated to the new
 > design.
+>
+> **Revision (2026-11-01, later):** Superseded the `model_name`/`reference_name`
+> fixtures. A run config holds exactly one model name, so the bases read the
+> simulated model's name from the composed run config: single-model bases need
+> only `registry`, comparison bases need `registry` and `reference_run_config`.
+> The plan for this change is
+> `docs/plans/2026-11-01-reference-comparison-run-config-only.md`.
 
 ## Global Constraints
 

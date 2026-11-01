@@ -6,7 +6,7 @@ Source: Conversation on 2026-10-30 (feature request for comparing two simulated 
 ## Problem Statement
 
 Today the experiment test bases simulate exactly one model, selected by the
-`model_name` fixture. Verifying that a new or refactored Modelica model behaves
+model name carried in its run config. Verifying that a new or refactored Modelica model behaves
 identically to an established reference model therefore means writing a second
 test class, wiring a second simulation by hand, loading both solution tables,
 and writing ad-hoc comparisons. The same work has to be repeated for every
@@ -23,16 +23,16 @@ Add first-class comparison test bases that simulate each model from its own
 experiment configuration and expose both result sets plus a built-in assertion
 helper.
 
-The model under test comes from the existing `model_name` fixture and the
-shared `registry` fixture. Both models are composed from that one registry: the
-candidate from the registry's default run config and the reference from a
-`reference_run_config` fixture holding a run config added to the same registry.
-The reference run config lives under `tests/` and may point at a separate
-Modelica package with its own parameters, model source, model configurations,
-libraries, and simulation settings, while the reference model name itself comes
-from a new `reference_name` fixture. The registry registers the same experiment
-name for every experiment-capable run config. Tests opt in to the comparison
-with `assert_matches_reference()`.
+The model under test comes from the shared `registry` fixture; each simulated
+model's name is read from the run config that composes it. Both models are
+composed from that one registry: the candidate from the registry's default run
+config and the reference from a `reference_run_config` fixture holding a run
+config added to the same registry. The reference run config lives under
+`tests/` and may point at a separate Modelica package with its own model name,
+parameters, model source, model configurations, libraries, and simulation
+settings. The registry registers the same experiment name for every
+experiment-capable run config. Tests opt in to the comparison with
+`assert_matches_reference()`.
 
 Both single experiments and parameter sweeps are supported, including the
 existing multi-experiment variants.
@@ -40,9 +40,9 @@ existing multi-experiment variants.
 ## User Stories
 
 1. As a model developer, I want to define a test class that compares the model
-   selected by `model_name` against the model selected by `reference_name`, so
-   that I can verify a refactor against an established implementation without
-   duplicating comparison code.
+   composed from the registry's default run config against the model composed
+   from `reference_run_config`, so that I can verify a refactor against an
+   established implementation without duplicating comparison code.
 2. As a model developer, I want the reference model to be simulated from its own
    run config in the shared registry, so that it can define different
    parameters, model source, model configurations, libraries, and solver
@@ -78,9 +78,9 @@ existing multi-experiment variants.
 12. As a model developer, I want a reference model that is absent from the
     reference run config's configured source to fail with the existing simulation
     error, so that I know the reference name and source do not match.
-13. As a model developer, I want missing `reference_name` or
-    `reference_run_config` fixtures to fail at test setup with a normal pytest
-    fixture error, so that the wiring mistake is obvious.
+13. As a model developer, I want a missing `reference_run_config` fixture to
+    fail at test setup with a normal pytest fixture error, so that the wiring
+    mistake is obvious.
 14. As a model developer, I want the comparison to run only when I call the
     helper, so that I can first assert physical properties and then compare
     against the reference.
@@ -110,11 +110,12 @@ fixture so both candidate and reference results are populated before tests run.
 
 ### Reference selection
 
-`reference_name` is a Modelica model name, not a run-config name and not a
-stored result file. The reference model is composed from a `reference_run_config`
-added to the shared `registry`; that run config carries the reference model's
-parameters, source file or package, model configurations, libraries, and
-simulation settings, and it lives under `tests/`.
+The reference model is named by the `model_name` of a `reference_run_config`
+added to the shared `registry`; that run config also carries the reference
+model's parameters, source file or package, model configurations, libraries,
+and simulation settings, and it lives under `tests/`. A run config holds
+exactly one model name, so the reference name is not a separately supplied
+fixture.
 
 The registry binds every experiment to every run config whose defaults include
 the `experiment` group. `register_experiment` (and its `register_experiments`
@@ -135,8 +136,9 @@ package.
 when omitted they use the run config the experiment was registered with.
 
 The existing simulation API maps results under each run's configured model name.
-The comparison bases therefore select the candidate table with `model_name` and
-the reference table with `reference_name`.
+The comparison bases therefore select the candidate table by the default run
+config's `model_name` and the reference table by `reference_run_config`'s
+`model_name`.
 
 ### Sweep reference runs
 
@@ -170,10 +172,11 @@ behaviour first and call the comparison afterwards.
 
 ### Fixtures
 
-The comparison bases require the existing `model_name` and `registry` fixtures
-plus the new `reference_name` and `reference_run_config` fixtures. Sweep
-comparison bases additionally use the built-in `tmp_path_factory`, as existing
-sweep bases do.
+A run config holds exactly one `model_name`, so the bases read the simulated
+model's name from the composed run config instead of a fixture. The single-model
+bases require only the existing `registry` fixture; the comparison bases require
+`registry` and `reference_run_config`. Sweep bases additionally use the built-in
+`tmp_path_factory`, as existing sweep bases do.
 
 ### Documentation
 
@@ -196,9 +199,9 @@ Seams:
   `assert_matches_reference()`. This is the same seam as the existing
   `fetch_experiment` / `fetch_sweep` tests.
 - `tests/session_tools/test_testing_fixtures.py` runs a real inner pytest
-  session with the `pytester` fixture to prove that `reference_name` and
-  `reference_run_config` are injected and the comparison bases' autouse fixtures
-  actually populate both result attributes.
+  session with the `pytester` fixture to prove that `reference_run_config` is
+  injected and the comparison bases' autouse fixtures actually populate both
+  result attributes.
 - `examples/tests/test_reference_comparison.py` runs the real candidate package
   from `src` and a separate reference package from `tests` through OpenModelica,
   both from the shared registry - the candidate from its default run config and
