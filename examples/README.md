@@ -114,30 +114,18 @@ defined once in `src/kinematic_vehicle/experiments.py` as `ExperimentSpec` value
 accept an optional run config; when omitted they use the run config the experiment was
 registered with.
 
-The test module provides four fixtures: `model_name` selects the candidate model,
-`reference_name` selects the reference model, `registry` supplies the shared registry, and
-`reference_run_config` supplies the run config that composes the reference. Test classes inherit
-`ExperimentReference` for a single experiment or `ExperimentSweepReference` for a parameter
-sweep:
+The test module provides two fixtures: `registry` supplies the shared registry, and
+`reference_run_config` supplies the run config that composes the reference. The candidate is the
+experiment's registered (default) run config, and each side's model name is read from its run
+config, so no name fixture is needed. Test classes inherit `ExperimentReference` for a single
+experiment or `ExperimentSweepReference` for a parameter sweep:
 
 ```python
 import pytest
-from kinematic_vehicle.kinematic_vehicle import MODEL_NAME
 from kinematic_vehicle.kinematic_vehicle import registry as model_registry
-from tests.reference_models.kinematic_vehicle import REFERENCE_MODEL_NAME
 from tests.reference_models.kinematic_vehicle import run_reference
 
 from mtools.testing import ExperimentReference, ExperimentSweepReference
-
-
-@pytest.fixture(scope="module")
-def model_name():
-    return MODEL_NAME
-
-
-@pytest.fixture(scope="module")
-def reference_name():
-    return REFERENCE_MODEL_NAME
 
 
 @pytest.fixture(scope="module")
