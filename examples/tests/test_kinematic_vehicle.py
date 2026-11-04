@@ -2,9 +2,9 @@ from typing import ClassVar
 
 import numpy as np
 import pytest
-from mtools.testing import Experiment, Experiments, ExperimentSweep, SweepValue
-
 from kinematic_vehicle.kinematic_vehicle import registry as kinematic_registry
+
+from mtools.testing import Experiment, Experiments, ExperimentSweep, SweepValue
 
 
 @pytest.fixture(scope="module")
@@ -114,3 +114,17 @@ class TestProtectedOutput(Experiment):
 
     def test_protected_derivatives_match_state_derivatives(self):
         np.testing.assert_allclose(self.results["px_dot"], self.results["der(state.px)"])
+
+
+def test_example_builds_and_solves_with_cpp_target():
+    config = kinematic_registry.compose("default")
+
+    assert config.session.build_options.omc_build_flags["--simCodeTarget"] == "Cpp"
+    assert config.session.sim_configurations.solver == "dassl"
+
+
+def test_protected_output_experiment_keeps_cpp_solver():
+    config = kinematic_registry.compose_experiment("protected_output")
+
+    assert config.session.sim_configurations.solver == "dassl"
+    assert config.session.sim_configurations.emit_protected is True

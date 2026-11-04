@@ -19,6 +19,22 @@ import mtools.session_config as session_config
 
 MODEL_NAME = "kinematic_vehicle.KinematicVehicle"
 
+#: OMC flags used by every run config in this example. The Cpp simulation target
+#: exercises pydelica's Cpp support.
+CPP_OMC_BUILD_FLAGS = {"-q": None, "--simCodeTarget": "Cpp"}
+
+
+def cpp_build_options(model_name: str) -> dict:
+    """Return pydelica build options for a model using the Cpp target."""
+    return {
+        "model_addr": model_name,
+        "omc_build_flags": dict(CPP_OMC_BUILD_FLAGS),
+    }
+
+
+#: The Cpp runtime does not implement the deprecated ``rungekutta`` solver.
+simulation_default = session_config.Simulation(solver="dassl")
+
 
 @dataclasses.dataclass
 class State:
@@ -56,14 +72,15 @@ registry.register_group_options("session/parameters", {"default": vehicle_defaul
 # Register a default option for `session.sim_configurations` so experiments
 # can override the runtime options.
 registry.register_group_options(
-    "session/sim_configurations", {"default": session_config.Simulation()}, default="default"
+    "session/sim_configurations", {"default": simulation_default}, default="default"
 )
 
 # Parameters and simulation settings come from the registered group defaults,
-# so only the model name and source are supplied here.
+# so only the model name, source, and Cpp build options are supplied here.
 run_default = registry.create_run(
     model_name=MODEL_NAME,
     model_path=(Path(__file__).parent / "package.mo").resolve(),
+    build_options=cpp_build_options(MODEL_NAME),
     include_experiment_group=True,
     name="default",
 )
@@ -95,10 +112,21 @@ registry.register_experiment(
 registry.register_experiment(
     name="protected_output",
     base_run_config=run_default,
-    overrides={"session/sim_configurations": session_config.Simulation(emit_protected=True)},
+    overrides={
+        "session/sim_configurations": dataclasses.replace(
+            simulation_default, emit_protected=True
+        )
+    },
 )
 
 registry.add_to_hydra_store()
 
 # Re-exported for convenience.
-__all__ = ["MODEL_NAME", "registry", "run_default"]
+__all__ = [
+    "CPP_OMC_BUILD_FLAGS",
+    "MODEL_NAME",
+    "cpp_build_options",
+    "registry",
+    "run_default",
+    "simulation_default",
+]

@@ -27,7 +27,7 @@ tests/
 
 ## Prerequisites
 
-- [OpenModelica](https://openmodelica.org/) installed (`omc` and `omlibrary` packages on Debian/Ubuntu)
+- [OpenModelica](https://openmodelica.org/) installed (`omc`, `omlibrary`, `libomccpp`, `clang`, and `libomp-dev` packages on Debian/Ubuntu)
 - **Python >= 3.11** with [uv](https://docs.astral.sh/uv/)
 
 ## Installation
@@ -51,6 +51,10 @@ uv run python -m kinematic_vehicle
 ```
 
 Runs the simulation with default parameters: `v_norm=10.0`, `stop_time=10.0`, initial state `(px=0, py=0)`.
+
+The run configs build with `--simCodeTarget=Cpp`, so results come from OpenModelica's C++ simulation
+runtime. The default solver is `dassl` because the Cpp runtime does not support the deprecated
+`rungekutta` solver.
 
 ### Config group override
 
