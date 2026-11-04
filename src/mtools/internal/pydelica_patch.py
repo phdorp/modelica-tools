@@ -1,4 +1,4 @@
-"""Workaround for pydelica multi-file compilation.
+"""Workarounds for pydelica multi-file compilation and Cpp target simulation.
 
 ``_compile_without_source_copy`` is a copy of ``pydelica.compiler.Compiler.compile``
 (pydelica 0.6.3) with only the temp-source-staging step removed: upstream copies the
@@ -6,6 +6,15 @@ single ``.mo`` file (and ``extra_models``) flat into its own temporary directory
 destroys the sibling ``.mo`` files / ``Resources/`` layout that OMC needs to resolve
 ``within`` members across multiple files. This variant points OMC at the original source
 path so the relative layout is preserved.
+
+When OMC's ``Cpp`` simulation target is selected (``--simCodeTarget=Cpp``) the generated
+XML contains no ``DefaultExperiment`` element and the resulting binary reads simulation
+options from the command line rather than from that XML. pydelica 0.6.x assumes the C
+target layout, so this module also:
+
+* injects a ``DefaultExperiment`` derived from OMC's generated ``<model>.sh`` wrapper so
+  pydelica can construct its ``SimulationOptions``, and
+* translates those options to the Cpp runtime's command-line flags at simulation time.
 
 Note on resource resolution: because the source is compiled in place, relative references
 in external C code and ``modelica://`` / ``loadResource``-style paths resolve against the
@@ -27,20 +36,148 @@ import logging
 import os
 import pathlib
 import platform
+import shlex
 import shutil
 import subprocess
 import tempfile
+import xml.etree.ElementTree as ElementTree
 from importlib import metadata
+from typing import Any, Callable, MutableMapping
 
 import pydantic
-
 import pydelica.exception as pde
 from pydelica.options import LibrarySetup
-
 
 _SUPPORTED_PYDELICA_MAJOR_MINOR = "0.6"
 
 _PATCH_INSTALLED = False
+
+_ORIGINAL_SIMULATE: Callable[..., None] | None = None
+
+_ORIGINAL_SIMULATION_OPTIONS_INIT: Callable[..., None] | None = None
+
+
+#: OMC option used to select the simulation code-generation target.
+_CPP_SIMCODE_TARGET_FLAG = "simcodetarget"
+
+#: Simulation option names parsed from the generated Cpp shell wrapper.
+_CPP_SHELL_FLAG_OPTIONS = {
+    "-S": "startTime",
+    "-E": "stopTime",
+    "-H": "stepSize",
+    "-G": "numberOfIntervals",
+    "-P": "outputFormat",
+    "-T": "tolerance",
+    "-I": "solver",
+    "-B": "variableFilter",
+}
+
+#: Fallbacks used when OMC does not emit a shell wrapper alongside the model XML.
+_CPP_DEFAULT_SIMULATION_OPTIONS = {
+    "startTime": "0.0",
+    "stopTime": "1.0",
+    "stepSize": "0.002",
+    "numberOfIntervals": "500",
+    "outputFormat": "mat",
+    "tolerance": "1e-6",
+    "solver": "dassl",
+    "variableFilter": ".*",
+}
+
+#: Cpp runtime flags corresponding to pydelica simulation option names.
+_CPP_SIMULATION_OPTION_FLAGS = {
+    "startTime": "-S",
+    "stopTime": "-E",
+    "stepSize": "-H",
+    "numberOfIntervals": "-G",
+    "tolerance": "-T",
+    "solver": "-I",
+    "variableFilter": "-B",
+}
+
+
+def _is_cpp_target(omc_flags: dict[str, str | None]) -> bool:
+    """Return whether OMC flags select the Cpp simulation target."""
+    for flag, value in omc_flags.items():
+        if flag.lstrip("-").lower() == _CPP_SIMCODE_TARGET_FLAG:
+            return value is not None and value.lower() == "cpp"
+    return False
+
+
+def _cpp_shell_script(xml_file: pathlib.Path, model_name: str | None) -> pathlib.Path | None:
+    """Find the shell wrapper OMC generated for a model's Cpp binary."""
+    candidates = []
+    if model_name:
+        candidates.append(xml_file.parent.joinpath(f"{model_name}.sh"))
+    candidates.append(xml_file.parent.joinpath(f"{xml_file.stem.removesuffix('_init')}.sh"))
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    scripts = list(xml_file.parent.glob("*.sh"))
+    return scripts[0] if len(scripts) == 1 else None
+
+
+def _cpp_default_simulation_options(script: pathlib.Path | None) -> dict[str, str]:
+    """Read default simulation options from an OMC-generated Cpp shell wrapper."""
+    options = dict(_CPP_DEFAULT_SIMULATION_OPTIONS)
+    if script is None or not script.exists():
+        return options
+    try:
+        tokens = shlex.split(script.read_text())
+    except OSError:
+        return options
+    for index, token in enumerate(tokens[:-1]):
+        option_name = _CPP_SHELL_FLAG_OPTIONS.get(token)
+        if option_name:
+            options[option_name] = tokens[index + 1]
+    return options
+
+
+def _inject_cpp_default_experiment(xml_file: pathlib.Path) -> None:
+    """Add a ``DefaultExperiment`` element to Cpp-generated model XML in place.
+
+    pydelica constructs ``SimulationOptions`` from this element, but OMC's Cpp target
+    does not emit it. The values are taken from the shell wrapper generated next to the
+    XML, which contains the experiment annotation defaults OMC compiled into the binary.
+    """
+    tree = ElementTree.parse(xml_file)
+    root = tree.getroot()
+    if root.find("DefaultExperiment") is not None:
+        return
+    script = _cpp_shell_script(xml_file, root.get("modelName"))
+    options = _cpp_default_simulation_options(script)
+    root.insert(0, ElementTree.Element("DefaultExperiment", options))
+    tree.write(xml_file, encoding="UTF-8", xml_declaration=True)
+
+
+def _inject_cpp_default_experiments(build_dir: str, logger: logging.Logger) -> None:
+    """Inject ``DefaultExperiment`` into every Cpp-generated model XML in ``build_dir``."""
+    for xml_file in glob.glob(os.path.join(build_dir, "*_init.xml")):
+        try:
+            _inject_cpp_default_experiment(pathlib.Path(xml_file))
+        except (ElementTree.ParseError, OSError):
+            logger.warning("Failed to add default experiment to '%s'", xml_file, exc_info=True)
+
+
+def _cpp_variable_filter(filter_str: str) -> str:
+    """Translate mtools' default wildcard filter to the Cpp runtime's regex syntax."""
+    return ".*" if filter_str in ("", "*") else filter_str
+
+
+def _simulation_options_init_with_cpp_fallback(self: Any, xml_model_file: Any) -> None:
+    """Create pydelica simulation options, supplying Cpp XML defaults when missing.
+
+    Some OMC Cpp builds write model XML without a ``DefaultExperiment`` element, which
+    makes pydelica 0.6.x raise ``IndexError``. Adding the element before delegating keeps
+    both option reads and later writes working for all supported OMC XML layouts.
+    """
+    assert _ORIGINAL_SIMULATION_OPTIONS_INIT is not None
+    try:
+        _inject_cpp_default_experiment(pathlib.Path(xml_model_file))
+    except (ElementTree.ParseError, OSError):
+        # Let pydelica report its own error for unreadable or unexpected XML.
+        pass
+    _ORIGINAL_SIMULATION_OPTIONS_INIT(self, xml_model_file)
 
 
 def _pydelica_version() -> str:
@@ -247,12 +384,90 @@ def _compile_without_source_copy(
             f"Model build failed with exit code {_build.returncode}:\n\t{_build.stderr}"
         )
 
+    if _is_cpp_target(self._omc_flags):
+        _inject_cpp_default_experiments(_temp_build_dir, self._logger)
+
     self._binary_dirs.append(_temp_build_dir)
     return pathlib.Path(_temp_build_dir)
 
 
+class _CppRuntimeOptions:
+    """Expose Cpp runtime flags through pydelica's ``assemble_args`` interface.
+
+    ``pydelica.Session.simulate`` appends the arguments returned by the model's runtime
+    options object. For the Cpp target the simulation options are command-line flags, so
+    this adapter reads pydelica's (XML-backed) simulation options and emits them in the
+    form accepted by the Cpp binary.
+    """
+
+    _OUTPUT_EXTENSIONS = {"csv": "csv", "mat": "mat", "plt": "plt"}
+
+    def __init__(
+        self,
+        model_name: str,
+        simulation_options: MutableMapping[str, Any],
+        runtime_options: Any,
+    ) -> None:
+        object.__setattr__(self, "_model_name", model_name.replace(".", "_"))
+        object.__setattr__(self, "_simulation_options", simulation_options)
+        object.__setattr__(self, "_runtime_options", runtime_options)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(object.__getattribute__(self, "_runtime_options"), name)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name.startswith("_"):
+            object.__setattr__(self, name, value)
+        else:
+            setattr(object.__getattribute__(self, "_runtime_options"), name, value)
+
+    def assemble_args(self) -> list[str]:
+        """Return Cpp simulation flags for the configured model run."""
+        options = object.__getattribute__(self, "_simulation_options")
+        args: list[str] = []
+        for option_name, flag in _CPP_SIMULATION_OPTION_FLAGS.items():
+            value = options.get(option_name)
+            if value is not None and value != "":
+                if option_name == "variableFilter":
+                    value = _cpp_variable_filter(str(value))
+                args.extend([flag, str(value)])
+
+        output_format = str(options.get("outputFormat") or "csv").lower()
+        extension = self._OUTPUT_EXTENSIONS.get(output_format, output_format)
+        args.extend(["-P", output_format])
+        args.extend(["-F", f"{self._model_name}_res.{extension}"])
+
+        emit_protected = bool(getattr(self._runtime_options, "emit_protected", False))
+        args.extend(["-U", "protected" if emit_protected else "public"])
+        return args
+
+
+def _simulate_with_cpp_options(self: Any, model_name: str | None = None, verbosity: Any = None) -> None:
+    """Run pydelica's simulation, adding Cpp-specific runtime arguments when needed."""
+    if _ORIGINAL_SIMULATE is None or not _is_cpp_target(
+        getattr(self._compiler, "_omc_flags", {})
+    ):
+        assert _ORIGINAL_SIMULATE is not None
+        return _ORIGINAL_SIMULATE(self, model_name=model_name, verbosity=verbosity)
+
+    resolved_model = model_name or self.default_model
+    try:
+        model_key = self._get_cache_key(resolved_model, self._simulation_opts)
+    except KeyError:
+        return _ORIGINAL_SIMULATE(self, model_name=model_name, verbosity=verbosity)
+
+    runtime_options = self._runtime_opts[model_key]
+    self._runtime_opts[model_key] = _CppRuntimeOptions(
+        model_key, self._simulation_opts[model_key], runtime_options
+    )
+    try:
+        return _ORIGINAL_SIMULATE(self, model_name=model_name, verbosity=verbosity)
+    finally:
+        self._runtime_opts[model_key] = runtime_options
+
+
 def install_pydelica_patch() -> None:
-    global _PATCH_INSTALLED
+    global _PATCH_INSTALLED, _ORIGINAL_SIMULATE, _ORIGINAL_SIMULATION_OPTIONS_INIT
     if _PATCH_INSTALLED:
         return
 
@@ -265,7 +480,17 @@ def install_pydelica_patch() -> None:
             "pydelica.compiler.Compiler.compile of the installed version."
         )
 
+    import pydelica
     import pydelica.compiler as pydelica_compiler
+    import pydelica.options.simulation as pydelica_simulation
 
     pydelica_compiler.Compiler.compile = _compile_without_source_copy
+    if _ORIGINAL_SIMULATE is None:
+        _ORIGINAL_SIMULATE = pydelica.Session.simulate
+    pydelica.Session.simulate = _simulate_with_cpp_options
+    if _ORIGINAL_SIMULATION_OPTIONS_INIT is None:
+        _ORIGINAL_SIMULATION_OPTIONS_INIT = pydelica_simulation.SimulationOptions.__init__
+    pydelica_simulation.SimulationOptions.__init__ = (
+        _simulation_options_init_with_cpp_fallback
+    )
     _PATCH_INSTALLED = True
