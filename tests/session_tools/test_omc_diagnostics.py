@@ -89,3 +89,25 @@ def test_model_with_warnings_still_builds(tmp_path):
     path = tmp_path / "Warn.mo"
     path.write_text("model Warn\n  parameter Real p(start=1);\n  Real x(start=1);\nequation\n  der(x) = -p*x;\nend Warn;\n")
     session_tools.SessionBuilder(path)  # no exception
+
+
+def test_c_compiler_error_in_external_function_is_reported(tmp_path):
+    source = (
+        "model BrokenC\n  function f\n    input Real x;\n    output Real y;\n"
+        '  external "C" y = brokenF(x) annotation(Include="double brokenF(double x) { return x +; }");\n'
+        "  end f;\n  Real x(start=1);\nequation\n  der(x) = f(x);\nend BrokenC;\n"
+    )
+    exc = _build(tmp_path, "BrokenC", source)
+    assert exc.type is pydelica.exception.OMBuildError
+    assert "error: expected expression" in str(exc.value)
+
+
+def test_violated_assert_reports_message_and_time(tmp_path):
+    path = tmp_path / "Assertion.mo"
+    path.write_text(
+        "model Assertion\n  Real x(start=1);\nequation\n  der(x) = 1;\n"
+        '  assert(x < 1.5, "x exceeded limit");\nend Assertion;\n'
+    )
+    builder = session_tools.SessionBuilder(path)
+    with pytest.raises(pydelica.exception.OMAssertionError, match="x exceeded limit"):
+        builder.session.simulate(model_name="Assertion")
