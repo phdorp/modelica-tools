@@ -338,25 +338,34 @@ def _compile_without_source_copy(
             if _gen:
                 self._logger.error("Traceback: %s", _gen.stdout)
             raise e from e
-        except pde.OMExecutionError as e:
-            self._logger.error("Failed to run command '%s'", _cmd_str)
-            if _gen:
-                self._logger.error("Traceback: %s", _gen.stdout)
-            raise e from e
+        except (pde.OMParsingError, pde.OMExecutionError) as e:
+            assert _gen is not None  # raised by parse_error_string_compiler, after run
+            self._logger.debug("Failed to run command '%s'", _cmd_str)
+            message = _translation_error_message(
+                modelica_source_file, _gen.returncode, _gen.stdout, _gen.stderr
+            )
+            self._logger.error(message)
+            raise type(e)(message) from e
         except pde.OMBuildError as e:
             if "lexer failed" in e.args[0]:
                 self._logger.warning(e.args[0])
             else:
-                if _gen:
-                    self._logger.error("Traceback: %s", _gen.stdout)
-                raise e from e
+                assert _gen is not None
+                self._logger.debug("Failed to run command '%s'", _cmd_str)
+                message = _translation_error_message(
+                    modelica_source_file, _gen.returncode, _gen.stdout, _gen.stderr
+                )
+                self._logger.error(message)
+                raise type(e)(message) from e
 
         if not _gen:
             raise RuntimeError("Failed to execute model generation")
 
         if _gen.returncode != 0:
             raise pde.OMBuildError(
-                f"Model build configuration failed with exit code {_gen.returncode}:\n\t{_gen.stderr}"
+                _translation_error_message(
+                    modelica_source_file, _gen.returncode, _gen.stdout, _gen.stderr
+                )
             )
 
         self._logger.debug(_gen.stdout)

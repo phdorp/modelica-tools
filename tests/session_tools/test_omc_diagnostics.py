@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import pydelica.exception
+import pytest
+
+import mtools.internal.session_tools as session_tools
 from mtools.internal.pydelica_patch import (_omc_diagnostics,
                                             _translation_error_message)
 
@@ -37,3 +41,51 @@ def test_omc_diagnostics_empty():
 def test_translation_error_message_header(tmp_path):
     message = _translation_error_message(tmp_path / "M.mo", 1, "", "Error: boom\n")
     assert message == f"OMC failed to translate '{tmp_path / 'M.mo'}' (exit code 1):\nError: boom"
+
+
+def _build(tmp_path, name, source):
+    path = tmp_path / f"{name}.mo"
+    path.write_text(source)
+    with pytest.raises(Exception) as exc:
+        session_tools.SessionBuilder(path)
+    return exc
+
+
+def test_syntax_error_reports_missing_token(tmp_path):
+    exc = _build(tmp_path, "Syntax", "model Syntax\n  Real x(start=1)\nequation\n  der(x) = -x;\nend Syntax;\n")
+    assert exc.type is pydelica.exception.OMParsingError
+    assert f"OMC failed to translate '{tmp_path / 'Syntax.mo'}' (exit code 1):" in str(exc.value)
+    assert "Missing token: SEMICOLON" in str(exc.value)
+    assert ":3:1-3:1:" in str(exc.value)
+
+
+def test_under_determined_model_reports_counts_and_free_variable(tmp_path):
+    exc = _build(tmp_path, "Imbalanced", "model Imbalanced\n  Real x(start=1);\n  Real y;\nequation\n  der(x) = -x;\nend Imbalanced;\n")
+    assert exc.type is pydelica.exception.OMExecutionError
+    msg = str(exc.value)
+    assert "Too few equations, under-determined system. The model has 1 equation(s) and 2 variable(s)." in msg
+    assert "Variable y does not have any remaining equation" in msg
+    assert "Notification:" not in msg
+    assert "Failed to execute compiled code" not in msg
+    assert isinstance(exc.value.__cause__, pydelica.exception.OMExecutionError)
+
+
+def test_over_determined_model_reports_too_many_equations(tmp_path):
+    exc = _build(tmp_path, "Over", "model Over\n  Real x(start=1);\nequation\n  der(x) = -x;\n  x = 1;\nend Over;\n")
+    assert "Too many equations, over-determined system" in str(exc.value)
+
+
+def test_undeclared_variable_reports_name_and_scope(tmp_path):
+    exc = _build(tmp_path, "Undeclared", "model Undeclared\n  Real x(start=1);\nequation\n  der(x) = -k*x;\nend Undeclared;\n")
+    assert "Variable k not found in scope Undeclared" in str(exc.value)
+
+
+def test_missing_library_class_is_named(tmp_path):
+    exc = _build(tmp_path, "MissingLib", "model MissingLib\n  Modelica.Blocks.Sources.NoSuchBlock b;\nend MissingLib;\n")
+    assert "NoSuchBlock" in str(exc.value)
+
+
+def test_model_with_warnings_still_builds(tmp_path):
+    path = tmp_path / "Warn.mo"
+    path.write_text("model Warn\n  parameter Real p(start=1);\n  Real x(start=1);\nequation\n  der(x) = -p*x;\nend Warn;\n")
+    session_tools.SessionBuilder(path)  # no exception
