@@ -8,6 +8,8 @@ including the error classes that are not pinned here, are in
 
 from __future__ import annotations
 
+import logging
+
 import pydelica.exception
 import pytest
 
@@ -156,3 +158,18 @@ def test_runtime_error_reports_cause(tmp_path, section, name, source, exc_type, 
     for phrase in phrases:
         assert phrase in str(exc.value), phrase
 
+
+def test_build_warning_is_logged_without_notifications(tmp_path, caplog):
+    """Guide section 9.8: users should act on this warning until it no longer appears."""
+    path = tmp_path / "InitialConditionsNotSpecified.mo"
+    path.write_text(
+        "model InitialConditionsNotSpecified\n  Real x;\n  Real y(start = 1);\n  Real z(start = 2);\n"
+        "equation\n  der(x) = y + z;\n  y = 2*x;\n  z = 10*x + 1;\nend InitialConditionsNotSpecified;\n"
+    )
+
+    with caplog.at_level(logging.WARNING):
+        session_tools.SessionBuilder(path)
+
+    messages = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+    assert any("Warning: The initial conditions are not fully specified." in m for m in messages)
+    assert not any("Notification:" in m for m in messages)

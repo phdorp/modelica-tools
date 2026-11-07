@@ -418,8 +418,12 @@ def _compile_without_source_copy(
 
         self._logger.debug(_gen.stdout)
 
-        if _gen.stderr:
-            self._logger.error(_gen.stderr)
+        # Log only OMC's warnings: unfiltered stderr also carries the "Automatically
+        # loaded package" notifications, and the session's log filter drops any record
+        # containing those, which would hide the warnings with them.
+        _build_warnings = _omc_diagnostics("", _gen.stderr)
+        if _build_warnings:
+            self._logger.error(_build_warnings)
 
     _make_files = glob.glob(os.path.join(_temp_build_dir, "*.makefile"))
 
