@@ -15,5 +15,5 @@ curl -fsSL https://build.openmodelica.org/apt/openmodelica.asc | gpg --dearmor |
 CODENAME="$(grep -E '(UBUNTU|DEBIAN|VERSION)_CODENAME' /etc/os-release | sort | cut -d= -f2 | head -1)"
 echo "deb [arch=amd64 signed-by=/usr/share/keyrings/openmodelica-keyring.gpg] https://build.openmodelica.org/apt ${CODENAME} stable" | $SUDO tee /etc/apt/sources.list.d/openmodelica.list >/dev/null
 $SUDO apt-get update
-$SUDO apt-get install -y --no-install-recommends omc omlibrary
+$SUDO apt-get install -y --no-install-recommends omc omlibrary libomccpp clang libomp-dev
 $SUDO rm -rf /var/lib/apt/lists/*
