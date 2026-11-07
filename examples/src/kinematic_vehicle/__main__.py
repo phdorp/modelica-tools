@@ -1,6 +1,6 @@
 import hydra
-from hydra.core.hydra_config import HydraConfig
 import kinematic_vehicle.kinematic_vehicle
+from hydra.core.hydra_config import HydraConfig
 
 import mtools.session_config as session_config
 import mtools.sim_tools as sim_tools
