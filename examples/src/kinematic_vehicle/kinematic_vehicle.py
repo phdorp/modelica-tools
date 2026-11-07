@@ -17,7 +17,7 @@ import numpy as np
 import mtools.hydra_registry as hydra_registry
 import mtools.session_config as session_config
 
-MODEL_NAME = "kinematic_vehicle.KinematicVehicle"
+MODEL_NAME = "kinematic_vehicle.WrapperKinematicVehicle"
 
 #: OMC flags used by every run config in this example. The Cpp simulation target
 #: exercises pydelica's Cpp support.
@@ -37,33 +37,16 @@ simulation_default = session_config.Simulation(solver="dassl")
 
 
 @dataclasses.dataclass
-class State:
-    px: float = 0.0
-    py: float = 0.0
-    theta: float = 0.0
-
-
-@dataclasses.dataclass
-class KinematicVehicle:
-    state_0: State
+class WrapperKinematicVehicle:
     v_norm: float = 10.0
     phi: float = 0.0
-    l: float = 2.0
+    wheelbase: float = 2.0
 
 
-vehicle_default = KinematicVehicle(state_0=State())
+vehicle_default = WrapperKinematicVehicle()
 
 
 registry = hydra_registry.HydraZenRegistry(store=hydra_zen.ZenStore())
-
-# Register a group named "parameters/state_0" to override parameters at "session.parameters.state_0".
-registry.register_group_name("session.parameters.state_0", "parameters/state_0")
-# Register the interchangeable initial states and select "zero_state" by default.
-registry.register_group_options(
-    "parameters/state_0",
-    {"zero_state": State(), "front_position": State(px=1.0)},
-    default="zero_state",
-)
 
 # Register `vehicle_default` as the default option for `session.parameters`.
 # The defaults list entry can be overridden by an experiment.
@@ -90,24 +73,25 @@ run_default = registry.create_run(
 registry.register_experiment(
     name="standstill",
     base_run_config=run_default,
-    overrides={"session/parameters": KinematicVehicle(state_0=State(), v_norm=0.0, phi=0)},
+    overrides={
+        "session/parameters": WrapperKinematicVehicle(v_norm=0.0, phi=0.0, wheelbase=2.0)
+    },
 )
 registry.register_experiment(
     name="straight_driving",
     base_run_config=run_default,
-    overrides={"session/parameters": KinematicVehicle(state_0=State(), v_norm=10.0, phi=0.0)},
+    overrides={
+        "session/parameters": WrapperKinematicVehicle(v_norm=10.0, phi=0.0, wheelbase=2.0)
+    },
 )
 registry.register_experiment(
     name="turn_left",
     base_run_config=run_default,
     overrides={
-        "session/parameters": KinematicVehicle(state_0=State(), v_norm=10.0, phi=float(np.deg2rad(0.5)))
+        "session/parameters": WrapperKinematicVehicle(
+            v_norm=10.0, phi=float(np.deg2rad(0.5)), wheelbase=2.0
+        )
     },
-)
-registry.register_experiment(
-    name="front_position",
-    base_run_config=run_default,
-    selections={"parameters/state_0": "front_position"},
 )
 registry.register_experiment(
     name="protected_output",

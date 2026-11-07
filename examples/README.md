@@ -2,7 +2,11 @@
 
 This directory contains a `kinematic_vehicle` example package that demonstrates how to configure and run a [Modelica](https://modelica.org/) simulation with `modelica-tools`.
 
-The example uses a bicycle kinematic model (`kinematic_vehicle.mo`) with three state variables (`px`, `py`, `theta`), an initial state config group, and sweepable parameters (`v_norm`).
+The example splits a bicycle kinematic model into an interface (`IKinematicVehicle`), an implementation
+(`KinematicVehicle`), and a standalone block (`WrapperKinematicVehicle`). The wrapper is the simulated
+model: its sweepable `v_norm`, `phi`, and `wheelbase` parameters drive the implementation, which starts
+from the zero initial state `(px, py, theta) = (0, 0, 0)`. Simulation results expose the implementation's
+signals under the `vehicle.*` path.
 
 ## Project structure
 
@@ -10,7 +14,9 @@ The example uses a bicycle kinematic model (`kinematic_vehicle.mo`) with three s
 src/kinematic_vehicle/
 ├── __init__.py
 ├── __main__.py              # Hydra entry point: composes config and runs simulation
-├── KinematicVehicle.mo      # Candidate Modelica model
+├── IKinematicVehicle.mo     # Interface: inputs v_norm and phi, outputs px, py, and theta
+├── KinematicVehicle.mo      # Implementation: bicycle equations and zero initial state
+├── WrapperKinematicVehicle.mo  # Simulated block: parameters drive the implementation
 └── kinematic_vehicle.py     # Registry, group options, run config, and experiments
 tests/
 ├── __init__.py
@@ -18,9 +24,9 @@ tests/
 │   ├── __init__.py
 │   ├── kinematic_vehicle.py # Reference run config added to the shared registry
 │   ├── package.mo
-│   ├── State.mo
-│   ├── Input.mo
-│   └── KinematicVehicle.mo
+│   ├── IKinematicVehicle.mo
+│   ├── KinematicVehicle.mo
+│   └── WrapperKinematicVehicle.mo
 ├── test_kinematic_vehicle.py  # Plausibility tests via parameterized experiments
 └── test_reference_comparison.py  # Candidate vs reference model comparison
 ```
@@ -50,27 +56,32 @@ All commands must be run from the `examples/` directory.
 uv run python -m kinematic_vehicle
 ```
 
-Runs the simulation with default parameters: `v_norm=10.0`, `stop_time=10.0`, initial state `(px=0, py=0)`.
+Runs `kinematic_vehicle.WrapperKinematicVehicle` with default parameters `v_norm=10.0`, `phi=0.0`,
+`wheelbase=2.0`, `stop_time=10.0`, and zero initial state for `vehicle.px`, `vehicle.py`, and
+`vehicle.theta`.
 
 The run configs build with `--simCodeTarget=Cpp`, so results come from OpenModelica's C++ simulation
 runtime. The default solver is `dassl` because the Cpp runtime does not support the deprecated
 `rungekutta` solver.
 
-### Config group override
+### Parameter overrides
 
 ```bash
-uv run python -m kinematic_vehicle parameters/state_0=front_position
+uv run python -m kinematic_vehicle session.parameters.phi=0.1
+uv run python -m kinematic_vehicle session.parameters.wheelbase=3.0
 ```
 
-Selects the `front_position` config group, which sets `state_0.px=1.0`. The group is registered via `register_group_name("session.parameters.state_0", "parameters/state_0")` with two options (`zero_state`, `front_position`) in `kinematic_vehicle.py`.
+Overrides a wrapper parameter directly. `phi` is the steering angle in radians and `wheelbase` is the
+distance between the axles. `v_norm` is overridden the same way.
 
 ### Experiment override
 
 ```bash
-uv run python -m kinematic_vehicle experiment=front_position
+uv run python -m kinematic_vehicle experiment=turn_left
 ```
 
-Applies the `front_position` experiment defined in `src/kinematic_vehicle/kinematic_vehicle.py`, which overrides the `parameters/state_0` group to `front_position`.
+Applies the `turn_left` experiment defined in `src/kinematic_vehicle/kinematic_vehicle.py`, which sets
+all three wrapper parameters (`v_norm`, `phi`, and `wheelbase`).
 
 Experiments are registered via `registry.register_experiment(...)` and compose their configs using Hydra's `override /group` defaults syntax.
 
@@ -80,7 +91,7 @@ Experiments are registered via `registry.register_experiment(...)` and compose t
 uv run python -m kinematic_vehicle -m session.parameters.v_norm=10,20
 ```
 
-Launches a multirun sweep over `v_norm` values 10 and 20. Hydra runs separate simulations for each value and stores results in separate output directories.
+Launches a multirun sweep over `v_norm` values 10 and 20. Hydra runs separate simulations for each value and stores results in separate output directories. `phi` and `wheelbase` are sweepable the same way, for example `uv run python -m kinematic_vehicle -m session.parameters.wheelbase=2,4`.
 
 ## Tests
 
@@ -92,14 +103,19 @@ uv run pytest
 ```
 
 `TestProtectedOutput` runs the `protected_output` experiment to show the `emit_protected` runtime option: setting
-`sim_configurations.emit_protected=True` logs protected Modelica variables (here `px_dot`, `py_dot`, `theta_dot`) as
-extra result columns. The option defaults to `False`, so protected variables are omitted unless enabled.
+`sim_configurations.emit_protected=True` logs protected Modelica variables (here `vehicle.px_dot`,
+`vehicle.py_dot`, and `vehicle.theta_dot`) as extra result columns. The option defaults to `False`, so protected variables are omitted unless enabled.
 
 ## Compare against a reference model
 
-`tests/reference_models/` is a separate Modelica package containing a behaviourally
-identical reference model. The candidate lives in the `src/kinematic_vehicle` package, so the
-comparison demonstrates cross-package testing rather than two models in one source file.
+`tests/reference_models/` is a separate Modelica package nested in the `tests`
+package, mirroring the candidate structure: `tests.reference_models.KinematicVehicle` and the
+simulated `tests.reference_models.WrapperKinematicVehicle`, with the same `vehicle` component
+and equations. `tests.reference_models.KinematicVehicle` extends the candidate interface
+`kinematic_vehicle.IKinematicVehicle`, and the reference build loads the candidate package as an
+`extra_models` entry, so there is no duplicate interface to maintain. The
+candidate lives in the `src/kinematic_vehicle` package, so the comparison demonstrates cross-package
+testing rather than two models in one source file.
 
 A single `HydraZenRegistry` is owned by `src/kinematic_vehicle/kinematic_vehicle.py`. It registers
 the shared group options, creates the candidate run config (`name="default"`), and registers
