@@ -9,6 +9,7 @@ including the error classes that are not pinned here, are in
 from __future__ import annotations
 
 import logging
+import threading
 
 import pydelica.exception
 import pytest
@@ -247,6 +248,57 @@ def test_clean_simulation_logs_no_warnings(tmp_path, caplog, capsys):
 
     assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
     assert capsys.readouterr().out == ""
+
+
+CHATTERING = (
+    "model Chattering\n  Real x(start = 1, fixed = true);\nequation\n"
+    "  der(x) = if x > 0 then -1 else 1;\n  annotation(experiment(StopTime = 2));\nend Chattering;\n"
+)
+
+
+def test_chattering_simulation_is_aborted(tmp_path, capsys):
+    """Guide sections 7.1.3 and 30.1: without -abortSlowSimulation this run never returns."""
+    path = tmp_path / "Chattering.mo"
+    path.write_text(CHATTERING)
+    builder = session_tools.SessionBuilder(path)
+    capsys.readouterr()
+
+    raised: list[BaseException] = []
+
+    def simulate() -> None:
+        try:
+            builder.session.simulate(model_name="Chattering")
+        except BaseException as error:
+            raised.append(error)
+
+    worker = threading.Thread(target=simulate, daemon=True)
+    worker.start()
+    worker.join(timeout=60)
+    assert not worker.is_alive(), "simulation of a chattering model did not terminate"
+
+    assert len(raised) == 1
+    error = raised[0]
+    assert isinstance(error, pydelica.exception.OMExecutionError)
+    message = str(error)
+    assert message.startswith("Simulation of 'Chattering' failed:\n")
+    assert message.count("Chattering detected around time 1.0") == 1
+    assert message.count("Aborting simulation due to chattering being detected") == 1
+    assert "LOG_SUCCESS" not in message
+    assert repr(error) == message
+    assert capsys.readouterr().out == ""
+
+
+def test_abort_slow_simulation_is_a_default_that_can_be_turned_off(tmp_path):
+    path = tmp_path / "Chattering.mo"
+    path.write_text(CHATTERING)
+    session = session_tools.SessionBuilder(path).session
+
+    options = session.get_runtime_options("Chattering")
+    assert options.abortSlowSimulation is True
+    assert "-abortSlowSimulation" in options.assemble_args()
+
+    options.abortSlowSimulation = False
+    assert "-abortSlowSimulation" not in options.assemble_args()
 
 
 def test_build_warning_is_logged_without_notifications(tmp_path, caplog):

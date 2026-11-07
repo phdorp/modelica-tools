@@ -701,6 +701,23 @@ def _simulate_with_cpp_options(self: Any, model_name: str | None = None, verbosi
         self._runtime_opts[model_key] = runtime_options
 
 
+#: C runtime flags mtools turns on by default for every built model. Users can turn
+#: them off through ``session.get_runtime_options(model_name)``.
+#: ``abortSlowSimulation`` stops a chattering model, which otherwise never finishes
+#: because pydelica runs the binary without a timeout.
+_DEFAULT_RUNTIME_OPTIONS = {"abortSlowSimulation": True}
+
+
+def apply_runtime_defaults(session: Any) -> None:
+    """Set mtools' default C runtime flags on every model built in ``session``.
+
+    The Cpp target ignores these options (see ``_CppRuntimeOptions``).
+    """
+    for runtime_options in session._runtime_opts.values():
+        for name, value in _DEFAULT_RUNTIME_OPTIONS.items():
+            setattr(runtime_options, name, value)
+
+
 def install_pydelica_patch() -> None:
     global _PATCH_INSTALLED, _ORIGINAL_SIMULATE, _ORIGINAL_SIMULATION_OPTIONS_INIT
     if _PATCH_INSTALLED:

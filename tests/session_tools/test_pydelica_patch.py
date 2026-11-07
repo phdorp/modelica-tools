@@ -129,6 +129,8 @@ def test_session_builder_installs_patch_before_session_creation(monkeypatch, tmp
         calls.append("installed")
 
     class DummySession:
+        _runtime_opts: dict = {}
+
         def __init__(self, log_level):
             calls.append(f"session:{log_level}")
 
