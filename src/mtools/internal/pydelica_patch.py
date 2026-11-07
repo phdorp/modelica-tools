@@ -321,11 +321,12 @@ _SIMULATION_ERROR_TYPES = (pde.OMAssertionError, pde.OMExecutionError, ZeroDivis
 _SIMULATION_FAILED_PREFIX = re.compile(r"^\[-?\d+\] Simulation failed with: ", re.DOTALL)
 
 
-def _simulation_log_entries(log: str) -> list[str]:
+def _simulation_log_entries(log: str, streams: tuple[str, ...] | None = None) -> list[str]:
     """Extract the relevant entries from a C runtime simulation log.
 
     Args:
         log: Raw stdout (or stderr) of the simulation binary.
+        streams: If given, keep only lines of these log streams (e.g. ``LOG_ASSERT``).
 
     Returns:
         One string per ``LOG_*`` line, except ``LOG_SUCCESS`` lines, with column padding
@@ -340,7 +341,9 @@ def _simulation_log_entries(log: str) -> list[str]:
         log_line = _SIMULATION_LOG_LINE.match(line)
         if log_line:
             stream, level, message = log_line.groups()
-            keep = stream not in _QUIET_SIMULATION_LOG_STREAMS
+            keep = stream not in _QUIET_SIMULATION_LOG_STREAMS and (
+                streams is None or stream in streams
+            )
             if keep:
                 entries.append([f"{stream} | {level} | {message.strip()}"])
             continue
@@ -648,7 +651,8 @@ def _patched_simulate(self: Any, model_name: str | None = None, verbosity: Any =
     pydelica prints the whole simulation log to stdout and then raises with the same
     log, so a failure is shown twice. The print is swallowed and pydelica's exception
     is re-raised as a readable subclass of the same type, carrying only the relevant
-    log entries (see ``_simulation_error``).
+    log entries (see ``_simulation_error``). A successful run's ``LOG_ASSERT`` entries
+    are logged at WARNING; the run is not failed, matching OMC.
     """
     captured = io.StringIO()
     try:
@@ -659,8 +663,18 @@ def _patched_simulate(self: Any, model_name: str | None = None, verbosity: Any =
             raise
         resolved_model = model_name or self.default_model
         raise _simulation_error(self._logger, resolved_model, captured.getvalue(), error) from error
-    if captured.getvalue():
-        self._logger.debug("Simulation log:\n%s", captured.getvalue())
+    log = captured.getvalue()
+    if log:
+        self._logger.debug("Simulation log:\n%s", log)
+    # OMC finishes some runs successfully despite failed assertions (a nonlinear
+    # system that could not be solved, a min/max violation); its log is the only signal.
+    asserts = _simulation_log_entries(log, streams=("LOG_ASSERT",))
+    if asserts:
+        self._logger.warning(
+            "Simulation of '%s' reported failed assertions:\n%s",
+            model_name or self.default_model,
+            "\n".join(asserts),
+        )
 
 
 def _simulate_with_cpp_options(self: Any, model_name: str | None = None, verbosity: Any = None) -> None:

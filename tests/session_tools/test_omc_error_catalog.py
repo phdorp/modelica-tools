@@ -187,6 +187,68 @@ def test_runtime_error_is_reported_once_and_readably(
     assert capsys.readouterr().out == ""
 
 
+# (guide section, model name, source, expected phrases in the WARNING record)
+NON_FATAL_RUNTIME_ASSERTS = [
+    (
+        "6.4",
+        "NonlinearSystemFailure",
+        "model NonlinearSystemFailure\n  Real x(start = -0.5);\nequation\n  x*exp(x) = -0.2 - time;\n"
+        "end NonlinearSystemFailure;\n",
+        ["Solving non-linear system", "failed at time=0.16", "For more information please use -lv LOG_NLS."],
+    ),
+    (
+        "29.2 warnMinMax",
+        "MinMaxViolation",
+        "model MinMaxViolation\n  Real x(start = 0, fixed = true, max = 1);\nequation\n  der(x) = 2;\n"
+        "end MinMaxViolation;\n",
+        [
+            "MinMaxViolation.mo:2:3-2:43:writable]",
+            "The following assertion has been violated at time 0.5",
+            "Variable violating max constraint: x <= 1.0",
+        ],
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("section", "name", "source", "phrases"),
+    NON_FATAL_RUNTIME_ASSERTS,
+    ids=[case[1] for case in NON_FATAL_RUNTIME_ASSERTS],
+)
+def test_non_fatal_runtime_assert_is_logged_as_warning(
+    tmp_path, caplog, capsys, section, name, source, phrases
+):
+    """OMC finishes these runs successfully; the assert is only reported in its log."""
+    path = tmp_path / f"{name}.mo"
+    path.write_text(source)
+    builder = session_tools.SessionBuilder(path)
+    capsys.readouterr()
+
+    with caplog.at_level(logging.WARNING):
+        builder.session.simulate(model_name=name)
+
+    warnings = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+    assert len(warnings) == 1, warnings
+    assert warnings[0].startswith(f"Simulation of '{name}' reported failed assertions:\n")
+    for phrase in phrases:
+        assert warnings[0].count(phrase) == 1, phrase
+    assert "LOG_SUCCESS" not in warnings[0]
+    assert capsys.readouterr().out == ""
+
+
+def test_clean_simulation_logs_no_warnings(tmp_path, caplog, capsys):
+    path = tmp_path / "Clean.mo"
+    path.write_text("model Clean\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -x;\nend Clean;\n")
+    builder = session_tools.SessionBuilder(path)
+    capsys.readouterr()
+
+    with caplog.at_level(logging.WARNING):
+        builder.session.simulate(model_name="Clean")
+
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert capsys.readouterr().out == ""
+
+
 def test_build_warning_is_logged_without_notifications(tmp_path, caplog):
     """Guide section 9.8: users should act on this warning until it no longer appears."""
     path = tmp_path / "InitialConditionsNotSpecified.mo"

@@ -91,6 +91,13 @@ def test_simulation_log_entries_keep_continuations_with_their_line():
     ]
 
 
+def test_simulation_log_entries_filter_by_stream():
+    assert _simulation_log_entries(NONLINEAR_FAILURE_LOG, streams=("LOG_ASSERT",)) == [
+        "LOG_ASSERT | debug | Solving non-linear system 8 failed at time=0.168.\n"
+        "    For more information please use -lv LOG_NLS.",
+    ]
+
+
 def test_simulation_log_entries_empty_without_log_lines():
     assert _simulation_log_entries("Segmentation fault\n") == []
 
