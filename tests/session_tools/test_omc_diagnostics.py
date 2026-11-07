@@ -11,6 +11,7 @@ import mtools.internal.session_tools as session_tools
 import mtools.internal.sim_tools as sim_tools
 import mtools.session_config as session_config
 from mtools.internal.pydelica_patch import (_omc_diagnostics,
+                                            _simulation_log_entries,
                                             _translation_error_message)
 
 IMBALANCED_STDERR = (
@@ -55,6 +56,43 @@ def test_omc_diagnostics_falls_back_to_stdout():
 
 def test_omc_diagnostics_empty():
     assert _omc_diagnostics("", "") == ""
+
+
+INTEGRATOR_FAILURE_LOG = (
+    "LOG_SUCCESS       | info    | The initialization finished successfully without homotopy method.\n"
+    "DASKR--  AT T (=R1) AND STEPSIZE H (=R2) THE                                    \n"
+    "      In above,  R1 =   4.9999032681052E-04   R2 =   1.0914468208052E-18\n"
+    "DASKR--  ERROR TEST FAILED REPEATEDLY OR WITH ABS(H)=HMIN                       \n"
+    "LOG_STDOUT        | warning | DDASSL had repeated error test failures on the last attempted step.\n"
+    "LOG_STDOUT        | info    | model terminate | Integrator failed. | Simulation terminated at time 0.00049999\n"
+)
+
+NONLINEAR_FAILURE_LOG = (
+    "LOG_SUCCESS       | info    | The initialization finished successfully without homotopy method.\n"
+    "LOG_ASSERT        | debug   | Solving non-linear system 8 failed at time=0.168.\n"
+    "|                 | |       | For more information please use -lv LOG_NLS.\n"
+    "LOG_STDOUT        | warning | Integrator attempt to handle a problem with a called assert.\n"
+    "LOG_SUCCESS       | info    | The simulation finished successfully.\n"
+)
+
+
+def test_simulation_log_entries_drop_success_lines_and_solver_banner():
+    assert _simulation_log_entries(INTEGRATOR_FAILURE_LOG) == [
+        "LOG_STDOUT | warning | DDASSL had repeated error test failures on the last attempted step.",
+        "LOG_STDOUT | info | model terminate | Integrator failed. | Simulation terminated at time 0.00049999",
+    ]
+
+
+def test_simulation_log_entries_keep_continuations_with_their_line():
+    assert _simulation_log_entries(NONLINEAR_FAILURE_LOG) == [
+        "LOG_ASSERT | debug | Solving non-linear system 8 failed at time=0.168.\n"
+        "    For more information please use -lv LOG_NLS.",
+        "LOG_STDOUT | warning | Integrator attempt to handle a problem with a called assert.",
+    ]
+
+
+def test_simulation_log_entries_empty_without_log_lines():
+    assert _simulation_log_entries("Segmentation fault\n") == []
 
 
 def test_translation_error_message_header(tmp_path):

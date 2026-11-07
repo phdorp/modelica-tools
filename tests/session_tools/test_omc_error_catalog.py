@@ -139,6 +139,22 @@ RUNTIME_ERRORS = [
         pydelica.exception.OMAssertionError,
         ["Solving non-linear system", "failed at time=0.", "simulation terminated by an assertion at initialization"],
     ),
+    (
+        "6.4",
+        "LinearSystemSingular",
+        "model LinearSystemSingular\n  Real a = if time > 0.5 then 1 else 0.5;\n  Real x, y;\nequation\n"
+        "  x + a*y = 1;\n  a*x + y = 0;\nend LinearSystemSingular;\n",
+        pydelica.exception.OMExecutionError,
+        ["Error solving linear system of equations", "failed at time=0.5"],
+    ),
+    (
+        "6.1",
+        "IntegratorFailure",
+        "model IntegratorFailure\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = x^3*1e3;\n"
+        "end IntegratorFailure;\n",
+        pydelica.exception.OMExecutionError,
+        ["Integrator failed.", "Simulation terminated at time 0.000499"],
+    ),
 ]
 
 
@@ -147,16 +163,28 @@ RUNTIME_ERRORS = [
     RUNTIME_ERRORS,
     ids=[case[1] for case in RUNTIME_ERRORS],
 )
-def test_runtime_error_reports_cause(tmp_path, section, name, source, exc_type, phrases):
+def test_runtime_error_is_reported_once_and_readably(
+    tmp_path, capsys, section, name, source, exc_type, phrases
+):
     path = tmp_path / f"{name}.mo"
     path.write_text(source)
     builder = session_tools.SessionBuilder(path)
+    capsys.readouterr()
 
     with pytest.raises(exc_type) as exc:
         builder.session.simulate(model_name=name)
 
+    message = str(exc.value)
+    assert message.startswith(f"Simulation of '{name}' failed:\n")
     for phrase in phrases:
-        assert phrase in str(exc.value), phrase
+        assert message.count(phrase) == 1, phrase
+    assert "LOG_SUCCESS" not in message
+    assert "DASKR" not in message
+    assert "In above" not in message
+    assert "\\n" not in message
+    assert repr(exc.value) == message
+    assert type(exc.value.__cause__) is exc_type
+    assert capsys.readouterr().out == ""
 
 
 def test_build_warning_is_logged_without_notifications(tmp_path, caplog):

@@ -38,6 +38,7 @@ import logging
 import os
 import pathlib
 import platform
+import re
 import shlex
 import shutil
 import subprocess
@@ -253,10 +254,20 @@ class _OMBuildError(_ReadableReprMixin, pde.OMBuildError):
     pass
 
 
+class _OMAssertionError(_ReadableReprMixin, pde.OMAssertionError):
+    pass
+
+
+class _ZeroDivisionError(_ReadableReprMixin, ZeroDivisionError):
+    pass
+
+
 _READABLE_ERROR_TYPES: dict[type[Exception], type[Exception]] = {
     pde.OMParsingError: _OMParsingError,
     pde.OMExecutionError: _OMExecutionError,
     pde.OMBuildError: _OMBuildError,
+    pde.OMAssertionError: _OMAssertionError,
+    ZeroDivisionError: _ZeroDivisionError,
 }
 
 
@@ -292,6 +303,83 @@ def _translation_error_message(source_file: pathlib.Path, stdout: str, stderr: s
     """
     header = f"Modelica translation failed for '{source_file}':"
     return f"{header}\n{_omc_diagnostics(stdout, stderr)}"
+
+
+#: A simulation log line: ``LOG_<STREAM> | <level> | <message>``.
+_SIMULATION_LOG_LINE = re.compile(r"^(LOG_\w+)\s*\|\s*(\w+)\s*\|\s?(.*)$")
+
+#: A continuation of the previous simulation log line: ``|  | |  | <message>``.
+_SIMULATION_LOG_CONTINUATION = re.compile(r"^\|\s*\|\s*\|\s*\|\s?(.*)$")
+
+#: Log streams that report progress, not problems.
+_QUIET_SIMULATION_LOG_STREAMS = ("LOG_SUCCESS",)
+
+#: Simulation exceptions raised by pydelica that mtools re-raises readably.
+_SIMULATION_ERROR_TYPES = (pde.OMAssertionError, pde.OMExecutionError, ZeroDivisionError)
+
+#: pydelica's message prefix for a non-zero exit of the simulation binary.
+_SIMULATION_FAILED_PREFIX = re.compile(r"^\[-?\d+\] Simulation failed with: ", re.DOTALL)
+
+
+def _simulation_log_entries(log: str) -> list[str]:
+    """Extract the relevant entries from a C runtime simulation log.
+
+    Args:
+        log: Raw stdout (or stderr) of the simulation binary.
+
+    Returns:
+        One string per ``LOG_*`` line, except ``LOG_SUCCESS`` lines, with column padding
+        collapsed to ``<stream> | <level> | <message>`` and the line's ``|``
+        continuations appended as indented lines. Lines that are neither, such as the
+        DASKR solver's Fortran banner, are dropped.
+    """
+    entries: list[list[str]] = []
+    keep = False
+    for raw_line in log.splitlines():
+        line = raw_line.rstrip()
+        log_line = _SIMULATION_LOG_LINE.match(line)
+        if log_line:
+            stream, level, message = log_line.groups()
+            keep = stream not in _QUIET_SIMULATION_LOG_STREAMS
+            if keep:
+                entries.append([f"{stream} | {level} | {message.strip()}"])
+            continue
+        continuation = _SIMULATION_LOG_CONTINUATION.match(line)
+        if continuation:
+            if keep and continuation.group(1).strip():
+                entries[-1].append(f"    {continuation.group(1).strip()}")
+            continue
+        keep = False
+    return ["\n".join(entry) for entry in entries]
+
+
+def _simulation_error(
+    logger: logging.Logger, model_name: str, log: str, error: Exception
+) -> Exception:
+    """Return the exception to raise for a failed simulation run.
+
+    The exception is a readable subclass of ``type(error)``: a header naming the model,
+    then the relevant log entries once. The raw log is only logged at DEBUG.
+
+    Args:
+        logger: Logger for the raw simulation log.
+        model_name: Name of the simulated model.
+        log: Simulation stdout that pydelica printed.
+        error: The exception pydelica raised.
+    """
+    logs = [log]
+    if isinstance(error, pde.OMExecutionError):
+        # pydelica reports the binary's stderr, or its stdout when stderr is empty.
+        reported = _SIMULATION_FAILED_PREFIX.sub("", str(error), count=1)
+        if reported.strip() != log.strip():
+            logs.append(reported)
+    raw_log = "\n".join(logs)
+    entries = [entry for text in logs for entry in _simulation_log_entries(text)]
+    if not entries:
+        entries = [line.strip() for line in raw_log.splitlines() if line.strip()]
+    details = "\n".join(entries) if entries else str(error)
+    logger.debug("Simulation of '%s' failed (%s):\n%s", model_name, type(error).__name__, raw_log)
+    return _READABLE_ERROR_TYPES[type(error)](f"Simulation of '{model_name}' failed:\n{details}")
 
 
 def _prepare_c_incls(logger: logging.Logger, c_source_dir: str, temp_dir: str) -> None:
@@ -554,6 +642,27 @@ class _CppRuntimeOptions:
         return args
 
 
+def _patched_simulate(self: Any, model_name: str | None = None, verbosity: Any = None) -> None:
+    """Run pydelica's simulation and re-raise its failures readably.
+
+    pydelica prints the whole simulation log to stdout and then raises with the same
+    log, so a failure is shown twice. The print is swallowed and pydelica's exception
+    is re-raised as a readable subclass of the same type, carrying only the relevant
+    log entries (see ``_simulation_error``).
+    """
+    captured = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(captured):
+            _simulate_with_cpp_options(self, model_name=model_name, verbosity=verbosity)
+    except _SIMULATION_ERROR_TYPES as error:
+        if type(error) not in _READABLE_ERROR_TYPES:
+            raise
+        resolved_model = model_name or self.default_model
+        raise _simulation_error(self._logger, resolved_model, captured.getvalue(), error) from error
+    if captured.getvalue():
+        self._logger.debug("Simulation log:\n%s", captured.getvalue())
+
+
 def _simulate_with_cpp_options(self: Any, model_name: str | None = None, verbosity: Any = None) -> None:
     """Run pydelica's simulation, adding Cpp-specific runtime arguments when needed."""
     if _ORIGINAL_SIMULATE is None or not _is_cpp_target(
@@ -599,7 +708,7 @@ def install_pydelica_patch() -> None:
     pydelica_compiler.Compiler.compile = _compile_without_source_copy
     if _ORIGINAL_SIMULATE is None:
         _ORIGINAL_SIMULATE = pydelica.Session.simulate
-    pydelica.Session.simulate = _simulate_with_cpp_options
+    pydelica.Session.simulate = _patched_simulate
     if _ORIGINAL_SIMULATION_OPTIONS_INIT is None:
         _ORIGINAL_SIMULATION_OPTIONS_INIT = pydelica_simulation.SimulationOptions.__init__
     pydelica_simulation.SimulationOptions.__init__ = (
