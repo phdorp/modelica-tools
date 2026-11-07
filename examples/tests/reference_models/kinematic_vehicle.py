@@ -10,7 +10,7 @@ from pathlib import Path
 
 from kinematic_vehicle.kinematic_vehicle import cpp_build_options, registry
 
-REFERENCE_MODEL_NAME = "reference_models.KinematicVehicle"
+REFERENCE_MODEL_NAME = "reference_models.WrapperKinematicVehicle"
 
 run_reference = registry.create_run(
     model_name=REFERENCE_MODEL_NAME,
