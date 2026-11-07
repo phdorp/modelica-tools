@@ -385,6 +385,26 @@ def _simulation_error(
     return _READABLE_ERROR_TYPES[type(error)](f"Simulation of '{model_name}' failed:\n{details}")
 
 
+def _build_error(
+    logger: logging.Logger,
+    cmd_str: str,
+    source_file: pathlib.Path,
+    completed: subprocess.CompletedProcess[str],
+) -> Exception:
+    """Return the exception to raise for a failed make/C-compiler step.
+
+    The exception is a readable ``OMBuildError`` subclass: a header naming the
+    Modelica source, then the compiler's stderr once (stdout if stderr is empty).
+    The output is only logged at DEBUG: the exception carries it.
+    """
+    output = completed.stderr if completed.stderr.strip() else completed.stdout
+    details = "\n".join(line.rstrip() for line in output.strip().splitlines() if line.strip())
+    logger.debug(
+        "Failed to run command '%s' (exit code %d):\n%s", cmd_str, completed.returncode, output
+    )
+    return _OMBuildError(f"Modelica build failed for '{source_file}':\n{details}")
+
+
 def _prepare_c_incls(logger: logging.Logger, c_source_dir: str, temp_dir: str) -> None:
     logger.debug("Checking for C sources in '%s'", c_source_dir)
     c_sources = glob.glob(os.path.join(c_source_dir, "*.c"))
@@ -558,7 +578,8 @@ def _compile_without_source_copy(
 
     if platform.system() == "Windows":
         _build_cmd.extend(("-w", "OMC_LDFLAGS_LINK_TYPE=static"))
-    self._logger.debug(f"Build Command: {' '.join(_build_cmd)}")
+    _build_cmd_str = " ".join(_build_cmd)
+    self._logger.debug(f"Build Command: {_build_cmd_str}")
 
     _build = subprocess.run(
         _build_cmd,
@@ -570,22 +591,26 @@ def _compile_without_source_copy(
         cwd=_temp_build_dir,
     )
 
+    # Deviation from upstream: failures are raised readably with the compiler output
+    # once, instead of logging it at ERROR and raising it again.
     try:
-        pde.parse_error_string_compiler(_build.stdout, _build.stderr)
+        with contextlib.redirect_stdout(io.StringIO()):
+            pde.parse_error_string_compiler(_build.stdout, _build.stderr)
     except pde.OMBuildError as e:
-        self._logger.error(_build.stderr)
-        raise e from e
+        raise _build_error(self._logger, _build_cmd_str, modelica_source_file, _build) from e
+
+    if _build.returncode != 0:
+        raise _build_error(
+            self._logger, _build_cmd_str, modelica_source_file, _build
+        ) from pde.OMBuildError(
+            f"Model build failed with exit code {_build.returncode}:\n\t{_build.stderr}"
+        )
 
     if _build.stdout:
         self._logger.debug(_build.stdout)
 
     if _build.stderr:
         self._logger.error(_build.stderr)
-
-    if _build.returncode != 0:
-        raise pde.OMBuildError(
-            f"Model build failed with exit code {_build.returncode}:\n\t{_build.stderr}"
-        )
 
     if _is_cpp_target(self._omc_flags):
         _inject_cpp_default_experiments(_temp_build_dir, self._logger)

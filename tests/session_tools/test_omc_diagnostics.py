@@ -201,7 +201,7 @@ def test_c_compiler_error_in_external_function_is_reported(tmp_path):
         "  end f;\n  Real x(start=1);\nequation\n  der(x) = f(x);\nend BrokenC;\n"
     )
     exc = _build(tmp_path, "BrokenC", source)
-    assert exc.type is pydelica.exception.OMBuildError
+    assert issubclass(exc.type, pydelica.exception.OMBuildError)
     assert "error: expected expression" in str(exc.value)
 
 

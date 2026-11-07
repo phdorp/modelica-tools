@@ -115,6 +115,29 @@ def test_translation_error_is_reported_once_and_readably(
     assert repr(exc.value) == message
 
 
+def test_c_compiler_error_is_reported_once_and_readably(tmp_path, caplog, capsys):
+    """Guide section 23.2: a C compile failure in external code."""
+    path = tmp_path / "MissingHeader.mo"
+    path.write_text(
+        "model MissingHeader\n  function f\n    input Real x;\n    output Real y;\n"
+        '  external "C" y = missingF(x) annotation(Include="#include \\"no_such_header.h\\"");\n'
+        "  end f;\n  Real v = f(time);\nend MissingHeader;\n"
+    )
+
+    with caplog.at_level(logging.DEBUG), pytest.raises(pydelica.exception.OMBuildError) as exc:
+        session_tools.SessionBuilder(path)
+
+    message = str(exc.value)
+    assert message.startswith(f"Modelica build failed for '{path}':\n")
+    assert message.count("fatal error: 'no_such_header.h' file not found") == 1
+    assert "\n\t" not in message
+    assert "exit code" not in message
+    assert repr(exc.value) == message
+    assert type(exc.value.__cause__) is pydelica.exception.OMBuildError
+    assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
+    assert capsys.readouterr().out == ""
+
+
 # (guide section, model name, source, expected exception type, expected phrases)
 RUNTIME_ERRORS = [
     (
