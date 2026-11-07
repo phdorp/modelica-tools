@@ -36,7 +36,9 @@ traceback or test failure without rerunning OMC.
 
 Failures that already report well stay as they are, and tests pin that
 behaviour: C compiler errors from the generated-code build step, and runtime
-assertion failures during simulation.
+assertion failures during simulation. The OMC error catalogue later found
+both paths showed their output twice; they now use the same readable format
+(see "Make/C-compiler step" and "Simulation step" below).
 
 ## User Stories
 
@@ -121,9 +123,32 @@ assertion failures during simulation.
   also swallows the `print(out_string)` inside pydelica's parse helper, which
   dumps OMC's stdout banner (`Error processing file: …`,
   `# Error encountered! Exiting...`) to the terminal.
-- **Unchanged paths.** The make/C-compiler step and the simulation step already
-  include the relevant output. They are not modified, only covered by
-  regression tests.
+- **Make/C-compiler step.** Added after the OMC error catalogue
+  (`docs/research/2026-11-07-omc-error-catalog.md`). A failed `make` raises a
+  readable `OMBuildError` subclass headed
+  `Modelica build failed for '<absolute source path>':`, followed by the
+  compiler's stderr once. The output is logged only at DEBUG, no longer at
+  ERROR. The original `OMBuildError` is chained as `__cause__`.
+- **Simulation step.** Added after the OMC error catalogue. The patched
+  `Session.simulate` swallows pydelica's stdout dump of the simulation log.
+  It re-raises `OMAssertionError`, `OMExecutionError`, and the builtin
+  `ZeroDivisionError` as readable subclasses of the same type, original chained
+  as `__cause__`. The message is a header line,
+  `Simulation of '<model>' failed:`, then each `LOG_*` line except
+  `LOG_SUCCESS` as `<stream> | <level> | <message>`, with its `|`
+  continuation lines indented below it. Other lines, such as the DASKR solver's
+  Fortran banner, are dropped. The raw log is logged at DEBUG.
+- **Failed assertions in successful runs.** OMC finishes some runs successfully
+  despite a failed `LOG_ASSERT` (a nonlinear system that could not be solved
+  mid-run, a min/max violation). The run still succeeds, but those entries are
+  logged once at WARNING on the session logger, headed
+  `Simulation of '<model>' reported failed assertions:`.
+- **Chattering.** `SessionBuilder` turns on the C runtime flag
+  `-abortSlowSimulation` for every built model, so a chattering model fails
+  with the readable simulation error instead of hanging (pydelica runs the
+  binary without a timeout). Users can turn it off with
+  `session.get_runtime_options(model).abortSlowSimulation = False`. The Cpp
+  target ignores it.
 
 ## Testing Decisions
 
@@ -144,6 +169,11 @@ assertion failures during simulation.
   no ERROR log records and no stdout banner.
 - Regression tests at the same seam: a broken external C function (make step)
   and a violated `assert` (via `session.simulate`).
+- The catalogue tests (`tests/session_tools/test_omc_error_catalog.py`) pin the
+  build and simulation formats: header, cause once, no `LOG_SUCCESS`/`DASKR`,
+  `repr == str`, nothing on stdout, no ERROR records for a failed build, the
+  WARNING record for failed assertions in a successful run, and that a
+  chattering model terminates.
 - Prior art: `tests/session_tools/test_pydelica_patch.py` (patch unit tests,
   `tmp_path` models, `SessionBuilder(model_path)`);
   `tests/session_tools/test_session_builder.py` (real-OMC integration tests).
@@ -154,10 +184,12 @@ assertion failures during simulation.
   project's integration point.
 - New mtools-specific exception classes or structured diagnostic objects
   (severity/location fields). Messages are enough for the stated need.
-- Rewording runtime simulation failures or changing `assert` severity handling.
+- Changing `assert` severity handling: a failed assertion in a run that OMC
+  finishes successfully is logged, not raised.
+- A timeout on the simulation subprocess. `-abortSlowSimulation` covers
+  chattering; other non-terminating runs still block.
 - Raising the log level of OMC warnings on successful builds (currently logged
-  at ERROR), or suppressing pydelica's stdout prints outside the translation
-  error path (e.g. in simulation).
+  at ERROR), or of C compiler warnings from a successful make step (also ERROR).
 - Hydra's own framing lines (`Error executing job with overrides: …`,
   `Error in call to target …`, `full_key: …`). They belong to the app's Hydra
   runner.

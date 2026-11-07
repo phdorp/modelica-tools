@@ -76,29 +76,41 @@ at WARNING or above.
 
 | Error class | Guide | Model | Observed | Verdict | Suggested fix |
 |---|---|---|---|---|---|
-| C compile error in external code (missing header) | 23.2, p. 329–330 | Appendix A3 (the syntax-error variant is already pinned: `test_c_compiler_error_in_external_function_is_reported`) | Plain `pydelica.exception.OMBuildError` (not the readable subclass), `Model build failed with exit code 2:\n\tIn file included from MissingHeader_functions.c:7:\n./MissingHeader_includes.h:7:10: fatal error: 'no_such_header.h' file not found …\nmake: *** […] Error 1`. The same text is **also** logged at ERROR by `PyDelica.Compiler`. | Defect (shown twice; no source-file header; `repr()` escapes newlines under Hydra; stray leading tab; make noise) | Route the make step through the same handler as translation: readable subclass, header `Modelica build failed for '<source>':`, compiler output once, log only at DEBUG. The code is in the vendored compile step, but the spec explicitly left the make step unmodified, so this needs **your decision**. It would also change the pinned exact-type assertion `exc.type is OMBuildError` to `issubclass`. |
+| C compile error in external code (missing header) | 23.2, p. 329–330 | Appendix A3 (the syntax-error variant is already pinned: `test_c_compiler_error_in_external_function_is_reported`) | Plain `pydelica.exception.OMBuildError` (not the readable subclass), `Model build failed with exit code 2:\n\tIn file included from MissingHeader_functions.c:7:\n./MissingHeader_includes.h:7:10: fatal error: 'no_such_header.h' file not found …\nmake: *** […] Error 1`. The same text is **also** logged at ERROR by `PyDelica.Compiler`. | Defect, **fixed** (`47fcdd5`) | Both raise sites of the make step now raise a readable `OMBuildError` subclass: `Modelica build failed for '<source>':`, then the compiler's stderr once (no leading tab; the `make: ***` line is kept because it names the failed target). Logged only at DEBUG. `test_c_compiler_error_in_external_function_is_reported` now asserts `issubclass`; A3 is pinned as `test_c_compiler_error_is_reported_once_and_readably`. |
 
 ### Runtime / simulation errors (`session.simulate`)
 
-Common to every runtime case: pydelica's `parse_error_string_simulate` unconditionally `print()`s
-the whole simulation log to stdout. Every runtime failure is therefore shown **twice**: once on
-stdout, once in the exception. Successful runs also print their `LOG_SUCCESS` lines. None of these
-exceptions use the readable-`repr` subclass. mtools does not reformat runtime errors (spec: out of scope).
+Common to every runtime case (the "Observed" column describes the state before R1): pydelica's
+`parse_error_string_simulate` unconditionally `print()`s the whole simulation log to stdout. Every
+runtime failure was therefore shown **twice**: once on stdout, once in the exception. Successful runs
+also printed their `LOG_SUCCESS` lines. None of these exceptions used the readable-`repr` subclass.
+
+**Fixed by R1 (`6b95edc`):** the print is swallowed, and failures are re-raised as readable
+subclasses of the same type, e.g. for A5:
+
+```
+Simulation of 'LinearSystemSingular' failed:
+LOG_STDOUT | warning | The default linear solver fails, the fallback solver with total pivoting is started at time 0.500000. That might raise performance issues, for more information use -lv LOG_LS.
+LOG_STDOUT | warning | Error solving linear system of equations (no. 12) at time 0.500000.
+LOG_STDOUT | warning | Solving linear system 12 fails at time 0.5. For more information use -lv LOG_LS.
+LOG_ASSERT | debug | Solving linear system 12 failed at time=0.500000000150874.
+    For more information please use -lv LOG_LS.
+```
 
 | Error class | Guide | Model | Observed | Verdict | Suggested fix |
 |---|---|---|---|---|---|
-| Violated `assert` | 16.1, p. 254; 3.15.4 `LOG_ASSERT` | already covered | `OMAssertionError: Simulation run failed:\n<raw log>` with message and time | Acceptable | See R1 |
-| Division by zero at initialization | 3.15.4 `LOG_DIVISION`, p. 47 | `DivisionByZero` (pinned) | builtin `ZeroDivisionError: division by zero at time 0, (a=1) / (b=0), where divisor b expression is: p` | OK (concise, names the divisor) | Lost context: "at initialization" and the model file are not mentioned. Optional, see R1. |
-| Division by zero during simulation | 3.15.4 `LOG_DIVISION`, p. 47 | `DivisionByZeroDuringSimulation` (pinned) | `ZeroDivisionError: division by zero at time 0.5000000000500024, (a=1) / (b=0), where divisor b expression is: if d > 0.0 then d else 0.0` | OK | — |
-| Nonlinear system fails at initialization | 6.3, p. 89; 6.4, p. 95 | `InitializationNonlinearFailure` (pinned) | `OMAssertionError: Simulation run failed:` / `LOG_ASSERT \| debug \| Solving non-linear system 2 failed at time=0.` / `\| \| \| For more information please use -lv LOG_NLS.` / `LOG_ASSERT \| info \| simulation terminated by an assertion at initialization` | Acceptable (cause present; column-padding noise) | R1 |
-| Nonlinear system fails during simulation | 6.4, p. 95 | Appendix A4 | **No exception.** Log: `Solving non-linear system 8 failed at time=0.168.` … `Integrator attempt to handle a problem with a called assert.` … `The simulation finished successfully.` (exit code 0) | Defect (silent; results after t≈0.168 are not a solution) | OMC reports success itself, so the only signal is the debug-level `LOG_ASSERT`. R2. |
-| Singular linear system | 6.4, p. 95 | Appendix A5 | `OMExecutionError: [255] Simulation failed with: LOG_SUCCESS \| info \| The initialization finished successfully …` (first log line glued onto the header) … `Error solving linear system of equations (no. 12) at time 0.500000.` … `Solving linear system 12 failed at time=0.500000000150874.` | Defect (garbled header; cause buried under the log; misleading first line "finished successfully") | R1 |
-| Integrator (DASSL) failure | 6.1, p. 87–89 | Appendix A6 | `OMExecutionError: [249] Simulation failed with: LOG_SUCCESS \| info \| The initialization …` / `DASKR--  AT T (=R1) AND STEPSIZE H (=R2) THE ␣␣␣…` (trailing blanks) / `DDASSL had repeated error test failures …` / `model terminate \| Integrator failed. \| Simulation terminated at time 0.00049999` | Defect (same glued header; Fortran banner noise; key line `Integrator failed` is last) | R1 |
-| Variable outside `min`/`max` | 29.2 `warnMinMax`, p. 461 | Appendix A7 | **No exception.** `LOG_ASSERT \| info \| [….mo:2:3-2:43:writable]` / `The following assertion has been violated at time 0.502000` / `((x <= 1.0)) --> "Variable violating max constraint: x <= 1.0, has value: 1.004"`, then `The simulation finished successfully.` | By design (OMC default: warning) | The message is well formed but visible only in the stdout dump. R2. |
-| Chattering | 7.1.3, p. 97; 30.1 `-abortSlowSimulation`, p. 463 | Appendix A8 | Build OK. `simulate` **never returns** (killed after 60 s and 120 s). The OMC log says `Chattering detected around time 1.0000000001..1.0000000199 (100 state events in a row …)` at info level. pydelica's `subprocess.run` has no timeout. | Defect (hang; nothing shown until the process exits) | R3 |
+| Violated `assert` | 16.1, p. 254; 3.15.4 `LOG_ASSERT` | already covered | `OMAssertionError: Simulation run failed:\n<raw log>` with message and time | Acceptable, **improved** (`6b95edc`) | R1: readable header and filtered log. |
+| Division by zero at initialization | 3.15.4 `LOG_DIVISION`, p. 47 | `DivisionByZero` (pinned) | builtin `ZeroDivisionError: division by zero at time 0, (a=1) / (b=0), where divisor b expression is: p` | OK, **improved** (`6b95edc`) | R1: the message now has the `Simulation of 'DivisionByZero' failed:` header and keeps the `simulation terminated by an assertion at initialization` line, so the lost context is back. |
+| Division by zero during simulation | 3.15.4 `LOG_DIVISION`, p. 47 | `DivisionByZeroDuringSimulation` (pinned) | `ZeroDivisionError: division by zero at time 0.5000000000500024, (a=1) / (b=0), where divisor b expression is: if d > 0.0 then d else 0.0` | OK | R1 format (`6b95edc`). |
+| Nonlinear system fails at initialization | 6.3, p. 89; 6.4, p. 95 | `InitializationNonlinearFailure` (pinned) | `OMAssertionError: Simulation run failed:` / `LOG_ASSERT \| debug \| Solving non-linear system 2 failed at time=0.` / `\| \| \| For more information please use -lv LOG_NLS.` / `LOG_ASSERT \| info \| simulation terminated by an assertion at initialization` | Acceptable, **fixed** (`6b95edc`) | R1: padding collapsed, continuation indented. |
+| Nonlinear system fails during simulation | 6.4, p. 95 | Appendix A4 | **No exception.** Log: `Solving non-linear system 8 failed at time=0.168.` … `Integrator attempt to handle a problem with a called assert.` … `The simulation finished successfully.` (exit code 0) | Defect, **fixed** (`401fa4d`) | R2: the run still succeeds (OMC's semantics), and one WARNING record `Simulation of 'NonlinearSystemFailure' reported failed assertions:` carries the `LOG_ASSERT` line and its continuation. Pinned. |
+| Singular linear system | 6.4, p. 95 | Appendix A5 | `OMExecutionError: [255] Simulation failed with: LOG_SUCCESS \| info \| The initialization finished successfully …` (first log line glued onto the header) … `Error solving linear system of equations (no. 12) at time 0.500000.` … `Solving linear system 12 failed at time=0.500000000150874.` | Defect, **fixed** (`6b95edc`) | R1, see the example above. Pinned. |
+| Integrator (DASSL) failure | 6.1, p. 87–89 | Appendix A6 | `OMExecutionError: [249] Simulation failed with: LOG_SUCCESS \| info \| The initialization …` / `DASKR--  AT T (=R1) AND STEPSIZE H (=R2) THE ␣␣␣…` (trailing blanks) / `DDASSL had repeated error test failures …` / `model terminate \| Integrator failed. \| Simulation terminated at time 0.00049999` | Defect, **fixed** (`6b95edc`) | R1: `Simulation of 'IntegratorFailure' failed:` / `LOG_STDOUT \| warning \| DDASSL had repeated error test failures on the last attempted step.` / `LOG_STDOUT \| warning \| can't continue. time = 0.000500` / `LOG_STDOUT \| info \| model terminate \| Integrator failed. \| Simulation terminated at time 0.00049999`. No DASKR banner. Pinned. |
+| Variable outside `min`/`max` | 29.2 `warnMinMax`, p. 461 | Appendix A7 | **No exception.** `LOG_ASSERT \| info \| [….mo:2:3-2:43:writable]` / `The following assertion has been violated at time 0.502000` / `((x <= 1.0)) --> "Variable violating max constraint: x <= 1.0, has value: 1.004"`, then `The simulation finished successfully.` | By design (OMC default: warning), **fixed** (`401fa4d`) | R2: logged once at WARNING with the file location, time, and constraint. Pinned. |
+| Chattering | 7.1.3, p. 97; 30.1 `-abortSlowSimulation`, p. 463 | Appendix A8 | Build OK. `simulate` **never returns** (killed after 60 s and 120 s). The OMC log says `Chattering detected around time 1.0000000001..1.0000000199 (100 state events in a row …)` at info level. pydelica's `subprocess.run` has no timeout. | Defect, **fixed** (`b05ff38`) | R3: `SessionBuilder` turns on `-abortSlowSimulation` by default. The run stops at once with `Simulation of 'Chattering' failed:` / `LOG_STDOUT \| info \| Chattering detected around time 1.0000000001..1.0000000199 (…)` / `LOG_ASSERT \| debug \| Aborting simulation due to chattering being detected …`. Pinned. |
 | Model does not exist | 1.4, p. 26 | `simulate(model_name="NoSuchModel")` on a built session | `pydelica.exception.BinaryNotFoundError: Failed to retrieve binary for model 'NoSuchModel'` (cause: `KeyError`) | Acceptable | Optional: list the built model names. |
 
-### Suggested follow-ups for runtime errors (need your decision; not local to the diagnostics helpers)
+### Follow-ups for runtime errors (approved and implemented)
 
 - **R1: readable runtime failures.** Wrap the patched `Session.simulate` (`_simulate_with_cpp_options`
   already wraps it) the way the compile step was wrapped. Swallow pydelica's `print`. Re-raise the
@@ -106,11 +118,15 @@ exceptions use the readable-`repr` subclass. mtools does not reformat runtime er
   `Simulation of '<model>' failed:` on its own line. Filter the log to `LOG_ASSERT`, `warning`/`error`
   lines and their `|` continuations. Drop `LOG_SUCCESS` and the `DASKR--` banner. This mirrors the
   translation design but changes `str(exc)` of runtime exceptions users may match on.
+  **Done** (`6b95edc`). All `LOG_*` lines except `LOG_SUCCESS` are kept, not just `LOG_ASSERT` and
+  warning/error lines, because the causes `Integrator failed` and `Chattering detected` are `info` lines.
 - **R2: surface non-fatal runtime asserts.** Log `LOG_ASSERT` lines from a successful run at WARNING
   (e.g. failed nonlinear systems, min/max violations) instead of only printing the raw log.
   Separately, consider whether a failed nonlinear system during simulation should fail the run.
+  **Done** (`401fa4d`): logged at WARNING; the run is not failed.
 - **R3: don't hang on chattering.** Pass `-abortSlowSimulation` by default and/or add a configurable
   simulation timeout. Both change runtime behaviour, so they are your call.
+  **Done** (`b05ff38`): `-abortSlowSimulation` by default; no timeout was needed.
 
 ## Appendix: models that are not pinned
 
