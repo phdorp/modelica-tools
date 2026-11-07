@@ -185,6 +185,57 @@ def _pydelica_version() -> str:
     return metadata.version("pydelica")
 
 
+def _filtered_lines(text: str) -> list[str]:
+    """Drop blank lines and OMC boilerplate from compiler output.
+
+    Args:
+        text: Raw OMC stdout or stderr.
+
+    Returns:
+        The remaining lines, right-stripped, with leading indentation kept.
+    """
+    lines = (line.rstrip() for line in text.splitlines())
+    return [
+        line
+        for line in lines
+        if line.strip()
+        and not line.startswith(("Notification:", "Failed to parse file"))
+        and line != "Execution failed!"
+    ]
+
+
+def _omc_diagnostics(stdout: str, stderr: str) -> str:
+    """Extract the diagnostics from OMC output, preferring stderr.
+
+    Args:
+        stdout: Raw OMC stdout.
+        stderr: Raw OMC stderr.
+
+    Returns:
+        Filtered stderr lines joined by newlines; filtered stdout lines if stderr has
+        none; an empty string if both are empty after filtering.
+    """
+    return "\n".join(_filtered_lines(stderr) or _filtered_lines(stdout))
+
+
+def _translation_error_message(
+    source_file: pathlib.Path, returncode: int, stdout: str, stderr: str
+) -> str:
+    """Build the error message for a failed OMC translation.
+
+    Args:
+        source_file: Absolute path of the Modelica source OMC failed on.
+        returncode: OMC exit code.
+        stdout: Raw OMC stdout.
+        stderr: Raw OMC stderr.
+
+    Returns:
+        A header line followed by the diagnostics.
+    """
+    header = f"OMC failed to translate '{source_file}' (exit code {returncode}):"
+    return f"{header}\n{_omc_diagnostics(stdout, stderr)}"
+
+
 def _prepare_c_incls(logger: logging.Logger, c_source_dir: str, temp_dir: str) -> None:
     logger.debug("Checking for C sources in '%s'", c_source_dir)
     c_sources = glob.glob(os.path.join(c_source_dir, "*.c"))
