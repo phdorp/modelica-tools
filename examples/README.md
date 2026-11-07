@@ -108,10 +108,10 @@ uv run pytest
 
 ## Compare against a reference model
 
-`tests/reference_models/` is a separate Modelica package mirroring the candidate structure:
-`reference_models.KinematicVehicle` and the simulated
-`reference_models.WrapperKinematicVehicle`, with the same `vehicle` component and equations.
-`reference_models.KinematicVehicle` extends the candidate interface
+`tests/reference_models/` is a separate Modelica package nested in the `tests`
+package, mirroring the candidate structure: `tests.reference_models.KinematicVehicle` and the
+simulated `tests.reference_models.WrapperKinematicVehicle`, with the same `vehicle` component
+and equations. `tests.reference_models.KinematicVehicle` extends the candidate interface
 `kinematic_vehicle.IKinematicVehicle`, and the reference build loads the candidate package as an
 `extra_models` entry, so there is no duplicate interface to maintain. The
 candidate lives in the `src/kinematic_vehicle` package, so the comparison demonstrates cross-package

@@ -1,4 +1,4 @@
-within reference_models;
+within tests.reference_models;
 
 block WrapperKinematicVehicle
   parameter Real v_norm = 10 "velocity";

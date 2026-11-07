@@ -1,4 +1,4 @@
-within reference_models;
+within tests.reference_models;
 
 model KinematicVehicle
   extends kinematic_vehicle.IKinematicVehicle;
