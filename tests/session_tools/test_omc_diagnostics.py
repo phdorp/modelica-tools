@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+import dataclasses
+import logging
+
 import pydelica.exception
 import pytest
+from hydra.errors import InstantiationException
 
 import mtools.internal.session_tools as session_tools
+import mtools.internal.sim_tools as sim_tools
+import mtools.session_config as session_config
 from mtools.internal.pydelica_patch import (_omc_diagnostics,
                                             _translation_error_message)
 
@@ -30,6 +36,19 @@ def test_omc_diagnostics_drops_parse_boilerplate():
     assert _omc_diagnostics("", stderr) == "[/m/S.mo:3:1-3:1:writable] Error: Missing token: SEMICOLON"
 
 
+def test_omc_diagnostics_drops_failed_to_load_package_follow_on():
+    stderr = (
+        "[/m/pkg/M.mo:3:1-3:1:writable] Error: Missing token: SEMICOLON\n"
+        "Error: Failed to load package pkg () using MODELICAPATH /m.\n"
+    )
+    assert _omc_diagnostics("", stderr) == "[/m/pkg/M.mo:3:1-3:1:writable] Error: Missing token: SEMICOLON"
+
+
+def test_omc_diagnostics_keeps_failed_to_load_package_when_it_is_the_only_error():
+    stderr = "Error: Failed to load package pkg () using MODELICAPATH /m.\n"
+    assert _omc_diagnostics("", stderr) == "Error: Failed to load package pkg () using MODELICAPATH /m."
+
+
 def test_omc_diagnostics_falls_back_to_stdout():
     assert _omc_diagnostics("Error: boom\n", "Notification: x\n") == "Error: boom"
 
@@ -39,8 +58,8 @@ def test_omc_diagnostics_empty():
 
 
 def test_translation_error_message_header(tmp_path):
-    message = _translation_error_message(tmp_path / "M.mo", 1, "", "Error: boom\n")
-    assert message == f"OMC failed to translate '{tmp_path / 'M.mo'}' (exit code 1):\nError: boom"
+    message = _translation_error_message(tmp_path / "M.mo", "", "Error: boom\n")
+    assert message == f"Modelica translation failed for '{tmp_path / 'M.mo'}':\nError: boom"
 
 
 def _build(tmp_path, name, source):
@@ -53,15 +72,54 @@ def _build(tmp_path, name, source):
 
 def test_syntax_error_reports_missing_token(tmp_path):
     exc = _build(tmp_path, "Syntax", "model Syntax\n  Real x(start=1)\nequation\n  der(x) = -x;\nend Syntax;\n")
-    assert exc.type is pydelica.exception.OMParsingError
-    assert f"OMC failed to translate '{tmp_path / 'Syntax.mo'}' (exit code 1):" in str(exc.value)
+    assert issubclass(exc.type, pydelica.exception.OMParsingError)
+    assert f"Modelica translation failed for '{tmp_path / 'Syntax.mo'}':" in str(exc.value)
     assert "Missing token: SEMICOLON" in str(exc.value)
     assert ":3:1-3:1:" in str(exc.value)
 
 
+def test_translation_error_repr_is_the_readable_message(tmp_path):
+    exc = _build(tmp_path, "Syntax", "model Syntax\n  Real x(start=1)\nequation\n  der(x) = -x;\nend Syntax;\n")
+    assert repr(exc.value) == str(exc.value)
+
+
+@dataclasses.dataclass
+class _NoParameters:
+    pass
+
+
+def test_broken_package_through_hydra_reports_diagnostics_once_and_readably(tmp_path, caplog, capsys):
+    package = tmp_path / "pkg"
+    package.mkdir()
+    (package / "package.mo").write_text("package pkg\nend pkg;\n")
+    (package / "M.mo").write_text("within pkg;\nmodel M\n  Real x(start=1)\nequation\n  der(x) = -x;\nend M;\n")
+    config = session_config.SimulationRun(
+        model_name="pkg.M",
+        session=session_config.Session(
+            parameters=_NoParameters(),
+            sim_configurations=session_config.Simulation(),
+            model=package / "package.mo",
+        ),
+    )
+
+    with caplog.at_level(logging.DEBUG), pytest.raises(InstantiationException) as exc:
+        sim_tools.simulate_run(config)
+
+    message = str(exc.value)
+    assert message.count("Missing token: SEMICOLON") == 1
+    assert "\\n" not in message
+    assert f"Modelica translation failed for '{package / 'package.mo'}':\n[" in message
+    assert "Failed to load package" not in message
+    assert "exit code" not in message
+    assert isinstance(exc.value.__cause__, pydelica.exception.OMParsingError)
+    assert isinstance(exc.value.__cause__.__cause__, pydelica.exception.OMParsingError)
+    assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
+    assert "Error processing file" not in capsys.readouterr().out
+
+
 def test_under_determined_model_reports_counts_and_free_variable(tmp_path):
     exc = _build(tmp_path, "Imbalanced", "model Imbalanced\n  Real x(start=1);\n  Real y;\nequation\n  der(x) = -x;\nend Imbalanced;\n")
-    assert exc.type is pydelica.exception.OMExecutionError
+    assert issubclass(exc.type, pydelica.exception.OMExecutionError)
     msg = str(exc.value)
     assert "Too few equations, under-determined system. The model has 1 equation(s) and 2 variable(s)." in msg
     assert "Variable y does not have any remaining equation" in msg

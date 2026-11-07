@@ -31,7 +31,9 @@ drift silently on upgrades.
 
 from __future__ import annotations
 
+import contextlib
 import glob
+import io
 import logging
 import os
 import pathlib
@@ -204,6 +206,10 @@ def _filtered_lines(text: str) -> list[str]:
     ]
 
 
+#: OMC's follow-on error when a package fails to load because of an earlier error.
+_FAILED_TO_LOAD_PACKAGE = "Error: Failed to load package"
+
+
 def _omc_diagnostics(stdout: str, stderr: str) -> str:
     """Extract the diagnostics from OMC output, preferring stderr.
 
@@ -213,9 +219,45 @@ def _omc_diagnostics(stdout: str, stderr: str) -> str:
 
     Returns:
         Filtered stderr lines joined by newlines; filtered stdout lines if stderr has
-        none; an empty string if both are empty after filtering.
+        none; an empty string if both are empty after filtering. ``Failed to load
+        package`` lines are dropped when another error explains them.
     """
-    return "\n".join(_filtered_lines(stderr) or _filtered_lines(stdout))
+    lines = _filtered_lines(stderr) or _filtered_lines(stdout)
+    errors = [line for line in lines if "Error:" in line]
+    follow_on = [line for line in errors if _FAILED_TO_LOAD_PACKAGE in line]
+    if follow_on and len(follow_on) < len(errors):
+        lines = [line for line in lines if line not in follow_on]
+    return "\n".join(lines)
+
+
+class _ReadableReprMixin:
+    """Make ``repr()`` return the message so multi-line messages stay readable.
+
+    Hydra's instantiate wrapper reports a failing target with ``repr(exc)``, which
+    would otherwise escape the diagnostics' newlines.
+    """
+
+    def __repr__(self) -> str:
+        return str(self)
+
+
+class _OMParsingError(_ReadableReprMixin, pde.OMParsingError):
+    pass
+
+
+class _OMExecutionError(_ReadableReprMixin, pde.OMExecutionError):
+    pass
+
+
+class _OMBuildError(_ReadableReprMixin, pde.OMBuildError):
+    pass
+
+
+_READABLE_ERROR_TYPES: dict[type[Exception], type[Exception]] = {
+    pde.OMParsingError: _OMParsingError,
+    pde.OMExecutionError: _OMExecutionError,
+    pde.OMBuildError: _OMBuildError,
+}
 
 
 def _translation_error(
@@ -225,30 +267,30 @@ def _translation_error(
     completed: subprocess.CompletedProcess[str],
     exc_type: type[Exception],
 ) -> Exception:
-    """Log an OMC translation failure and return the exception to raise."""
-    logger.debug("Failed to run command '%s'", cmd_str)
-    message = _translation_error_message(
-        source_file, completed.returncode, completed.stdout, completed.stderr
+    """Return the exception to raise for an OMC translation failure.
+
+    The exception is a subclass of ``exc_type`` whose ``repr()`` is its readable
+    message. The diagnostics are only logged at DEBUG: the exception carries them.
+    """
+    message = _translation_error_message(source_file, completed.stdout, completed.stderr)
+    logger.debug(
+        "Failed to run command '%s' (exit code %d):\n%s", cmd_str, completed.returncode, message
     )
-    logger.error(message)
-    return exc_type(message)
+    return _READABLE_ERROR_TYPES[exc_type](message)
 
 
-def _translation_error_message(
-    source_file: pathlib.Path, returncode: int, stdout: str, stderr: str
-) -> str:
+def _translation_error_message(source_file: pathlib.Path, stdout: str, stderr: str) -> str:
     """Build the error message for a failed OMC translation.
 
     Args:
         source_file: Absolute path of the Modelica source OMC failed on.
-        returncode: OMC exit code.
         stdout: Raw OMC stdout.
         stderr: Raw OMC stderr.
 
     Returns:
         A header line followed by the diagnostics.
     """
-    header = f"OMC failed to translate '{source_file}' (exit code {returncode}):"
+    header = f"Modelica translation failed for '{source_file}':"
     return f"{header}\n{_omc_diagnostics(stdout, stderr)}"
 
 
@@ -347,7 +389,10 @@ def _compile_without_source_copy(
                 cwd=_temp_build_dir,
             )
 
-            pde.parse_error_string_compiler(_gen.stdout, _gen.stderr)
+            # pydelica prints OMC's stdout banner on parse errors; the raised
+            # exception already carries the diagnostics, so swallow the print.
+            with contextlib.redirect_stdout(io.StringIO()):
+                pde.parse_error_string_compiler(_gen.stdout, _gen.stderr)
         except FileNotFoundError as e:
             self._logger.error("Failed to run command '%s'", _cmd_str)
             self._logger.debug("PATH: %s", self._environment["PATH"])
