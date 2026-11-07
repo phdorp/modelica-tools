@@ -129,7 +129,9 @@ def test_c_compiler_error_is_reported_once_and_readably(tmp_path, caplog, capsys
 
     message = str(exc.value)
     assert message.startswith(f"Modelica build failed for '{path}':\n")
-    assert message.count("fatal error: 'no_such_header.h' file not found") == 1
+    # Compiler-neutral: clang and gcc word the missing-include error differently.
+    assert message.count("fatal error:") == 1
+    assert "no_such_header.h" in message
     assert "\n\t" not in message
     assert "exit code" not in message
     assert repr(exc.value) == message
@@ -212,13 +214,20 @@ def test_runtime_error_is_reported_once_and_readably(
 
 
 # (guide section, model name, source, expected phrases in the WARNING record)
+# OMC reports these runs as successful; failed asserts and warning-level log lines are
+# the only signal, so they must reach the user at WARNING.
 NON_FATAL_RUNTIME_ASSERTS = [
     (
         "6.4",
         "NonlinearSystemFailure",
         "model NonlinearSystemFailure\n  Real x(start = -0.5);\nequation\n  x*exp(x) = -0.2 - time;\n"
         "end NonlinearSystemFailure;\n",
-        ["Solving non-linear system", "failed at time=0.16", "For more information please use -lv LOG_NLS."],
+        [
+            "Solving non-linear system",
+            "failed at time=0.16",
+            "For more information please use -lv LOG_NLS.",
+            "LOG_STDOUT | warning | Integrator attempt to handle a problem with a called assert.",
+        ],
     ),
     (
         "29.2 warnMinMax",
@@ -253,7 +262,7 @@ def test_non_fatal_runtime_assert_is_logged_as_warning(
 
     warnings = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
     assert len(warnings) == 1, warnings
-    assert warnings[0].startswith(f"Simulation of '{name}' reported failed assertions:\n")
+    assert warnings[0].startswith(f"Simulation of '{name}' reported warnings:\n")
     for phrase in phrases:
         assert warnings[0].count(phrase) == 1, phrase
     assert "LOG_SUCCESS" not in warnings[0]

@@ -1,11 +1,23 @@
-"""Workarounds for pydelica multi-file compilation and Cpp target simulation.
+"""Workarounds for pydelica multi-file compilation, error reporting, and Cpp simulation.
 
 ``_compile_without_source_copy`` is a copy of ``pydelica.compiler.Compiler.compile``
-(pydelica 0.6.3) with only the temp-source-staging step removed: upstream copies the
-single ``.mo`` file (and ``extra_models``) flat into its own temporary directory, which
-destroys the sibling ``.mo`` files / ``Resources/`` layout that OMC needs to resolve
-``within`` members across multiple files. This variant points OMC at the original source
-path so the relative layout is preserved.
+(pydelica 0.6.3) with these deviations:
+
+* The temp-source-staging step is removed: upstream copies the single ``.mo`` file (and
+  ``extra_models``) flat into its own temporary directory, which destroys the sibling
+  ``.mo`` files / ``Resources/`` layout that OMC needs to resolve ``within`` members
+  across multiple files. This variant points OMC at the original source path so the
+  relative layout is preserved.
+* OMC translation failures and make/C-compiler failures are re-raised as readable
+  subclasses of pydelica's exception types (``_translation_error``, ``_build_error``)
+  carrying the filtered diagnostics once; pydelica's stdout print is swallowed and the
+  raw output is only logged at DEBUG.
+* OMC's stderr on a successful translation is logged filtered (``_omc_diagnostics``).
+
+``Session.simulate`` is replaced by ``_patched_simulate``, which re-raises simulation
+failures the same readable way and logs a successful run's failed asserts and warnings
+at WARNING. ``apply_runtime_defaults`` sets mtools' default C runtime flags
+(``-abortSlowSimulation``).
 
 When OMC's ``Cpp`` simulation target is selected (``--simCodeTarget=Cpp``) the generated
 XML contains no ``DefaultExperiment`` element and the resulting binary reads simulation
@@ -321,12 +333,11 @@ _SIMULATION_ERROR_TYPES = (pde.OMAssertionError, pde.OMExecutionError, ZeroDivis
 _SIMULATION_FAILED_PREFIX = re.compile(r"^\[-?\d+\] Simulation failed with: ", re.DOTALL)
 
 
-def _simulation_log_entries(log: str, streams: tuple[str, ...] | None = None) -> list[str]:
+def _simulation_log_entries(log: str) -> list[str]:
     """Extract the relevant entries from a C runtime simulation log.
 
     Args:
         log: Raw stdout (or stderr) of the simulation binary.
-        streams: If given, keep only lines of these log streams (e.g. ``LOG_ASSERT``).
 
     Returns:
         One string per ``LOG_*`` line, except ``LOG_SUCCESS`` lines, with column padding
@@ -341,9 +352,7 @@ def _simulation_log_entries(log: str, streams: tuple[str, ...] | None = None) ->
         log_line = _SIMULATION_LOG_LINE.match(line)
         if log_line:
             stream, level, message = log_line.groups()
-            keep = stream not in _QUIET_SIMULATION_LOG_STREAMS and (
-                streams is None or stream in streams
-            )
+            keep = stream not in _QUIET_SIMULATION_LOG_STREAMS
             if keep:
                 entries.append([f"{stream} | {level} | {message.strip()}"])
             continue
@@ -692,14 +701,31 @@ def _patched_simulate(self: Any, model_name: str | None = None, verbosity: Any =
     if log:
         self._logger.debug("Simulation log:\n%s", log)
     # OMC finishes some runs successfully despite failed assertions (a nonlinear
-    # system that could not be solved, a min/max violation); its log is the only signal.
-    asserts = _simulation_log_entries(log, streams=("LOG_ASSERT",))
-    if asserts:
+    # system that could not be solved, a min/max violation) or solver warnings; its
+    # log is the only signal, and pydelica's print of it is swallowed above.
+    notable = [
+        entry for entry in _simulation_log_entries(log) if _is_notable_log_entry(entry)
+    ]
+    if notable:
         self._logger.warning(
-            "Simulation of '%s' reported failed assertions:\n%s",
+            "Simulation of '%s' reported warnings:\n%s",
             model_name or self.default_model,
-            "\n".join(asserts),
+            "\n".join(notable),
         )
+
+
+def _is_notable_log_entry(entry: str) -> bool:
+    """Return whether a successful run's log entry should reach the user.
+
+    Args:
+        entry: An entry from ``_simulation_log_entries``.
+
+    Returns:
+        True for ``LOG_ASSERT`` entries and for ``warning``/``error`` entries of any
+        stream.
+    """
+    stream, level, _ = entry.split(" | ", 2)
+    return stream == "LOG_ASSERT" or level in ("warning", "error")
 
 
 def _simulate_with_cpp_options(self: Any, model_name: str | None = None, verbosity: Any = None) -> None:

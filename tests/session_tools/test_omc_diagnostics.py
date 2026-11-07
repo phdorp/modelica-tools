@@ -10,7 +10,8 @@ from hydra.errors import InstantiationException
 import mtools.internal.session_tools as session_tools
 import mtools.internal.sim_tools as sim_tools
 import mtools.session_config as session_config
-from mtools.internal.pydelica_patch import (_omc_diagnostics,
+from mtools.internal.pydelica_patch import (_is_notable_log_entry,
+                                            _omc_diagnostics,
                                             _simulation_log_entries,
                                             _translation_error_message)
 
@@ -91,11 +92,17 @@ def test_simulation_log_entries_keep_continuations_with_their_line():
     ]
 
 
-def test_simulation_log_entries_filter_by_stream():
-    assert _simulation_log_entries(NONLINEAR_FAILURE_LOG, streams=("LOG_ASSERT",)) == [
-        "LOG_ASSERT | debug | Solving non-linear system 8 failed at time=0.168.\n"
-        "    For more information please use -lv LOG_NLS.",
-    ]
+@pytest.mark.parametrize(
+    ("entry", "notable"),
+    [
+        ("LOG_ASSERT | debug | Solving non-linear system 8 failed at time=0.168.\n    more", True),
+        ("LOG_STDOUT | warning | Integrator attempt to handle a problem with a called assert.", True),
+        ("LOG_STDOUT | error | boom", True),
+        ("LOG_STDOUT | info | model terminate | Integrator failed. | Simulation terminated", False),
+    ],
+)
+def test_is_notable_log_entry(entry, notable):
+    assert _is_notable_log_entry(entry) is notable
 
 
 def test_simulation_log_entries_empty_without_log_lines():

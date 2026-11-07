@@ -138,11 +138,14 @@ both paths showed their output twice; they now use the same readable format
   `LOG_SUCCESS` as `<stream> | <level> | <message>`, with its `|`
   continuation lines indented below it. Other lines, such as the DASKR solver's
   Fortran banner, are dropped. The raw log is logged at DEBUG.
-- **Failed assertions in successful runs.** OMC finishes some runs successfully
-  despite a failed `LOG_ASSERT` (a nonlinear system that could not be solved
-  mid-run, a min/max violation). The run still succeeds, but those entries are
-  logged once at WARNING on the session logger, headed
-  `Simulation of '<model>' reported failed assertions:`.
+- **Failed assertions and warnings in successful runs.** OMC finishes some runs
+  successfully despite a failed `LOG_ASSERT` (a nonlinear system that could not
+  be solved mid-run, a min/max violation) or solver warnings (e.g. the linear
+  solver fallback). pydelica's print of the log is swallowed on every run, so
+  the run still succeeds, but its `LOG_ASSERT` entries and `warning`/`error`
+  entries of any stream are logged once at WARNING on the session logger,
+  headed `Simulation of '<model>' reported warnings:`. Other entries (including
+  extra `-lv` output) are logged at DEBUG.
 - **Chattering.** `SessionBuilder` turns on the C runtime flag
   `-abortSlowSimulation` for every built model, so a chattering model fails
   with the readable simulation error instead of hanging (pydelica runs the
