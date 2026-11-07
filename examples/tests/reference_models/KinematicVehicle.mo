@@ -1,7 +1,7 @@
 within reference_models;
 
 model KinematicVehicle
-  extends IKinematicVehicle;
+  extends kinematic_vehicle.IKinematicVehicle;
   parameter Real wheelbase = 2 "wheelbase";
 
 protected
