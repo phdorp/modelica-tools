@@ -109,5 +109,7 @@ def test_violated_assert_reports_message_and_time(tmp_path):
         '  assert(x < 1.5, "x exceeded limit");\nend Assertion;\n'
     )
     builder = session_tools.SessionBuilder(path)
-    with pytest.raises(pydelica.exception.OMAssertionError, match="x exceeded limit"):
+    with pytest.raises(pydelica.exception.OMAssertionError) as exc:
         builder.session.simulate(model_name="Assertion")
+    assert "x exceeded limit" in str(exc.value)
+    assert "violated at time 0.5" in str(exc.value)
