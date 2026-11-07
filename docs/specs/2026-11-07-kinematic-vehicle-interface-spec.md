@@ -164,6 +164,11 @@ parameter override examples, and protected-output note are updated. The
 removed config-group and `front_position` sections are replaced with direct
 parameter overrides.
 
+The example commands in `.github/workflows/tests.yml` are updated to use only
+configuration paths and experiments that survive the refactor. The pre-existing
+import-order failure in `examples/src/kinematic_vehicle/__main__.py` is fixed so
+the repository-level `isort --check-only` check passes.
+
 ## Testing Decisions
 
 Good tests exercise the simulated wrapper through the existing experiment bases

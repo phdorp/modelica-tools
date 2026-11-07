@@ -312,16 +312,19 @@ pydelica, hydra-zen, pytest, pandas/numpy.
    test: port the reference kinematic vehicle to the interface structure
    ```
 
-### Task 3: Update the example documentation
+### Task 3: Update the example documentation, CI commands, and import order
 
 **Files**
 
 - Modify: `examples/README.md`
+- Modify: `.github/workflows/tests.yml`
+- Modify: `examples/src/kinematic_vehicle/__main__.py`
 
 **Interfaces**
 
 - Consumes: model names, parameter names, and signal names from Tasks 1-2.
-- Produces: documentation that matches the refactored example.
+- Produces: documentation and CI commands that match the refactored example,
+  and an import order that passes the repository-level isort check.
 
 **Steps**
 
@@ -352,7 +355,21 @@ pydelica, hydra-zen, pytest, pandas/numpy.
 6. Update the reference-comparison description to the refactored
    `reference_models.WrapperKinematicVehicle` structure.
 
-7. Run verification from `examples/`:
+7. In `.github/workflows/tests.yml`, replace the two removed commands in the
+   `Run examples` step with valid refactored commands. Keep the default run and
+   the parameter sweep; use `experiment=turn_left` for the experiment example:
+
+   ```bash
+   uv run python -m kinematic_vehicle
+   uv run python -m kinematic_vehicle session.parameters.phi=0.1
+   uv run python -m kinematic_vehicle experiment=turn_left
+   uv run python -m kinematic_vehicle -m session.parameters.v_norm=10,20
+   ```
+
+8. In `examples/src/kinematic_vehicle/__main__.py`, reorder the imports so the
+   repository-level isort check passes. Do not change behavior.
+
+9. Run verification from `examples/`:
 
    ```bash
    uv run pytest tests
@@ -360,29 +377,30 @@ pydelica, hydra-zen, pytest, pandas/numpy.
 
    Expect all example tests to pass, including the reference comparison.
 
-8. Run repository-level checks from the repository root:
+10. Run repository-level checks from the repository root:
 
-   ```bash
-   uv run pytest tests
-   uv run mypy src tests
-   uv run isort --check-only src tests examples
-   ```
+    ```bash
+    uv run pytest tests
+    uv run mypy src tests
+    uv run isort --check-only src tests examples
+    ```
 
-   Expect the main suite and both static checks to pass; the main suite is
-   unchanged but guards against accidental cross-package edits.
+    Expect the main suite and both static checks to pass; the main suite is
+    unchanged but guards against accidental cross-package edits.
 
-9. Commit:
+11. Commit:
 
-   ```
-   docs: describe the interface-based kinematic vehicle example
-   ```
+    ```
+    docs: describe the interface-based kinematic vehicle example
+    ```
 
 ## Self-review
 
 - **Spec coverage:** every spec section maps to a task: interface and
   implementation (Task 1, steps 5-6), wrapper (Task 1, step 7), removed records
   (Task 1, step 8), Python config (Task 1, step 9), tests (Task 1, steps 1-4 and
-  10), reference package (Task 2), and README (Task 3).
+  10), reference package (Task 2), README, CI commands, and import order
+  (Task 3).
 - **Step scan:** each step names one file or one command and one expected
   result; the long Modelica snippets are exact interface decisions, not
   line-by-line algorithm narration.
