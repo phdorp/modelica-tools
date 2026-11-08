@@ -57,7 +57,8 @@ class ScriptOutput:
     """What a build script printed.
 
     Attributes:
-        diagnostics: ``getErrorString()`` output per stage that ran.
+        diagnostics: ``getErrorString()`` output per stage that ran, joined in order
+            when a stage ran more than once (one call per library or source).
         loaded_libraries: Result of ``getLoadedLibraries()``; empty if not reached.
         experiment: The experiment annotation; ``None`` if not reached.
     """
@@ -126,7 +127,8 @@ def parse_output(stdout: str) -> ScriptOutput:
             kind, name = section
             text = "\n".join(content).strip()
             if kind == "errors":
-                errors[Stage(int(name))] = text
+                stage = Stage(int(name))
+                errors[stage] = "\n".join(filter(None, [errors.get(stage, ""), text]))
             else:
                 data[name] = text
             section = None

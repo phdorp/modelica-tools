@@ -179,3 +179,13 @@ def test_parse_tolerates_output_of_a_script_that_stopped_early():
 @pytest.mark.parametrize("target", ["C", "Cpp"])
 def test_target_is_passed_to_the_code_generator(target):
     assert f"--simCodeTarget={target}" in build_script(_config(target=target), "model")
+
+
+def test_parse_keeps_every_error_string_of_a_repeated_stage():
+    output = parse_output(
+        "@@mtools:begin errors 14\nWarning: first file\n@@mtools:end\n"
+        "@@mtools:begin errors 14\n\n@@mtools:end\n"
+        "@@mtools:begin errors 14\nError: second file\n@@mtools:end\n"
+    )
+
+    assert output.diagnostics[Stage.LOAD_SOURCES] == "Warning: first file\nError: second file"
