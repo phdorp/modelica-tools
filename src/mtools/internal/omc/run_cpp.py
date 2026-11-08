@@ -101,6 +101,8 @@ def command(build: Build, settings: RunSettings, directory: Path, input_director
     experiment = build.experiment
     return [
         str(build.directory / build.file_name_prefix),
+        # The binary defaults -M to the directory it was built in, which a cached build no longer is.
+        "-M", str(build.directory),
         "--input-path", str(input_directory),
         "-F", str(result_file),
         "-P", "mat",

@@ -12,7 +12,7 @@ import pytest
 
 from mtools.errors import SimulationError
 from mtools.internal.omc.build import build
-from mtools.internal.omc.config import BuildConfig, Library, RunSettings
+from mtools.internal.omc.config import BuildConfig, Library, RunSettings, Target
 
 MODEL = "model {name} parameter Real k = {k}; Real x(start=0, fixed=true); equation der(x) = k; end {name};\n"
 FAILING = (
@@ -30,10 +30,10 @@ def work_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return directory
 
 
-def _single(tmp_path: Path, k: int = 1) -> BuildConfig:
+def _single(tmp_path: Path, k: int = 1, target: Target = "C") -> BuildConfig:
     source = tmp_path / "A.mo"
     source.write_text(MODEL.format(name="A", k=k))
-    return BuildConfig(model_path=source, model_name="A")
+    return BuildConfig(model_path=source, model_name="A", target=target)
 
 
 def _package(root: Path, name: str, k: int = 1) -> Path:
@@ -49,9 +49,9 @@ def _messages(caplog: pytest.LogCaptureFixture, word: str) -> list[str]:
     return [r.getMessage() for r in caplog.records if r.getMessage().startswith(word)]
 
 
-def test_unchanged_build_is_reused_without_compiling(tmp_path: Path, caplog: pytest.LogCaptureFixture):
+def test_unchanged_build_is_reused_without_compiling(tmp_path: Path, caplog: pytest.LogCaptureFixture, target: Target):
     caplog.set_level(logging.INFO)
-    config = _single(tmp_path)
+    config = _single(tmp_path, target=target)
 
     first = build(config)
     second = build(config)
@@ -146,11 +146,21 @@ def test_two_processes_building_the_same_key_both_succeed_and_share_one_build(tm
     assert list((work_dir / "tmp").iterdir()) == []
 
 
-def test_run_directories_are_deleted_after_success_and_failure(tmp_path: Path, work_dir: Path):
+def test_c_and_cpp_builds_of_one_model_are_cached_separately(tmp_path: Path, work_dir: Path):
+    c_build = build(_single(tmp_path, target="C"))
+    cpp_build = build(_single(tmp_path, target="Cpp"))
+
+    assert c_build.directory != cpp_build.directory
+    assert len(list((work_dir / "builds").iterdir())) == 2
+    assert build(_single(tmp_path, target="Cpp")).directory == cpp_build.directory
+    assert cpp_build.simulate(RunSettings()).iloc[-1]["x"] == pytest.approx(1.0)
+
+
+def test_run_directories_are_deleted_after_success_and_failure(tmp_path: Path, work_dir: Path, target: Target):
     failing = tmp_path / "Failing.mo"
     failing.write_text(FAILING)
-    good = build(_single(tmp_path))
-    bad = build(BuildConfig(model_path=failing, model_name="Failing"))
+    good = build(_single(tmp_path, target=target))
+    bad = build(BuildConfig(model_path=failing, model_name="Failing", target=target))
 
     good.simulate(RunSettings())
     with pytest.raises(SimulationError) as error:
@@ -161,13 +171,13 @@ def test_run_directories_are_deleted_after_success_and_failure(tmp_path: Path, w
 
 
 def test_keep_runs_keeps_run_directories_logs_them_and_names_them_in_failures(
-    tmp_path: Path, work_dir: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    tmp_path: Path, work_dir: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, target: Target
 ):
     caplog.set_level(logging.INFO)
     monkeypatch.setenv("MTOOLS_KEEP_RUNS", "1")
     failing = tmp_path / "Failing.mo"
     failing.write_text(FAILING)
-    bad = build(BuildConfig(model_path=failing, model_name="Failing"))
+    bad = build(BuildConfig(model_path=failing, model_name="Failing", target=target))
     _single(tmp_path)
 
     with pytest.raises(SimulationError) as error:
