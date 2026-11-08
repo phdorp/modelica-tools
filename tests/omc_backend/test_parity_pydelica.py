@@ -41,7 +41,8 @@ import numpy as np
 import omegaconf
 import pandas as pd
 import pytest
-from kinematic_vehicle.kinematic_vehicle import registry  # type: ignore[import-untyped]
+from kinematic_vehicle.kinematic_vehicle import \
+    registry  # type: ignore[import-untyped]
 
 import mtools.session_config as session_config
 import mtools.sim_tools as sim_tools
