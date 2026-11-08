@@ -38,18 +38,19 @@ def split_parameters(parameters: Any, variables: Mapping[str, Variable], model_n
     written whole from it (``y0={7,8}``).
 
     Raises:
-        ConfigError: A requested build-time parameter is protected.
+        ConfigError: A requested parameter is protected (changeable or not).
     """
     build_values: dict[str, str] = {}
     run_parameters: dict[str, Any] = {}
     problems: list[str] = []
     for key, value in flatten_parameters(parameters).items():
         names = list(expand_parameters({key: value}))
+        if protected := [name for name in names if name in variables and variables[name].protected]:
+            problems.append(f"settings.parameters.{key}: '{model_name}' parameter '{protected[0]}' is protected")
+            continue
         fixed = [variables[name] for name in names if name in variables and _fixed_at_build(variables[name])]
         if not fixed:
             run_parameters[key] = value
-        elif protected := [variable.name for variable in fixed if variable.protected]:
-            problems.append(f"settings.parameters.{key}: '{model_name}' parameter '{protected[0]}' is protected")
         else:
             try:
                 build_values[key] = _literal(value, fixed[0])

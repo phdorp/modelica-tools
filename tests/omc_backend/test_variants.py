@@ -35,6 +35,7 @@ VARIABLES = {
         _variable("m[1,1]", "Integer"),
         _variable("m[1,2]", "Integer"),
         _variable("hidden", "Real", protected=True),
+        _variable("hiddenFree", "Real", changeable=True, protected=True),
         _variable("free", "Real", changeable=True),
     ]
 }
@@ -71,6 +72,11 @@ def test_changeable_and_unlisted_parameters_stay_per_run() -> None:
 def test_an_unqualified_enumeration_literal_is_a_config_error() -> None:
     with pytest.raises(ConfigError, match="settings.parameters.e: 'high' is not a qualified enumeration literal"):
         split_parameters({"e": "high"}, VARIABLES, "M")
+
+
+def test_a_changeable_protected_parameter_is_a_config_error() -> None:
+    with pytest.raises(ConfigError, match="settings.parameters.hiddenFree: 'M' parameter 'hiddenFree' is protected"):
+        split_parameters({"hiddenFree": 1.0}, VARIABLES, "M")
 
 
 def test_a_protected_build_time_parameter_is_a_config_error() -> None:
