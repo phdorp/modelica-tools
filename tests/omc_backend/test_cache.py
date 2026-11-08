@@ -12,7 +12,8 @@ import pytest
 
 from mtools.errors import SimulationError
 from mtools.internal.omc.build import build
-from mtools.internal.omc.config import BuildConfig, Library, RunSettings, Target
+from mtools.internal.omc.config import (BuildConfig, Library, RunSettings,
+                                        Target)
 
 MODEL = "model {name} parameter Real k = {k}; Real x(start=0, fixed=true); equation der(x) = k; end {name};\n"
 FAILING = (
