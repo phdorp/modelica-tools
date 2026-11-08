@@ -10,7 +10,7 @@ import pytest
 
 from mtools.errors import ConfigError, TranslationError
 from mtools.internal.omc.build import Build, build
-from mtools.internal.omc.config import BuildConfig, RunSettings
+from mtools.internal.omc.config import BuildConfig, RunSettings, Target
 from mtools.internal.omc.init_xml import Variable
 from mtools.internal.omc.variants import split_parameters
 
@@ -97,8 +97,8 @@ def work_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 @pytest.fixture
-def plain(work_dir: Path) -> Build:
-    return build(BuildConfig(model_path=MODEL, model_name="Variants"))
+def plain(work_dir: Path, target: Target) -> Build:
+    return build(BuildConfig(model_path=MODEL, model_name="Variants", target=target))
 
 
 def _last(build_: Build, **parameters: Any) -> dict[str, float]:
@@ -142,7 +142,7 @@ def test_a_local_and_an_inherited_evaluate_parameter(plain: Build) -> None:
     row = _last(plain, loc=11.0, inh=3.0)
 
     assert row["localOut"] == 11.0
-    assert row["xb"] == 6.0  # der(xb) = inh over two seconds
+    assert row["xb"] == pytest.approx(6.0)  # der(xb) = inh over two seconds
 
 
 def test_whole_array_parameters(plain: Build) -> None:
@@ -219,7 +219,7 @@ def test_an_unknown_parameter_is_still_rejected_with_a_variant(plain: Build) -> 
 
 def test_uncached_variants_are_deleted(plain: Build, monkeypatch: pytest.MonkeyPatch, work_dir: Path) -> None:
     monkeypatch.setenv("MTOOLS_NO_CACHE", "1")
-    with build(BuildConfig(model_path=MODEL, model_name="Variants")) as uncached:
+    with build(BuildConfig(model_path=MODEL, model_name="Variants", target=plain.target)) as uncached:
         assert _last(uncached, loc=2.0)["localOut"] == 2.0
 
     assert not any((work_dir / "runs").iterdir())
