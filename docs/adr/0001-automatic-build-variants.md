@@ -14,6 +14,7 @@ Run settings may set any model parameter, and sweeps reuse cached builds whereve
 
 - The first sweep over a build-time parameter costs one compile per distinct value. mtools logs at INFO which parameters caused a variant.
 - The plain build is always made first, because its `_init.xml` is what tells which requested parameters are fixed.
-- A `final` parameter cannot be changed even in a variant, so requesting it fails as a `TranslationError`.
+- A variant is a generated wrapper class, `model <variant> extends <model>(<build-time modifiers>)`, so the user's model is never edited and inherited parameters work. OMC's `setComponentModifierValue` was rejected because it silently fails on inherited parameters.
+- A `final` parameter cannot be changed even in a variant, so requesting it fails as a `TranslationError`. A protected parameter is rejected with `ConfigError`, even though OMC 1.27 would accept it.
 
 Decided in [Caching builds across sweep points](https://github.com/phdorp/modelica-tools/issues/50).

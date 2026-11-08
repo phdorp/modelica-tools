@@ -46,7 +46,7 @@ mtools drives OpenModelica itself through a small internal backend and drops `py
 9. As a model developer, I want to override any run setting from the command line (`settings.stop_time=20`, `settings.parameters.phi=0.1`, `build.target=Cpp`), so that experiments don't need code changes.
 10. As a model developer, I want array parameters in my parameter dataclass expanded to Modelica's indexed names, so that I can set `y = [1, 2]` naturally.
 11. As a model developer, I want invalid config to fail before any compile time is spent, with an error naming the config path, so that I can fix it straight away.
-12. As a model developer, I want a misspelt parameter name to raise `ConfigError` naming `settings.parameters.<name>`, so that my results are not silently computed with the default value.
+12. As a model developer, I want a misspelt or protected parameter name to raise `ConfigError` naming `settings.parameters.<name>`, so that my results are not silently computed with the default value.
 13. As a registry user, I want `create_run` to take `model_name`, `model_path`, `target`, `extra_sources`, `libraries`, `omc_flags` and the settings directly, so that I don't assemble pydelica-style dicts.
 
 ### Building
@@ -154,7 +154,7 @@ class SimulationRun:
 - **Removed:** `Session`, `Model`, `TimeRange`, `Tolerance`, `VariableFilter`, `Simulation`, `SimulationRun.model_name`, `build_options`, `model_configurations`, `output_format`.
 - **Override paths:** the `session` group is replaced by `build` and `settings`. `settings/parameters` stays a group of selectable options. `mtools.testing`'s sweep parameter prefix becomes `settings.parameters`.
 - **Parameters:** the parameter dataclass is flattened to dotted names, and array values are expanded to Modelica's 1-based, row-major indexed names (`m[1, 2]`). Empty arrays raise `ValueError`. This keeps today's behaviour.
-- **Validation** happens once in `simulate_run`, before building, and errors name the config path. Checks include `--simCodeTarget` in `omc_flags`, an explicitly requested Cpp solver outside `dassl`/`cvode`/`ida`, and type errors. Checks that need the build (unknown parameter names, a Cpp-unsupported solver from the annotation) run after building and before the run starts.
+- **Validation** happens once in `simulate_run`, before building, and errors name the config path. Checks include `--simCodeTarget` in `omc_flags`, an explicitly requested Cpp solver outside `dassl`/`cvode`/`ida`, and type errors. Checks that need the build (unknown or protected parameter names, a Cpp-unsupported solver from the annotation) run after building and before the run starts.
 - **Registry:** `create_run(model_name, model_path, target, extra_sources, libraries, omc_flags, settings, ...)` replaces the `build_options` dict. The examples' `cpp_build_options` helper is deleted in favour of `target="Cpp"`.
 
 ### Building ([How mtools should drive the OMC compiler](https://github.com/phdorp/modelica-tools/issues/44))
@@ -179,7 +179,7 @@ class SimulationRun:
   - **C:** parameters go into a per-run override file (`-overrideFile`, newline-terminated lines, no `#` comments). Settings use the dedicated flags (`-startTime`, `-stopTime`, `-stepSize`, `-tolerance`, `-s`, `-variableFilter`, `-outputFormat=mat`, `-emit_protected`, and `-abortSlowSimulation` when `abort_on_chattering`), with `-inputPath` set to the build and `-outputPath` to the run directory.
   - **Cpp:** parameters go into a per-run copy of `_init.xml` with changed `start` attributes, passed with `--input-path`. Settings use `-S`, `-E`, `-H`, `-T`, `-I`, `-B`, `-P mat`, `-U protected`, and an absolute `-F` into the run directory.
 - **No free-form runtime flags:** run settings are a fixed, typed set on both targets; mtools generates every runtime flag itself.
-- **Unknown parameter names** (not in the build's parameter list) raise `ConfigError` before the run.
+- **Unknown parameter names** (not in the build's parameter list) and **protected** parameters raise `ConfigError` before the run.
 - **Cpp target:**
   - Cpp runs only when the user sets it; mtools never picks a target automatically.
   - Only `dassl`, `cvode` and `ida` are allowed on Cpp; any other solver is a `ConfigError`, never substituted.
@@ -235,7 +235,13 @@ class SimulationRun:
   - the OMC version, the C compiler version, and an mtools backend version that changes whenever the build-script template changes.
 - **Validating a hit:** a key match counts only if every package on the cached build's input list (`getLoadedLibraries()`) still hashes to its recorded value. Installed library versions are identified by name and version. Otherwise mtools builds again.
 - **Not covered, to be documented:** C headers included by absolute path from outside any package.
-- **Build variants:** when a run requests a parameter the build marks as non-changeable, the backend builds a variant with that value fixed at build time and caches it under a key that includes the value. One INFO log names the parameters that forced it. The plain build is always made first. A `final` parameter fails as `TranslationError`.
+- **Build variants:** when a run requests a parameter the build marks as non-changeable, the backend builds a variant with that value fixed at build time and caches it under a key that includes the value. One INFO log names the parameters that forced it. The plain build is always made first; its `_init.xml` tells which requested parameters are fixed at build time and gives their types.
+  - **Mechanism: a wrapper class.** The variant's build script loads the same sources, then `loadString("model <variant class> extends <build.model_name>(<modifiers>); end <variant class>;")`, and builds that class. The variant class has an internal fixed name; results stay keyed by `build.model_name` and column names are unchanged.
+  - **Modifiers** contain only the build-time parameters, so runs that share build-time values share the variant while changeable parameters still vary per run. Dotted names use the dotted form (`sub.m=5`). Array parameters are written as whole-array literals from the config value (`y0={7,8}`, `m={{1,2},{3,4}}`), because a modifier cannot set one element. Values are formatted from the `_init.xml` type: Real as a full-precision literal, Integer, `true`/`false`, quoted String, and enumeration literals as qualified names.
+  - **Rejected: OMC's `setComponentModifierValue`.** It silently fails on inherited parameters (it returns `false` and the value stays unchanged), and it edits the user's class inside OMC.
+  - **Protected parameters** requested in `settings.parameters` raise `ConfigError` before any variant is built. OMC 1.27 accepts a modifier on a protected parameter, but the Modelica spec forbids it and a later OMC may reject it.
+  - **`final` parameters** fail as `TranslationError` with OMC's `Trying to override final element` message.
+  - All of the above was verified on OMC 1.27.2: array size, if-equation selector, `Evaluate=true` (local and inherited), whole array, nested parameters, and `final`.
 - **Publishing builds:** each build is written to a temporary directory under the work directory and moved into `builds/` in one step. If two processes build the same key, the one that finishes second discards its copy and uses the cached one. No lock files and no automatic eviction.
 - **`MTOOLS_NO_CACHE=1`:** builds into a throwaway directory under `runs/` and skips the cache.
 - **Cleanup:** run directories and uncached builds are deleted when the `simulate_run` call that created them ends, whether it succeeded, failed or timed out. `MTOOLS_KEEP_RUNS=1` keeps them, logs each path at INFO, and adds `Run directory: <path>` to failure diagnostics.
@@ -269,11 +275,11 @@ class SimulationRun:
   - the translation, compile and run error catalogue, re-pinned on `mtools.errors`;
   - result columns, dtypes, repeated event rows, `variable_filter`, `emit_protected`;
   - partial results after a failed assert and after a timeout;
-  - unknown parameter names; Cpp solver rejection, both explicit and from the annotation; the Cpp `dassl` grid WARNING;
+  - unknown and protected parameter names; Cpp solver rejection, both explicit and from the annotation; the Cpp `dassl` grid WARNING;
   - `abort_on_chattering` and `timeout` on a chattering or slow model;
   - annotation defaults (including Cpp no longer falling back to euler with stop time 1); exact library pinning;
   - a C-vs-Cpp comparison of the same model with `ida`/`cvode` within a tolerance;
-  - cache behaviour, observed through the backend's "built" / "reused" log records: a hit; a rebuild after editing a file in the package, in an `extra_sources` package and in a `directory` library; one variant per distinct build-time parameter value; concurrent builds of one key; `MTOOLS_NO_CACHE`; `MTOOLS_KEEP_RUNS`.
+  - cache behaviour, observed through the backend's "built" / "reused" log records: a hit; a rebuild after editing a file in the package, in an `extra_sources` package and in a `directory` library; one variant per distinct build-time parameter value, covering an array size, an if-equation selector, an inherited `Evaluate=true` parameter, a whole-array parameter and a nested parameter, with result columns unchanged; a `final` parameter as `TranslationError`; concurrent builds of one key; `MTOOLS_NO_CACHE`; `MTOOLS_KEEP_RUNS`.
 - **The fixture package**, at seam 1, built on both targets from a working directory outside it:
   - members across files with `within`, and a model in a subpackage;
   - a `.c` file included from `Resources/Include` and a static library in `Resources/Library`;
@@ -312,7 +318,6 @@ class SimulationRun:
 
 ## Further Notes
 
-- **Open assumption: how a variant applies a build-time value.** The decision is that variants exist and are keyed by value. The mechanism is the planner's call, for example a generated wrapper class that extends the model with a modifier, or OMC's modifier API in the build script. Either way, results stay keyed by `build.model_name`.
 - **Behaviour changes users will notice:**
   - Models without an `experiment` annotation now run from 0 to 1 s (OMC's defaults) instead of mtools' fixed 0 to 10 s with tolerance 1e-9.
   - Integer and Boolean columns change dtype.
