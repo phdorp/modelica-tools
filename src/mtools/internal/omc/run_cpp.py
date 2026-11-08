@@ -53,8 +53,11 @@ def validate_build(build: Build, settings: RunSettings) -> None:
         ConfigError: The target is Cpp, no solver is set, and the model's annotation
             names a solver Cpp cannot run. Nothing is substituted.
     """
-    if build.target == "Cpp" and settings.solver is None:
-        _check_solver(build.experiment.solver, build.model_name, "the model's __OpenModelica_simulationFlags annotation")
+    if build.target == "Cpp":
+        if settings.solver is None:
+            _check_solver(build.experiment.solver, build.model_name, "the model's __OpenModelica_simulationFlags annotation")
+        else:  # also caught by validate_settings; kept for callers that skip it
+            _check_solver(settings.solver, build.model_name, "settings.solver")
 
 
 def _check_solver(solver: str, model_name: str, origin: str) -> None:
