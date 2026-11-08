@@ -13,7 +13,7 @@ import pytest
 
 from mtools.errors import SimulationError, SimulationTimeout
 from mtools.internal.omc.build import Build, build
-from mtools.internal.omc.config import BuildConfig, RunSettings
+from mtools.internal.omc.config import BuildConfig, RunSettings, Target
 from mtools.internal.omc.run_diagnostics import log_entries, notable_entries
 
 SLOW = "model Slow\n  Real x(start = 0, fixed = true);\nequation\n  der(x) = 1;\n  annotation(experiment(StopTime = 1e9, Interval = 1e6));\nend Slow;\n"
@@ -23,10 +23,15 @@ CHATTERING = (
 )
 
 
-def _build(tmp_path: Path, name: str, source: str) -> Build:
+def _build(tmp_path: Path, name: str, source: str, target: Target = "C") -> Build:
     path = tmp_path / f"{name}.mo"
     path.write_text(source)
-    return build(BuildConfig(model_path=path, model_name=name))
+    return build(BuildConfig(model_path=path, model_name=name, target=target))
+
+
+def _stepping_solver(target: Target) -> str:
+    """A solver that honours a small output interval on the target."""
+    return "cvode" if target == "Cpp" else "euler"
 
 
 # (model name, source, phrases that appear once in the failure diagnostics)
@@ -81,16 +86,17 @@ def test_run_error_is_readable_and_reported_once(tmp_path: Path, caplog, capsys,
     assert capsys.readouterr().out == ""
 
 
-def test_failed_assert_keeps_the_partial_result_up_to_the_failure(tmp_path: Path):
+def test_failed_assert_keeps_the_partial_result_up_to_the_failure(tmp_path: Path, target: Target):
     built = _build(
         tmp_path,
         "Fails",
         "model Fails\n  Real x(start = 0, fixed = true);\nequation\n  der(x) = 1;\n"
         '  assert(x < 0.5, "x exceeded its limit");\n  annotation(experiment(StopTime = 1, Interval = 0.1));\nend Fails;\n',
+        target,
     )
 
     with pytest.raises(SimulationError) as raised:
-        built.simulate(RunSettings())
+        built.simulate(RunSettings(solver="cvode" if target == "Cpp" else None))  # Cpp dassl ignores the grid
 
     partial = raised.value.partial_result
     assert partial is not None
@@ -210,12 +216,14 @@ def test_chattering_guard_can_be_turned_off(tmp_path: Path):
         built.simulate(RunSettings(abort_on_chattering=False, timeout=3))
 
 
-def test_timeout_kills_the_run_and_raises_with_a_partial_result(tmp_path: Path):
-    built = _build(tmp_path, "Slow", SLOW)
+def test_timeout_kills_the_run_and_raises_with_a_partial_result(tmp_path: Path, target: Target):
+    built = _build(tmp_path, "Slow", SLOW, target)
 
     started = time.monotonic()
     with pytest.raises(SimulationTimeout) as raised:
-        built.simulate(RunSettings(timeout=2, tolerance=1e-12, solver="euler", interval=1e-3, stop_time=1e6))
+        built.simulate(
+            RunSettings(timeout=2, tolerance=1e-12, solver=_stepping_solver(target), interval=1e-3, stop_time=1e6)
+        )
 
     assert time.monotonic() - started < 30
     assert str(raised.value).startswith("Simulation of 'Slow' timed out after 2 s:")
@@ -226,11 +234,11 @@ def test_timeout_kills_the_run_and_raises_with_a_partial_result(tmp_path: Path):
     assert len(partial) > 1
 
 
-def test_no_simulation_process_is_left_after_a_timeout(tmp_path: Path):
-    built = _build(tmp_path, "Slow", SLOW)
+def test_no_simulation_process_is_left_after_a_timeout(tmp_path: Path, target: Target):
+    built = _build(tmp_path, "Slow", SLOW, target)
 
     with pytest.raises(SimulationTimeout):
-        built.simulate(RunSettings(timeout=1, stop_time=1e6, interval=1e-3, solver="euler"))
+        built.simulate(RunSettings(timeout=1, stop_time=1e6, interval=1e-3, solver=_stepping_solver(target)))
 
     assert not _running(str(built.directory / built.file_name_prefix))
 
@@ -241,7 +249,7 @@ def test_keyboard_interrupt_kills_the_process_group_before_propagating(tmp_path:
         "import os, signal, sys, threading\n"
         "from pathlib import Path\n"
         "from mtools.internal.omc.build import build\n"
-        "from mtools.internal.omc.config import BuildConfig, RunSettings\n"
+        "from mtools.internal.omc.config import BuildConfig, RunSettings, Target\n"
         f"b = build(BuildConfig(model_path=Path({str(tmp_path / 'Slow.mo')!r}), model_name='Slow'))\n"
         "threading.Timer(2, lambda: os.kill(os.getpid(), signal.SIGINT)).start()\n"
         "try:\n"

@@ -107,10 +107,10 @@ def write_override_file(path: Path, values: Mapping[str, Any]) -> None:
     Every line is ``name=value`` and newline-terminated, because the runtime drops a
     last line without a newline. Reals are written at full precision.
     """
-    path.write_text("".join(f"{name}={_format(value)}\n" for name, value in values.items()))
+    path.write_text("".join(f"{name}={format_value(value)}\n" for name, value in values.items()))
 
 
-def _format(value: Any) -> str:
+def format_value(value: Any) -> str:
     if isinstance(value, (bool, np.bool_)):
         return "true" if value else "false"
     if isinstance(value, numbers.Integral):
