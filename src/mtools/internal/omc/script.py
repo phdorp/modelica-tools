@@ -15,6 +15,7 @@ from enum import IntEnum
 from pathlib import Path
 
 from mtools.internal.omc.config import BuildConfig, Library
+from mtools.internal.omc.packages import package_root
 
 
 class Stage(IntEnum):
@@ -92,7 +93,9 @@ def build_script(config: BuildConfig, file_name_prefix: str) -> str:
         lines += _checked(f"ok := {_load_model(library)};", Stage.LOAD_LIBRARIES)
 
     for source in [*config.extra_sources, config.model_path]:
-        lines += _checked(f"ok := loadFile({_string(str(Path(source).absolute()))});", Stage.LOAD_SOURCES)
+        root = package_root(Path(source))
+        load = root / "package.mo" if root.is_dir() else root
+        lines += _checked(f"ok := loadFile({_string(str(load))});", Stage.LOAD_SOURCES)
 
     lines += _data("loaded_libraries", "getLoadedLibraries();")
     lines += [_errors(Stage.LOADED_LIBRARIES)]

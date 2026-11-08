@@ -114,3 +114,42 @@ def test_result_is_a_dataframe_with_a_default_index(result_file: Path):
 
     assert isinstance(result, pd.DataFrame)
     assert list(result.index) == [0, 1, 2, 3]
+
+
+def _unfinished(tmp_path: Path, complete_rows: int, stray_bytes: int = 0) -> Path:
+    """A hand-truncated file: ``data_2`` header column count 0, then rows as written so far."""
+    rows = [[0.0, 1.0, 0.0], [0.5, 0.5, 1.0], [1.0, 0.25, 2.0], [1.5, 0.125, 3.0]]
+    path = write_omc_mat(
+        tmp_path / "unfinished_res.mat",
+        variables=[("time", 0, 1), ("x", 2, 2), ("count", 2, 3)],
+        data_1=[[0.0], [1.0]],
+        data_2=rows,
+    )
+    content = bytearray(path.read_bytes())
+    header = content.index(b"data_2\0") - 16
+    content[header + 8 : header + 12] = struct.pack("<i", 0)
+    del content[len(content) - (len(rows) - complete_rows) * 24 :]
+    content += b"\x01" * stray_bytes
+    path.write_bytes(content)
+    return path
+
+
+def test_unfinished_file_yields_every_complete_time_point(tmp_path: Path):
+    result = read_result(_unfinished(tmp_path, complete_rows=3), {"count": "Integer"})
+
+    assert result["time"].tolist() == [0.0, 0.5, 1.0]
+    assert result["x"].tolist() == [1.0, 0.5, 0.25]
+    assert result["count"].tolist() == [0, 1, 2]
+
+
+def test_unfinished_file_ignores_a_partly_written_time_point(tmp_path: Path):
+    result = read_result(_unfinished(tmp_path, complete_rows=2, stray_bytes=13), {})
+
+    assert result["time"].tolist() == [0.0, 0.5]
+
+
+def test_unfinished_file_without_time_points_is_an_empty_frame(tmp_path: Path):
+    result = read_result(_unfinished(tmp_path, complete_rows=0), {})
+
+    assert list(result.columns) == ["time", "x", "count"]
+    assert result.empty

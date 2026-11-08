@@ -70,9 +70,14 @@ def _read_matrices(path: Path) -> dict[str, np.ndarray]:
                 raise ValueError(f"{path}: only little-endian MATLAB v4 files are supported")
             name = handle.read(name_length).rstrip(b"\0").decode()
             dtype = np.dtype(_PRECISIONS[(mopt // 10) % 10])
-            flat = np.frombuffer(handle.read(rows * cols * dtype.itemsize), dtype)
+            column_size = rows * dtype.itemsize
+            # An unfinished file (killed run) declares 0 columns; keep every complete one
+            # in the remaining bytes. A short last matrix is cut to its complete columns.
+            data = handle.read(rows * cols * dtype.itemsize if cols else -1)
+            cols = len(data) // column_size if column_size else 0
+            flat = np.frombuffer(data[: cols * column_size], dtype)
             matrices[name] = flat.reshape(cols, rows).T  # stored column-major
-    if _strings(matrices["Aclass"].T)[3] != "binTrans":
+    if "Aclass" not in matrices or _strings(matrices["Aclass"].T)[3] != "binTrans":
         raise ValueError(f"{path}: not an OMC result file in binTrans layout")
     return matrices
 
