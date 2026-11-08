@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import logging
-import shutil
 import subprocess
-import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -14,6 +12,7 @@ from typing import TYPE_CHECKING
 import pandas as pd
 
 from mtools.errors import SimulationError
+from mtools.internal.omc import workdir
 from mtools.internal.omc.config import RunSettings
 from mtools.internal.omc.matfile import read_result
 from mtools.internal.omc.parameters import (resolve_parameters,
@@ -51,7 +50,7 @@ def simulate(build: Build, settings: RunSettings) -> pd.DataFrame:
             raise SimulationError(
                 f"Simulation of '{build.model_name}' failed:",
                 model_name=build.model_name,
-                diagnostics=(completed.stdout + completed.stderr).strip(),
+                diagnostics=workdir.with_run_directory((completed.stdout + completed.stderr).strip(), directory),
             )
         types = {name: variable.type for name, variable in build.variables.items()}
         return read_result(directory / f"{build.file_name_prefix}_res.mat", types)
@@ -60,11 +59,11 @@ def simulate(build: Build, settings: RunSettings) -> pd.DataFrame:
 @contextmanager
 def _run_directory() -> Iterator[Path]:
     """Create a new run directory and delete it when the run ends."""
-    directory = Path(tempfile.mkdtemp(prefix="mtools-run-"))
+    directory = workdir.new_run_directory()
     try:
         yield directory
     finally:
-        shutil.rmtree(directory, ignore_errors=True)
+        workdir.discard(directory)
 
 
 def _c_command(build: Build, settings: RunSettings, directory: Path) -> list[str]:
