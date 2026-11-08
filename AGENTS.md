@@ -50,4 +50,4 @@ uv run isort --check-only src tests examples
 - Pull requests must follow the template in `.github/pull_request_template.md` (Changes, Relevant links, Reasoning, Explanation, Additional notes, and the Checklist).
 - Keep the PR description as brief as possible, including only the information the reviewer needs to quickly grasp the changes.
 - Squash-merge pull requests into `main`.
-- The squash-merge commit message must be a conventional-commit message that describes the change for both developers and users - `feat:`, `fix:`, `docs:`, `refactor:`, `test:`, followed by a concise summary.
+- The squash-merge commit message must be a conventional-commit message that describes the change for both developers and users - `feat:`, `fix:`, `docs:`, `refactor:`, `test:`, followed by a concise summary. Write it with the `squash-merge-message` skill.
