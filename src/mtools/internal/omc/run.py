@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import logging
-import shutil
 import struct
-import tempfile
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
@@ -14,7 +12,7 @@ from typing import TYPE_CHECKING
 import pandas as pd
 
 from mtools.errors import SimulationError, SimulationTimeout
-from mtools.internal.omc import run_cpp
+from mtools.internal.omc import run_cpp, workdir
 from mtools.internal.omc.config import RunSettings
 from mtools.internal.omc.matfile import read_result
 from mtools.internal.omc.parameters import (resolve_parameters,
@@ -55,9 +53,9 @@ def simulate(build: Build, settings: RunSettings) -> pd.DataFrame:
             partial = _partial_result(result_file, types)
             if partial is not None and build.target == "Cpp":
                 partial = run_cpp.drop_rows_before_start(partial, settings.start_time, build)
-            raise _simulation_error(build, settings, result, partial)
+            raise _simulation_error(build, settings, result, partial, directory)
         if not result_file.exists():
-            raise _simulation_error(build, settings, result, None, missing=result_file.name)
+            raise _simulation_error(build, settings, result, None, directory, missing=result_file.name)
         if build.target == "C" and (warnings := notable_entries(result.output)):
             logger.warning("Simulation of '%s' reported warnings:\n%s", build.model_name, "\n".join(warnings))
         data = read_result(result_file, types)
@@ -69,6 +67,7 @@ def _simulation_error(
     settings: RunSettings,
     result: ProcessResult,
     partial_result: pd.DataFrame | None,
+    directory: Path,
     missing: str | None = None,
 ) -> SimulationError:
     """Build the exception for a failed, timed-out or result-less run.
@@ -85,6 +84,7 @@ def _simulation_error(
         crashed = None
     if missing:
         diagnostics = "\n".join(filter(None, [diagnostics, f"The run finished without writing '{missing}'."]))
+    diagnostics = workdir.with_run_directory(diagnostics, directory)
     if result.timed_out:
         return SimulationTimeout(
             f"Simulation of '{name}' timed out after {settings.timeout:g} s:",
@@ -108,11 +108,11 @@ def _partial_result(path: Path, types: Mapping[str, str]) -> pd.DataFrame | None
 @contextmanager
 def _run_directory() -> Iterator[Path]:
     """Create a new run directory and delete it when the run ends."""
-    directory = Path(tempfile.mkdtemp(prefix="mtools-run-"))
+    directory = workdir.new_run_directory()
     try:
         yield directory
     finally:
-        shutil.rmtree(directory, ignore_errors=True)
+        workdir.discard(directory)
 
 
 def _c_command(build: Build, settings: RunSettings, directory: Path) -> list[str]:
