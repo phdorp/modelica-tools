@@ -12,7 +12,7 @@ from pathlib import Path
 import pandas as pd
 
 from mtools.errors import CompileError, TranslationError
-from mtools.internal.omc import run
+from mtools.internal.omc import diagnostics, run
 from mtools.internal.omc.config import BuildConfig, RunSettings, Target
 from mtools.internal.omc.init_xml import Variable, read_variables
 from mtools.internal.omc.script import (Experiment, LoadedLibrary, Stage,
@@ -89,9 +89,10 @@ def build(config: BuildConfig) -> Build:
         "omc exited with %d.\nstdout:\n%s\nstderr:\n%s", completed.returncode, completed.stdout, completed.stderr
     )
     output = parse_output(completed.stdout)
+    stage_text = "\n".join(text for text in output.diagnostics.values() if text)
     if completed.returncode != 0 or output.experiment is None:
-        diagnostics = "\n".join(text for text in output.diagnostics.values() if text)
-        raise _build_error(config, completed.returncode, diagnostics or (completed.stdout + completed.stderr).strip())
+        raise _build_error(config, completed.returncode, stage_text, (completed.stdout + completed.stderr).strip())
+    _log_build_diagnostics(config.model_name, stage_text)
 
     return Build(
         config=config,
@@ -108,16 +109,27 @@ def _new_build_directory() -> Path:
     return Path(tempfile.mkdtemp(prefix="mtools-build-"))
 
 
-def _build_error(config: BuildConfig, returncode: int, diagnostics: str) -> TranslationError | CompileError:
+def _log_build_diagnostics(model_name: str, stage_text: str) -> None:
+    """Log what OMC and the C compiler said about a build that succeeded."""
+    if warnings := diagnostics.translation_warnings(stage_text):
+        logger.warning("Modelica translation of '%s' reported warnings:\n%s", model_name, warnings)
+    if notes := diagnostics.notifications(stage_text):
+        logger.debug("OMC notifications for '%s':\n%s", model_name, notes)
+    if compiler := diagnostics.compiler_warnings(stage_text):
+        logger.debug("C compiler warnings for '%s':\n%s", model_name, compiler)
+
+
+def _build_error(config: BuildConfig, returncode: int, stage_text: str, raw_output: str) -> TranslationError | CompileError:
+    """The exception for a failed build; ``stage_text`` is OMC's error strings, ``raw_output`` its raw output."""
     source = Path(config.model_path).absolute()
     if returncode == Stage.COMPILE:
         return CompileError(
             f"Modelica build failed for '{config.model_name}' ({source}):",
             model_name=config.model_name,
-            diagnostics=diagnostics,
+            diagnostics=diagnostics.filter_compile(stage_text or raw_output),
         )
     return TranslationError(
         f"Modelica translation failed for '{config.model_name}' ({source}):",
         model_name=config.model_name,
-        diagnostics=diagnostics,
+        diagnostics=diagnostics.filter_translation(stage_text) or diagnostics.filter_translation(raw_output) or raw_output,
     )
