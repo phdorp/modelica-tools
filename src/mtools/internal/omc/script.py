@@ -73,14 +73,22 @@ _BEGIN = "@@mtools:begin"
 _END = "@@mtools:end"
 
 
-def build_script(config: BuildConfig, file_name_prefix: str) -> str:
+def variant_class_name(model_name: str) -> str:
+    """Return the class name of the build variant of ``model_name``."""
+    return model_name.replace(".", "_") + "_mtools_variant"
+
+
+def build_script(config: BuildConfig, file_name_prefix: str, build_values: Mapping[str, str] | None = None) -> str:
     """Return the ``.mos`` script that builds ``config`` in the current directory.
 
     Args:
         config: The build config.
         file_name_prefix: Name of the generated executable and its files.
+        build_values: Modifier text by parameter name (``{"n": "3", "y0": "{7,8}"}``). When
+            given, the script defines ``model <variant> extends <model>(<modifiers>)`` after
+            loading the sources and builds that class instead of the model.
     """
-    model = config.model_name
+    model = variant_class_name(config.model_name) if build_values else config.model_name
     flags = " ".join([f"--simCodeTarget={config.target}", "-q", *map(_flag, config.omc_flags.items())])
     lines = _checked(f"ok := setCommandLineOptions({_string(flags)});", Stage.OPTIONS)
 
@@ -99,6 +107,11 @@ def build_script(config: BuildConfig, file_name_prefix: str) -> str:
 
     lines += _data("loaded_libraries", "getLoadedLibraries();")
     lines += [_errors(Stage.LOADED_LIBRARIES)]
+
+    if build_values:
+        modifiers = ", ".join(f"{name}={value}" for name, value in sorted(build_values.items()))
+        variant = f"model {model} extends {config.model_name}({modifiers}); end {model};"
+        lines += _checked(f"ok := loadString({_string(variant)});", Stage.LOAD_SOURCES)
 
     lines += _data("simulation_options", f"getSimulationOptions({model});")
     lines += _data("solver", f'getAnnotationModifierValue({model}, "__OpenModelica_simulationFlags", "s");')
@@ -202,3 +215,6 @@ def _experiment(data: Mapping[str, str]) -> Experiment:
         tolerance=float(tolerance),
         solver=solver,
     )
+
+
+string_literal = _string
