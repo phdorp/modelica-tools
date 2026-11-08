@@ -51,3 +51,17 @@ uv run isort --check-only src tests examples
 - Keep the PR description as brief as possible, including only the information the reviewer needs to quickly grasp the changes.
 - Squash-merge pull requests into `main`.
 - The squash-merge commit message must be a conventional-commit message that describes the change for both developers and users - `feat:`, `fix:`, `docs:`, `refactor:`, `test:`, followed by a concise summary. Write it with the `squash-merge-message` skill.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in GitHub Issues on `phdorp/modelica-tools`, managed with the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: one `GLOSSARY.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
