@@ -138,6 +138,7 @@ def test_successful_build_logs_notifications_at_debug(tmp_path, caplog):
     with caplog.at_level(logging.DEBUG, logger="mtools"):
         build(BuildConfig(model_path=path, model_name="Note"))
 
-    notes = [r for r in caplog.records if "Notification:" in r.getMessage()]
+    notes = [r for r in caplog.records if r.getMessage().startswith("OMC notifications for 'Note'")]
     assert notes
+    assert "Notification: Automatically loaded package" in notes[0].getMessage()
     assert all(r.levelno == logging.DEBUG for r in notes)

@@ -101,6 +101,24 @@ def test_compile_keeps_linker_lines():
     assert kept[1].startswith("collect2:")
 
 
+def test_compile_keeps_undefined_reference_line_without_linker_prefix():
+    log = "model.c:(.text+0x1): undefined reference to `bar'\nmake: *** [model] Error 1\n"
+    assert filter_compile(log) == "model.c:(.text+0x1): undefined reference to `bar'"
+
+
+def test_compile_keeps_ld_line_without_undefined_reference():
+    log = "/usr/bin/ld: cannot find -lfoo\nmake: *** [model] Error 1\n"
+    assert filter_compile(log) == "/usr/bin/ld: cannot find -lfoo"
+
+
+def test_compile_drops_command_lines_and_make_chatter_around_diagnostics():
+    kept = filter_compile(COMPILE_LOG)
+    assert "clang" not in kept
+    assert "make:" not in kept
+    assert "generated." not in kept
+    assert "In file included" not in kept
+
+
 def test_compile_falls_back_to_the_whole_log_when_nothing_matches():
     assert filter_compile("make: *** No rule to make target.\n") == "make: *** No rule to make target."
 
