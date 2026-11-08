@@ -14,15 +14,15 @@ import pytest
 from mtools.errors import (CompileError, ConfigError, SimulationError,
                            TranslationError)
 from mtools.internal.omc.build import Build, build
-from mtools.internal.omc.config import BuildConfig, RunSettings
+from mtools.internal.omc.config import BuildConfig, RunSettings, Target
 from mtools.internal.omc.script import Experiment, LoadedLibrary
 
 MODELS = Path(__file__).parent / "models"
 
 
-@pytest.fixture(scope="module")
-def backend_build() -> Build:
-    return build(BuildConfig(model_path=MODELS / "Backend.mo", model_name="Backend"))
+@pytest.fixture(scope="module", params=["C", "Cpp"])
+def backend_build(request: pytest.FixtureRequest) -> Build:
+    return build(BuildConfig(model_path=MODELS / "Backend.mo", model_name="Backend", target=request.param))
 
 
 def test_result_has_time_first_and_one_column_per_public_time_varying_variable(backend_build: Build):
@@ -51,20 +51,38 @@ def test_build_records_the_experiment_annotation(backend_build: Build):
     )
 
 
+def _grid_solver(build: Build) -> str | None:
+    """Cpp dassl ignores the output grid, so grid tests run Cpp with cvode."""
+    return "cvode" if build.target == "Cpp" else None
+
+
+def _event_time_tolerance(build: Build) -> float:
+    """Cpp reports a state event up to 1e-6 after its exact time."""
+    return 2e-6 if build.target == "Cpp" else 1e-6
+
+
 def test_unset_time_range_and_interval_come_from_the_annotation(backend_build: Build):
-    result = backend_build.simulate(RunSettings())
+    result = backend_build.simulate(RunSettings(solver=_grid_solver(backend_build)))
 
     grid = sorted(set(result["time"].round(12)))
-    assert grid == pytest.approx([0.0, 0.1, 0.2, 0.25, 0.3, 0.4, 0.5, 0.55, 0.6, 0.7, 0.8, 0.9, 1.0])
+    assert grid == pytest.approx(
+        [0.0, 0.1, 0.2, 0.25, 0.3, 0.4, 0.5, 0.55, 0.6, 0.7, 0.8, 0.9, 1.0], abs=_event_time_tolerance(backend_build)
+    )
 
 
 def test_time_range_and_interval_settings_override_the_annotation(backend_build: Build):
-    result = backend_build.simulate(RunSettings(start_time=0.5, stop_time=2.0, interval=0.5))
+    result = backend_build.simulate(
+        RunSettings(start_time=0.5, stop_time=2.0, interval=0.5, solver=_grid_solver(backend_build))
+    )
 
-    assert sorted(set(result["time"])) == pytest.approx([0.5, 0.55, 1.0, 1.5, 2.0])
+    assert sorted(set(result["time"])) == pytest.approx(
+        [0.5, 0.55, 1.0, 1.5, 2.0], abs=_event_time_tolerance(backend_build)
+    )
 
 
-def test_solver_setting_selects_the_integration_method(backend_build: Build):
+def test_solver_setting_selects_the_integration_method_on_c(backend_build: Build):
+    if backend_build.target != "C":
+        pytest.skip("C only: Cpp runs euler as a crash, see test_cpp_run")
     exact = math.exp(-2.0)
 
     dassl = backend_build.simulate(RunSettings())
@@ -203,23 +221,23 @@ def test_runs_write_nothing_into_the_build(backend_build: Build):
     assert _snapshot(backend_build.directory) == before
 
 
-def test_syntax_error_raises_translation_error(tmp_path: Path):
+def test_syntax_error_raises_translation_error(tmp_path: Path, target: Target):
     source = tmp_path / "Broken.mo"
     source.write_text("model Broken\n  Real x\nequation\n  x = 1;\nend Broken;\n")
 
     with pytest.raises(TranslationError, match="Missing token") as raised:
-        build(BuildConfig(model_path=source, model_name="Broken"))
+        build(BuildConfig(model_path=source, model_name="Broken", target=target))
 
     assert raised.value.model_name == "Broken"
     assert str(raised.value).startswith(f"Modelica translation failed for 'Broken' ({source}):")
 
 
-def test_translation_failure_raises_translation_error(tmp_path: Path):
+def test_translation_failure_raises_translation_error(tmp_path: Path, target: Target):
     source = tmp_path / "TypeMismatch.mo"
     source.write_text("model TypeMismatch\n  Integer t = 1.5;\nend TypeMismatch;\n")
 
     with pytest.raises(TranslationError, match="Type mismatch in binding t = 1.5"):
-        build(BuildConfig(model_path=source, model_name="TypeMismatch"))
+        build(BuildConfig(model_path=source, model_name="TypeMismatch", target=target))
 
 
 def test_c_compile_failure_raises_compile_error(tmp_path: Path):
@@ -236,13 +254,13 @@ def test_c_compile_failure_raises_compile_error(tmp_path: Path):
     assert raised.value.model_name == "CBuild"
 
 
-def test_failed_run_raises_simulation_error(tmp_path: Path):
+def test_failed_run_raises_simulation_error(tmp_path: Path, target: Target):
     source = tmp_path / "Fails.mo"
     source.write_text(
         "model Fails\n  Real x(start = 0, fixed = true);\nequation\n  der(x) = 1;\n"
         '  assert(x < 0.5, "x exceeded its limit");\nend Fails;\n'
     )
-    failing = build(BuildConfig(model_path=source, model_name="Fails"))
+    failing = build(BuildConfig(model_path=source, model_name="Fails", target=target))
 
     with pytest.raises(SimulationError, match="x exceeded its limit") as raised:
         failing.simulate(RunSettings())

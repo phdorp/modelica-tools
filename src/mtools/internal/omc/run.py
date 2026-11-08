@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 import pandas as pd
 
 from mtools.errors import SimulationError, SimulationTimeout
+from mtools.internal.omc import run_cpp
 from mtools.internal.omc.config import RunSettings
 from mtools.internal.omc.matfile import read_result
 from mtools.internal.omc.parameters import (resolve_parameters,
@@ -32,27 +33,35 @@ OVERRIDE_FILE_NAME = "overrides.txt"
 
 def simulate(build: Build, settings: RunSettings) -> pd.DataFrame:
     """Run ``build`` once with ``settings`` and return the result."""
-    if build.target != "C":
-        raise NotImplementedError(f"Running the {build.target} target is not supported yet")
-
+    run_cpp.validate_build(build, settings)
     overrides = resolve_parameters(settings.parameters, build.parameters, build.model_name)
+    if build.target == "Cpp":
+        run_cpp.warn_if_grid_is_ignored(build, settings)
 
     with _run_directory() as directory:
-        command = _c_command(build, settings, directory)
-        if overrides:
-            override_file = directory / OVERRIDE_FILE_NAME
-            write_override_file(override_file, overrides)
-            command.append(f"-overrideFile={override_file}")
-        result = execute(command, directory, settings.timeout)
         result_file = directory / f"{build.file_name_prefix}_res.mat"
+        if build.target == "Cpp":
+            input_directory = run_cpp.write_input(build, overrides, directory)
+            command = run_cpp.command(build, settings, directory, input_directory, result_file)
+        else:
+            command = _c_command(build, settings, directory)
+            if overrides:
+                override_file = directory / OVERRIDE_FILE_NAME
+                write_override_file(override_file, overrides)
+                command.append(f"-overrideFile={override_file}")
+        result = execute(command, directory, settings.timeout)
         types = {name: variable.type for name, variable in build.variables.items()}
         if result.timed_out or result.returncode != 0:
-            raise _simulation_error(build, settings, result, _partial_result(result_file, types))
+            partial = _partial_result(result_file, types)
+            if partial is not None and build.target == "Cpp":
+                partial = run_cpp.drop_rows_before_start(partial, settings.start_time, build)
+            raise _simulation_error(build, settings, result, partial)
         if not result_file.exists():
             raise _simulation_error(build, settings, result, None, missing=result_file.name)
-        if warnings := notable_entries(result.output):
+        if build.target == "C" and (warnings := notable_entries(result.output)):
             logger.warning("Simulation of '%s' reported warnings:\n%s", build.model_name, "\n".join(warnings))
-        return read_result(result_file, types)
+        data = read_result(result_file, types)
+        return run_cpp.drop_rows_before_start(data, settings.start_time, build) if build.target == "Cpp" else data
 
 
 def _simulation_error(
@@ -67,7 +76,13 @@ def _simulation_error(
     The one place where run diagnostics are assembled.
     """
     name = build.model_name
-    diagnostics = failure_diagnostics(result.output, result.signal.name if result.signal and not result.timed_out else None)
+    signal_name = result.signal.name if result.signal and not result.timed_out else None
+    if build.target == "Cpp":
+        diagnostics = "\n".join(run_cpp.error_lines(result.output)) or failure_diagnostics(result.output)
+        crashed = signal_name
+    else:
+        diagnostics = failure_diagnostics(result.output, signal_name)
+        crashed = None
     if missing:
         diagnostics = "\n".join(filter(None, [diagnostics, f"The run finished without writing '{missing}'."]))
     if result.timed_out:
@@ -77,7 +92,7 @@ def _simulation_error(
             diagnostics=diagnostics,
             partial_result=partial_result,
         )
-    header = f"Simulation of '{name}' failed:"
+    header = f"Simulation of '{name}' crashed with {crashed}:" if crashed else f"Simulation of '{name}' failed:"
     return SimulationError(header, model_name=name, diagnostics=diagnostics, partial_result=partial_result)
 
 

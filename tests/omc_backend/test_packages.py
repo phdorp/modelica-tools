@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
 import pytest
 
 from mtools.internal.omc.build import build
-from mtools.internal.omc.config import BuildConfig, Library, RunSettings
+from mtools.internal.omc.config import (BuildConfig, Library, RunSettings,
+                                        Target)
 from mtools.internal.omc.packages import package_root
 
 MODELS = Path(__file__).parent / "models"
@@ -37,45 +39,47 @@ def elsewhere(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return directory
 
 
-def _simulate(config: BuildConfig):
-    return build(config).simulate(RunSettings(stop_time=1.0, interval=0.5))
+def _simulate(config: BuildConfig, target: Target):
+    return build(replace(config, target=target)).simulate(RunSettings(stop_time=1.0, interval=0.5))
 
 
-def test_model_in_a_package_file_builds_with_its_package_and_external_c_code(fixture_package: Path, elsewhere: Path):
-    result = _simulate(BuildConfig(fixture_package / "Top.mo", "FixturePkg.Top"))
+def test_model_in_a_package_file_builds_with_its_package_and_external_c_code(
+    fixture_package: Path, elsewhere: Path, target: Target
+):
+    result = _simulate(BuildConfig(fixture_package / "Top.mo", "FixturePkg.Top"), target)
 
     np.testing.assert_allclose(result["a"], 2.0 * result["time"])
     np.testing.assert_allclose(result["b"], result["time"] + 100.0)
 
 
-def test_model_in_a_subpackage_builds(fixture_package: Path, elsewhere: Path):
-    result = _simulate(BuildConfig(fixture_package / "Sub" / "Nested.mo", "FixturePkg.Sub.Nested"))
+def test_model_in_a_subpackage_builds(fixture_package: Path, elsewhere: Path, target: Target):
+    result = _simulate(BuildConfig(fixture_package / "Sub" / "Nested.mo", "FixturePkg.Sub.Nested"), target)
 
     np.testing.assert_allclose(result["a"], 2.0 * result["time"])
 
 
-def test_model_using_the_msl_builds_without_listing_it(fixture_package: Path, elsewhere: Path):
-    result = _simulate(BuildConfig(fixture_package / "UsesMsl.mo", "FixturePkg.UsesMsl"))
+def test_model_using_the_msl_builds_without_listing_it(fixture_package: Path, elsewhere: Path, target: Target):
+    result = _simulate(BuildConfig(fixture_package / "UsesMsl.mo", "FixturePkg.UsesMsl"), target)
 
     np.testing.assert_allclose(result["y"], 2.0 * result["time"])
 
 
-def test_extra_sources_are_loaded_before_the_model(tmp_path: Path):
+def test_extra_sources_are_loaded_before_the_model(tmp_path: Path, target: Target):
     helper = tmp_path / "Helper.mo"
     helper.write_text("package Helper constant Real k = 7; end Helper;\n")
     model = tmp_path / "UsesHelper.mo"
     model.write_text("model UsesHelper Real y = Helper.k; end UsesHelper;\n")
 
-    result = _simulate(BuildConfig(model, "UsesHelper", extra_sources=[helper]))
+    result = _simulate(BuildConfig(model, "UsesHelper", extra_sources=[helper]), target)
 
     np.testing.assert_allclose(result["y"], 7.0)
 
 
-def test_extra_source_inside_a_package_loads_its_package(fixture_package: Path, tmp_path: Path):
+def test_extra_source_inside_a_package_loads_its_package(fixture_package: Path, tmp_path: Path, target: Target):
     model = tmp_path / "UsesGain.mo"
     model.write_text("model UsesGain Real y = FixturePkg.Gain(time); end UsesGain;\n")
 
-    result = _simulate(BuildConfig(model, "UsesGain", extra_sources=[fixture_package / "Gain.mo"]))
+    result = _simulate(BuildConfig(model, "UsesGain", extra_sources=[fixture_package / "Gain.mo"]), target)
 
     np.testing.assert_allclose(result["y"], 2.0 * result["time"])
 
@@ -116,13 +120,13 @@ def two_versions(tmp_path: Path) -> Path:
 
 @pytest.mark.parametrize("version, value", [("1.0.0", 1), ("2.0.0", 2)])
 def test_library_in_a_directory_is_found_at_its_pinned_version(
-    tmp_path: Path, two_versions: Path, version: str, value: int
+    tmp_path: Path, two_versions: Path, version: str, value: int, target: Target
 ):
     model = tmp_path / "UsesLib.mo"
     model.write_text("model UsesLib Real y = Lib.value; end UsesLib;\n")
     config = BuildConfig(model, "UsesLib", libraries=[Library("Lib", version, directory=two_versions)])
 
-    result = _simulate(config)
+    result = _simulate(config, target)
 
     np.testing.assert_allclose(result["y"], float(value))
 
