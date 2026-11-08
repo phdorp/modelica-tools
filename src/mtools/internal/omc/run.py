@@ -3,20 +3,23 @@
 from __future__ import annotations
 
 import logging
-import subprocess
-from collections.abc import Iterator
+import struct
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pandas as pd
 
-from mtools.errors import SimulationError
+from mtools.errors import SimulationError, SimulationTimeout
 from mtools.internal.omc import workdir
 from mtools.internal.omc.config import RunSettings
 from mtools.internal.omc.matfile import read_result
 from mtools.internal.omc.parameters import (resolve_parameters,
                                             write_override_file)
+from mtools.internal.omc.process import ProcessResult, execute
+from mtools.internal.omc.run_diagnostics import (failure_diagnostics,
+                                                 notable_entries)
 
 if TYPE_CHECKING:
     from mtools.internal.omc.build import Build
@@ -39,21 +42,53 @@ def simulate(build: Build, settings: RunSettings) -> pd.DataFrame:
             override_file = directory / OVERRIDE_FILE_NAME
             write_override_file(override_file, overrides)
             command.append(f"-overrideFile={override_file}")
-        logger.debug("Running %s in %s", command, directory)
-        completed = subprocess.run(
-            command, cwd=directory, capture_output=True, text=True, errors="replace", check=False
-        )
-        logger.debug(
-            "Run exited with %d.\nstdout:\n%s\nstderr:\n%s", completed.returncode, completed.stdout, completed.stderr
-        )
-        if completed.returncode != 0:
-            raise SimulationError(
-                f"Simulation of '{build.model_name}' failed:",
-                model_name=build.model_name,
-                diagnostics=workdir.with_run_directory((completed.stdout + completed.stderr).strip(), directory),
-            )
+        result = execute(command, directory, settings.timeout)
+        result_file = directory / f"{build.file_name_prefix}_res.mat"
         types = {name: variable.type for name, variable in build.variables.items()}
-        return read_result(directory / f"{build.file_name_prefix}_res.mat", types)
+        if result.timed_out or result.returncode != 0:
+            raise _simulation_error(build, settings, result, _partial_result(result_file, types), directory)
+        if not result_file.exists():
+            raise _simulation_error(build, settings, result, None, directory, missing=result_file.name)
+        if warnings := notable_entries(result.output):
+            logger.warning("Simulation of '%s' reported warnings:\n%s", build.model_name, "\n".join(warnings))
+        return read_result(result_file, types)
+
+
+def _simulation_error(
+    build: Build,
+    settings: RunSettings,
+    result: ProcessResult,
+    partial_result: pd.DataFrame | None,
+    directory: Path,
+    missing: str | None = None,
+) -> SimulationError:
+    """Build the exception for a failed, timed-out or result-less run.
+
+    The one place where run diagnostics are assembled.
+    """
+    name = build.model_name
+    diagnostics = failure_diagnostics(result.output, result.signal.name if result.signal and not result.timed_out else None)
+    if missing:
+        diagnostics = "\n".join(filter(None, [diagnostics, f"The run finished without writing '{missing}'."]))
+    diagnostics = workdir.with_run_directory(diagnostics, directory)
+    if result.timed_out:
+        return SimulationTimeout(
+            f"Simulation of '{name}' timed out after {settings.timeout:g} s:",
+            model_name=name,
+            diagnostics=diagnostics,
+            partial_result=partial_result,
+        )
+    header = f"Simulation of '{name}' failed:"
+    return SimulationError(header, model_name=name, diagnostics=diagnostics, partial_result=partial_result)
+
+
+def _partial_result(path: Path, types: Mapping[str, str]) -> pd.DataFrame | None:
+    """Read what an unfinished run wrote, or ``None`` if there is nothing to read."""
+    try:
+        partial = read_result(path, types)
+    except (OSError, ValueError, KeyError, IndexError, struct.error):
+        return None
+    return None if partial.empty else partial
 
 
 @contextmanager
@@ -81,6 +116,7 @@ def _c_command(build: Build, settings: RunSettings, directory: Path) -> list[str
         f"-s={settings.solver or experiment.solver}",
         f"-variableFilter={settings.variable_filter}",
         *(["-emit_protected"] if settings.emit_protected else []),
+        *(["-abortSlowSimulation"] if settings.abort_on_chattering else []),
     ]
 
 

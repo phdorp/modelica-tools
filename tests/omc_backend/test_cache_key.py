@@ -9,6 +9,7 @@ import pytest
 
 from mtools.internal.omc import cache, workdir
 from mtools.internal.omc.config import BuildConfig, Library
+from mtools.internal.omc.packages import package_root
 from mtools.internal.omc.script import Experiment, LoadedLibrary
 
 
@@ -59,7 +60,7 @@ def test_nested_package_resolves_to_the_top_level_package(tmp_path: Path):
     nested = tmp_path / "Pkg" / "Sub" / "N.mo"
     nested.write_text("within Pkg.Sub; model N end N;")
 
-    assert cache.package_root(nested) == tmp_path / "Pkg"
+    assert package_root(nested) == tmp_path / "Pkg"
 
 
 def test_single_file_outside_a_package_does_not_hash_its_neighbours(tmp_path: Path):

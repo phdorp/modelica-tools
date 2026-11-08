@@ -20,6 +20,7 @@ from pathlib import Path
 
 from mtools.internal.omc import workdir
 from mtools.internal.omc.config import BuildConfig, Library
+from mtools.internal.omc.packages import package_root
 from mtools.internal.omc.script import Experiment, LoadedLibrary, build_script
 
 logger = logging.getLogger(__name__)
@@ -42,25 +43,6 @@ class BuildRecord:
     experiment: Experiment
     loaded_libraries: tuple[LoadedLibrary, ...]
     hashes: tuple[str, ...]
-
-
-def package_root(path: Path) -> Path:
-    """Return what a source file brings with it: its top-level package directory.
-
-    A file in a directory with a ``package.mo`` belongs to that package, and the
-    package to its parent package if that directory has a ``package.mo`` too. A file
-    outside any package is its own root. A directory is treated as a package.
-    """
-    path = Path(path).absolute()
-    if path.is_dir():
-        root = path
-    elif path.name == "package.mo" or (path.parent / "package.mo").exists():
-        root = path.parent
-    else:
-        return path
-    while (root.parent / "package.mo").exists():
-        root = root.parent
-    return root
 
 
 def hash_path(path: Path) -> str:
