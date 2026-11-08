@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
 
 from mtools.internal.omc import cache, workdir
 from mtools.internal.omc.config import BuildConfig, Library
+from mtools.internal.omc.script import Experiment, LoadedLibrary
 
 
 @pytest.fixture(autouse=True)
@@ -24,11 +26,18 @@ def _package(root: Path) -> Path:
     return root / "Pkg" / "M.mo"
 
 
-def test_key_is_stable_and_ignores_timestamps(tmp_path: Path):
-    model = _package(tmp_path)
+@pytest.mark.parametrize("in_package", [False, True])
+def test_key_is_stable_and_ignores_timestamps(tmp_path: Path, in_package: bool):
+    if in_package:
+        model = _package(tmp_path)
+    else:
+        model = tmp_path / "A.mo"
+        model.write_text("model A end A;")
     config = BuildConfig(model_path=model, model_name="Pkg.M")
     first = cache.cache_key(config)
-    model.write_text(model.read_text())  # new mtime, same content
+    stat = model.stat()
+    model.write_text(model.read_text())  # same content
+    os.utime(model, ns=(stat.st_atime_ns + 10**9, stat.st_mtime_ns + 10**9))  # new mtime
 
     assert cache.cache_key(config) == first
 
@@ -103,6 +112,29 @@ def test_tool_versions_change_the_key(tmp_path: Path, monkeypatch: pytest.Monkey
     assert len({before, after_omc, cache.cache_key(config)}) == 3
 
 
+def test_backend_version_changes_the_key_and_follows_the_script_template(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    model = tmp_path / "A.mo"
+    model.write_text("model A end A;")
+    config = BuildConfig(model_path=model, model_name="A")
+    before = cache.cache_key(config)
+    version = cache.backend_version()
+
+    monkeypatch.setattr(cache, "backend_version", lambda: "other")
+    assert cache.cache_key(config) != before
+
+    monkeypatch.undo()
+    original = cache.build_script
+    cache.backend_version.cache_clear()
+    try:
+        monkeypatch.setattr(cache, "build_script", lambda *args: original(*args) + "// changed\n")
+        assert cache.backend_version() != version
+    finally:
+        monkeypatch.undo()
+        cache.backend_version.cache_clear()
+
+
 def test_build_time_values_extend_the_key(tmp_path: Path):
     model = tmp_path / "A.mo"
     model.write_text("model A end A;")
@@ -133,3 +165,44 @@ def test_relative_work_directory_resolves_against_the_start_directory(
     monkeypatch.setenv("MTOOLS_WORK_DIR", "rel/w")
 
     assert workdir.work_dir() == tmp_path / "rel" / "w"
+
+
+def _stored_build(tmp_path: Path, config: BuildConfig, loaded: tuple[LoadedLibrary, ...]) -> str:
+    key = cache.cache_key(config)
+    directory = workdir.builds_dir() / key
+    directory.mkdir(parents=True)
+    experiment = Experiment(0.0, 1.0, 0.1, 1e-6, "dassl")
+    cache.save_record(directory, cache.BuildRecord(experiment, loaded, cache.library_hashes(config, loaded)))
+    return key
+
+
+@pytest.fixture
+def _work(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MTOOLS_WORK_DIR", str(tmp_path / "work"))
+
+
+def test_a_hit_is_rejected_when_a_listed_source_package_changed_since_the_build(tmp_path: Path, _work: None):
+    model = _package(tmp_path)
+    config = BuildConfig(model_path=model, model_name="Pkg.M")
+    key = _stored_build(tmp_path, config, (LoadedLibrary("Pkg", tmp_path / "Pkg"),))
+    assert cache.lookup(key, config) is not None
+
+    (tmp_path / "Pkg" / "Resources" / "data.txt").write_text("changed")
+
+    assert cache.lookup(key, config) is None
+    assert not (workdir.builds_dir() / key).exists()
+
+
+def test_a_hit_is_rejected_when_an_installed_library_changed_version(tmp_path: Path, _work: None):
+    model = tmp_path / "A.mo"
+    model.write_text("model A end A;")
+    config = BuildConfig(model_path=model, model_name="A")
+    key = _stored_build(tmp_path, config, (LoadedLibrary("Lib", tmp_path / "installed" / "Lib 1.0"),))
+    assert cache.lookup(key, config) is not None
+
+    record = cache.load_record(workdir.builds_dir() / key)
+    assert record is not None
+    upgraded = (LoadedLibrary("Lib", tmp_path / "installed" / "Lib 2.0"),)
+    cache.save_record(workdir.builds_dir() / key, cache.BuildRecord(record.experiment, upgraded, record.hashes))
+
+    assert cache.lookup(key, config) is None
