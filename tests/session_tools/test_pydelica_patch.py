@@ -14,7 +14,7 @@ import mtools.internal.session_tools as session_tools
 from mtools.internal.pydelica_patch import (
     _compile_without_source_copy, _cpp_default_simulation_options,
     _cpp_variable_filter, _CppRuntimeOptions, _inject_cpp_default_experiment,
-    _is_cpp_target, _simulate_with_cpp_options,
+    _is_cpp_target, _patched_simulate,
     _simulation_options_init_with_cpp_fallback, install_pydelica_patch)
 
 _ORIGINAL_COMPILE = pydelica.compiler.Compiler.compile
@@ -129,6 +129,8 @@ def test_session_builder_installs_patch_before_session_creation(monkeypatch, tmp
         calls.append("installed")
 
     class DummySession:
+        _runtime_opts: dict = {}
+
         def __init__(self, log_level):
             calls.append(f"session:{log_level}")
 
@@ -154,7 +156,7 @@ def test_session_builder_installs_patch_before_session_creation(monkeypatch, tmp
 def test_install_pydelica_patch_replaces_simulate_and_simulation_options_init():
     install_pydelica_patch()
 
-    assert pydelica.Session.simulate is _simulate_with_cpp_options
+    assert pydelica.Session.simulate is _patched_simulate
     assert (
         pydelica.options.simulation.SimulationOptions.__init__
         is _simulation_options_init_with_cpp_fallback

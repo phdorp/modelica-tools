@@ -7,7 +7,8 @@ from typing import TYPE_CHECKING, Any, Callable, Dict
 import pydantic
 import pydelica  # type: ignore[import-untyped]
 
-from mtools.internal.pydelica_patch import install_pydelica_patch
+from mtools.internal.pydelica_patch import (apply_runtime_defaults,
+                                            install_pydelica_patch)
 
 if TYPE_CHECKING:
     import mtools.session_config as session_config
@@ -143,6 +144,7 @@ class SessionBuilder:
         if libraries:
             self._session.use_libraries(libraries)
         self._session.build_model(source_file, **build_options)
+        apply_runtime_defaults(self._session)
 
     @staticmethod
     def _convert_parameters(parameters: Dict[str, Any]) -> Dict[str, Any]:

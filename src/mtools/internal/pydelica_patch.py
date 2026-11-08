@@ -1,11 +1,23 @@
-"""Workarounds for pydelica multi-file compilation and Cpp target simulation.
+"""Workarounds for pydelica multi-file compilation, error reporting, and Cpp simulation.
 
 ``_compile_without_source_copy`` is a copy of ``pydelica.compiler.Compiler.compile``
-(pydelica 0.6.3) with only the temp-source-staging step removed: upstream copies the
-single ``.mo`` file (and ``extra_models``) flat into its own temporary directory, which
-destroys the sibling ``.mo`` files / ``Resources/`` layout that OMC needs to resolve
-``within`` members across multiple files. This variant points OMC at the original source
-path so the relative layout is preserved.
+(pydelica 0.6.3) with these deviations:
+
+* The temp-source-staging step is removed: upstream copies the single ``.mo`` file (and
+  ``extra_models``) flat into its own temporary directory, which destroys the sibling
+  ``.mo`` files / ``Resources/`` layout that OMC needs to resolve ``within`` members
+  across multiple files. This variant points OMC at the original source path so the
+  relative layout is preserved.
+* OMC translation failures and make/C-compiler failures are re-raised as readable
+  subclasses of pydelica's exception types (``_translation_error``, ``_build_error``)
+  carrying the filtered diagnostics once; pydelica's stdout print is swallowed and the
+  raw output is only logged at DEBUG.
+* OMC's stderr on a successful translation is logged filtered (``_omc_diagnostics``).
+
+``Session.simulate`` is replaced by ``_patched_simulate``, which re-raises simulation
+failures the same readable way and logs a successful run's failed asserts and warnings
+at WARNING. ``apply_runtime_defaults`` sets mtools' default C runtime flags
+(``-abortSlowSimulation``).
 
 When OMC's ``Cpp`` simulation target is selected (``--simCodeTarget=Cpp``) the generated
 XML contains no ``DefaultExperiment`` element and the resulting binary reads simulation
@@ -31,11 +43,14 @@ drift silently on upgrades.
 
 from __future__ import annotations
 
+import contextlib
 import glob
+import io
 import logging
 import os
 import pathlib
 import platform
+import re
 import shlex
 import shutil
 import subprocess
@@ -185,6 +200,220 @@ def _pydelica_version() -> str:
     return metadata.version("pydelica")
 
 
+def _filtered_lines(text: str) -> list[str]:
+    """Drop blank lines and OMC boilerplate from compiler output.
+
+    Args:
+        text: Raw OMC stdout or stderr.
+
+    Returns:
+        The remaining lines, right-stripped, with leading indentation kept.
+    """
+    lines = (line.rstrip() for line in text.splitlines())
+    return [
+        line
+        for line in lines
+        if line.strip()
+        and not line.startswith(("Notification:", "Failed to parse file"))
+        and line != "Execution failed!"
+    ]
+
+
+#: OMC's follow-on error when a package fails to load because of an earlier error.
+_FAILED_TO_LOAD_PACKAGE = "Error: Failed to load package"
+
+
+def _omc_diagnostics(stdout: str, stderr: str) -> str:
+    """Extract the diagnostics from OMC output, preferring stderr.
+
+    Args:
+        stdout: Raw OMC stdout.
+        stderr: Raw OMC stderr.
+
+    Returns:
+        Filtered stderr lines joined by newlines; filtered stdout lines if stderr has
+        none; an empty string if both are empty after filtering. ``Failed to load
+        package`` lines are dropped when another error explains them.
+    """
+    lines = _filtered_lines(stderr) or _filtered_lines(stdout)
+    errors = [line for line in lines if "Error:" in line]
+    follow_on = [line for line in errors if _FAILED_TO_LOAD_PACKAGE in line]
+    if follow_on and len(follow_on) < len(errors):
+        lines = [line for line in lines if line not in follow_on]
+    return "\n".join(lines)
+
+
+class _ReadableReprMixin:
+    """Make ``repr()`` return the message so multi-line messages stay readable.
+
+    Hydra's instantiate wrapper reports a failing target with ``repr(exc)``, which
+    would otherwise escape the diagnostics' newlines.
+    """
+
+    def __repr__(self) -> str:
+        return str(self)
+
+
+class _OMParsingError(_ReadableReprMixin, pde.OMParsingError):
+    pass
+
+
+class _OMExecutionError(_ReadableReprMixin, pde.OMExecutionError):
+    pass
+
+
+class _OMBuildError(_ReadableReprMixin, pde.OMBuildError):
+    pass
+
+
+class _OMAssertionError(_ReadableReprMixin, pde.OMAssertionError):
+    pass
+
+
+class _ZeroDivisionError(_ReadableReprMixin, ZeroDivisionError):
+    pass
+
+
+_READABLE_ERROR_TYPES: dict[type[Exception], type[Exception]] = {
+    pde.OMParsingError: _OMParsingError,
+    pde.OMExecutionError: _OMExecutionError,
+    pde.OMBuildError: _OMBuildError,
+    pde.OMAssertionError: _OMAssertionError,
+    ZeroDivisionError: _ZeroDivisionError,
+}
+
+
+def _translation_error(
+    logger: logging.Logger,
+    cmd_str: str,
+    source_file: pathlib.Path,
+    completed: subprocess.CompletedProcess[str],
+    exc_type: type[Exception],
+) -> Exception:
+    """Return the exception to raise for an OMC translation failure.
+
+    The exception is a subclass of ``exc_type`` whose ``repr()`` is its readable
+    message. The diagnostics are only logged at DEBUG: the exception carries them.
+    """
+    message = _translation_error_message(source_file, completed.stdout, completed.stderr)
+    logger.debug(
+        "Failed to run command '%s' (exit code %d):\n%s", cmd_str, completed.returncode, message
+    )
+    return _READABLE_ERROR_TYPES[exc_type](message)
+
+
+def _translation_error_message(source_file: pathlib.Path, stdout: str, stderr: str) -> str:
+    """Build the error message for a failed OMC translation.
+
+    Args:
+        source_file: Absolute path of the Modelica source OMC failed on.
+        stdout: Raw OMC stdout.
+        stderr: Raw OMC stderr.
+
+    Returns:
+        A header line followed by the diagnostics.
+    """
+    header = f"Modelica translation failed for '{source_file}':"
+    return f"{header}\n{_omc_diagnostics(stdout, stderr)}"
+
+
+#: A simulation log line: ``LOG_<STREAM> | <level> | <message>``.
+_SIMULATION_LOG_LINE = re.compile(r"^(LOG_\w+)\s*\|\s*(\w+)\s*\|\s?(.*)$")
+
+#: A continuation of the previous simulation log line: ``|  | |  | <message>``.
+_SIMULATION_LOG_CONTINUATION = re.compile(r"^\|\s*\|\s*\|\s*\|\s?(.*)$")
+
+#: Log streams that report progress, not problems.
+_QUIET_SIMULATION_LOG_STREAMS = ("LOG_SUCCESS",)
+
+#: Simulation exceptions raised by pydelica that mtools re-raises readably.
+_SIMULATION_ERROR_TYPES = (pde.OMAssertionError, pde.OMExecutionError, ZeroDivisionError)
+
+#: pydelica's message prefix for a non-zero exit of the simulation binary.
+_SIMULATION_FAILED_PREFIX = re.compile(r"^\[-?\d+\] Simulation failed with: ", re.DOTALL)
+
+
+def _simulation_log_entries(log: str) -> list[str]:
+    """Extract the relevant entries from a C runtime simulation log.
+
+    Args:
+        log: Raw stdout (or stderr) of the simulation binary.
+
+    Returns:
+        One string per ``LOG_*`` line, except ``LOG_SUCCESS`` lines, with column padding
+        collapsed to ``<stream> | <level> | <message>`` and the line's ``|``
+        continuations appended as indented lines. Lines that are neither, such as the
+        DASKR solver's Fortran banner, are dropped.
+    """
+    entries: list[list[str]] = []
+    keep = False
+    for raw_line in log.splitlines():
+        line = raw_line.rstrip()
+        log_line = _SIMULATION_LOG_LINE.match(line)
+        if log_line:
+            stream, level, message = log_line.groups()
+            keep = stream not in _QUIET_SIMULATION_LOG_STREAMS
+            if keep:
+                entries.append([f"{stream} | {level} | {message.strip()}"])
+            continue
+        continuation = _SIMULATION_LOG_CONTINUATION.match(line)
+        if continuation:
+            if keep and continuation.group(1).strip():
+                entries[-1].append(f"    {continuation.group(1).strip()}")
+            continue
+        keep = False
+    return ["\n".join(entry) for entry in entries]
+
+
+def _simulation_error(
+    logger: logging.Logger, model_name: str, log: str, error: Exception
+) -> Exception:
+    """Return the exception to raise for a failed simulation run.
+
+    The exception is a readable subclass of ``type(error)``: a header naming the model,
+    then the relevant log entries once. The raw log is only logged at DEBUG.
+
+    Args:
+        logger: Logger for the raw simulation log.
+        model_name: Name of the simulated model.
+        log: Simulation stdout that pydelica printed.
+        error: The exception pydelica raised.
+    """
+    logs = [log]
+    if isinstance(error, pde.OMExecutionError):
+        # pydelica reports the binary's stderr, or its stdout when stderr is empty.
+        reported = _SIMULATION_FAILED_PREFIX.sub("", str(error), count=1)
+        if reported.strip() != log.strip():
+            logs.append(reported)
+    raw_log = "\n".join(logs)
+    entries = [entry for text in logs for entry in _simulation_log_entries(text)]
+    if not entries:
+        entries = [line.strip() for line in raw_log.splitlines() if line.strip()]
+    details = "\n".join(entries) if entries else str(error)
+    logger.debug("Simulation of '%s' failed (%s):\n%s", model_name, type(error).__name__, raw_log)
+    return _READABLE_ERROR_TYPES[type(error)](f"Simulation of '{model_name}' failed:\n{details}")
+
+
+def _build_error(
+    logger: logging.Logger,
+    cmd_str: str,
+    source_file: pathlib.Path,
+    completed: subprocess.CompletedProcess[str],
+) -> Exception:
+    """Return the exception to raise for a failed make/C-compiler step.
+
+    The exception is a readable ``OMBuildError`` subclass: a header naming the
+    Modelica source, then the compiler's stderr once (stdout if stderr is empty).
+    The output is only logged at DEBUG: the exception carries it.
+    """
+    output = completed.stderr if completed.stderr.strip() else completed.stdout
+    details = "\n".join(line.rstrip() for line in output.strip().splitlines() if line.strip())
+    logger.debug(
+        "Failed to run command '%s' (exit code %d):\n%s", cmd_str, completed.returncode, output
+    )
+    return _OMBuildError(f"Modelica build failed for '{source_file}':\n{details}")
+
+
 def _prepare_c_incls(logger: logging.Logger, c_source_dir: str, temp_dir: str) -> None:
     logger.debug("Checking for C sources in '%s'", c_source_dir)
     c_sources = glob.glob(os.path.join(c_source_dir, "*.c"))
@@ -280,38 +509,41 @@ def _compile_without_source_copy(
                 cwd=_temp_build_dir,
             )
 
-            pde.parse_error_string_compiler(_gen.stdout, _gen.stderr)
+            # pydelica prints OMC's stdout banner on parse errors; the raised
+            # exception already carries the diagnostics, so swallow the print.
+            with contextlib.redirect_stdout(io.StringIO()):
+                pde.parse_error_string_compiler(_gen.stdout, _gen.stderr)
         except FileNotFoundError as e:
             self._logger.error("Failed to run command '%s'", _cmd_str)
             self._logger.debug("PATH: %s", self._environment["PATH"])
             if _gen:
                 self._logger.error("Traceback: %s", _gen.stdout)
             raise e from e
-        except pde.OMExecutionError as e:
-            self._logger.error("Failed to run command '%s'", _cmd_str)
-            if _gen:
-                self._logger.error("Traceback: %s", _gen.stdout)
-            raise e from e
-        except pde.OMBuildError as e:
-            if "lexer failed" in e.args[0]:
+        except (pde.OMParsingError, pde.OMExecutionError, pde.OMBuildError) as e:
+            if isinstance(e, pde.OMBuildError) and "lexer failed" in e.args[0]:
                 self._logger.warning(e.args[0])
             else:
-                if _gen:
-                    self._logger.error("Traceback: %s", _gen.stdout)
-                raise e from e
+                assert _gen is not None  # raised by parse_error_string_compiler
+                raise _translation_error(
+                    self._logger, _cmd_str, modelica_source_file, _gen, type(e)
+                ) from e
 
         if not _gen:
             raise RuntimeError("Failed to execute model generation")
 
         if _gen.returncode != 0:
-            raise pde.OMBuildError(
-                f"Model build configuration failed with exit code {_gen.returncode}:\n\t{_gen.stderr}"
+            raise _translation_error(
+                self._logger, _cmd_str, modelica_source_file, _gen, pde.OMBuildError
             )
 
         self._logger.debug(_gen.stdout)
 
-        if _gen.stderr:
-            self._logger.error(_gen.stderr)
+        # Log only OMC's warnings: unfiltered stderr also carries the "Automatically
+        # loaded package" notifications, and the session's log filter drops any record
+        # containing those, which would hide the warnings with them.
+        _build_warnings = _omc_diagnostics("", _gen.stderr)
+        if _build_warnings:
+            self._logger.error(_build_warnings)
 
     _make_files = glob.glob(os.path.join(_temp_build_dir, "*.makefile"))
 
@@ -355,7 +587,8 @@ def _compile_without_source_copy(
 
     if platform.system() == "Windows":
         _build_cmd.extend(("-w", "OMC_LDFLAGS_LINK_TYPE=static"))
-    self._logger.debug(f"Build Command: {' '.join(_build_cmd)}")
+    _build_cmd_str = " ".join(_build_cmd)
+    self._logger.debug(f"Build Command: {_build_cmd_str}")
 
     _build = subprocess.run(
         _build_cmd,
@@ -367,22 +600,26 @@ def _compile_without_source_copy(
         cwd=_temp_build_dir,
     )
 
+    # Deviation from upstream: failures are raised readably with the compiler output
+    # once, instead of logging it at ERROR and raising it again.
     try:
-        pde.parse_error_string_compiler(_build.stdout, _build.stderr)
+        with contextlib.redirect_stdout(io.StringIO()):
+            pde.parse_error_string_compiler(_build.stdout, _build.stderr)
     except pde.OMBuildError as e:
-        self._logger.error(_build.stderr)
-        raise e from e
+        raise _build_error(self._logger, _build_cmd_str, modelica_source_file, _build) from e
+
+    if _build.returncode != 0:
+        raise _build_error(
+            self._logger, _build_cmd_str, modelica_source_file, _build
+        ) from pde.OMBuildError(
+            f"Model build failed with exit code {_build.returncode}:\n\t{_build.stderr}"
+        )
 
     if _build.stdout:
         self._logger.debug(_build.stdout)
 
     if _build.stderr:
         self._logger.error(_build.stderr)
-
-    if _build.returncode != 0:
-        raise pde.OMBuildError(
-            f"Model build failed with exit code {_build.returncode}:\n\t{_build.stderr}"
-        )
 
     if _is_cpp_target(self._omc_flags):
         _inject_cpp_default_experiments(_temp_build_dir, self._logger)
@@ -442,6 +679,55 @@ class _CppRuntimeOptions:
         return args
 
 
+def _patched_simulate(self: Any, model_name: str | None = None, verbosity: Any = None) -> None:
+    """Run pydelica's simulation and re-raise its failures readably.
+
+    pydelica prints the whole simulation log to stdout and then raises with the same
+    log, so a failure is shown twice. The print is swallowed and pydelica's exception
+    is re-raised as a readable subclass of the same type, carrying only the relevant
+    log entries (see ``_simulation_error``). A successful run's ``LOG_ASSERT`` entries
+    are logged at WARNING; the run is not failed, matching OMC.
+    """
+    captured = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(captured):
+            _simulate_with_cpp_options(self, model_name=model_name, verbosity=verbosity)
+    except _SIMULATION_ERROR_TYPES as error:
+        if type(error) not in _READABLE_ERROR_TYPES:
+            raise
+        resolved_model = model_name or self.default_model
+        raise _simulation_error(self._logger, resolved_model, captured.getvalue(), error) from error
+    log = captured.getvalue()
+    if log:
+        self._logger.debug("Simulation log:\n%s", log)
+    # OMC finishes some runs successfully despite failed assertions (a nonlinear
+    # system that could not be solved, a min/max violation) or solver warnings; its
+    # log is the only signal, and pydelica's print of it is swallowed above.
+    notable = [
+        entry for entry in _simulation_log_entries(log) if _is_notable_log_entry(entry)
+    ]
+    if notable:
+        self._logger.warning(
+            "Simulation of '%s' reported warnings:\n%s",
+            model_name or self.default_model,
+            "\n".join(notable),
+        )
+
+
+def _is_notable_log_entry(entry: str) -> bool:
+    """Return whether a successful run's log entry should reach the user.
+
+    Args:
+        entry: An entry from ``_simulation_log_entries``.
+
+    Returns:
+        True for ``LOG_ASSERT`` entries and for ``warning``/``error`` entries of any
+        stream.
+    """
+    stream, level, _ = entry.split(" | ", 2)
+    return stream == "LOG_ASSERT" or level in ("warning", "error")
+
+
 def _simulate_with_cpp_options(self: Any, model_name: str | None = None, verbosity: Any = None) -> None:
     """Run pydelica's simulation, adding Cpp-specific runtime arguments when needed."""
     if _ORIGINAL_SIMULATE is None or not _is_cpp_target(
@@ -466,6 +752,23 @@ def _simulate_with_cpp_options(self: Any, model_name: str | None = None, verbosi
         self._runtime_opts[model_key] = runtime_options
 
 
+#: C runtime flags mtools turns on by default for every built model. Users can turn
+#: them off through ``session.get_runtime_options(model_name)``.
+#: ``abortSlowSimulation`` stops a chattering model, which otherwise never finishes
+#: because pydelica runs the binary without a timeout.
+_DEFAULT_RUNTIME_OPTIONS = {"abortSlowSimulation": True}
+
+
+def apply_runtime_defaults(session: Any) -> None:
+    """Set mtools' default C runtime flags on every model built in ``session``.
+
+    The Cpp target ignores these options (see ``_CppRuntimeOptions``).
+    """
+    for runtime_options in session._runtime_opts.values():
+        for name, value in _DEFAULT_RUNTIME_OPTIONS.items():
+            setattr(runtime_options, name, value)
+
+
 def install_pydelica_patch() -> None:
     global _PATCH_INSTALLED, _ORIGINAL_SIMULATE, _ORIGINAL_SIMULATION_OPTIONS_INIT
     if _PATCH_INSTALLED:
@@ -487,7 +790,7 @@ def install_pydelica_patch() -> None:
     pydelica_compiler.Compiler.compile = _compile_without_source_copy
     if _ORIGINAL_SIMULATE is None:
         _ORIGINAL_SIMULATE = pydelica.Session.simulate
-    pydelica.Session.simulate = _simulate_with_cpp_options
+    pydelica.Session.simulate = _patched_simulate
     if _ORIGINAL_SIMULATION_OPTIONS_INIT is None:
         _ORIGINAL_SIMULATION_OPTIONS_INIT = pydelica_simulation.SimulationOptions.__init__
     pydelica_simulation.SimulationOptions.__init__ = (
