@@ -5,13 +5,13 @@ from __future__ import annotations
 import logging
 import subprocess
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import pandas as pd
 
 from mtools.errors import CompileError, TranslationError
-from mtools.internal.omc import cache, diagnostics, run, workdir
+from mtools.internal.omc import cache, diagnostics, run, variants, workdir
 from mtools.internal.omc.config import BuildConfig, RunSettings, Target
 from mtools.internal.omc.init_xml import Variable, read_variables
 from mtools.internal.omc.script import (Experiment, LoadedLibrary, Stage,
@@ -39,6 +39,8 @@ class Build:
         loaded_libraries: The classes OMC had loaded (``getLoadedLibraries()``).
         owned: Whether the directory belongs to this build alone (``MTOOLS_NO_CACHE``)
             and is deleted by ``close()``; a cached build's directory never is.
+        build_values: For a build variant, the modifier text of the parameters fixed in
+            it, by name; empty for a plain build.
     """
 
     config: BuildConfig
@@ -48,6 +50,7 @@ class Build:
     experiment: Experiment
     loaded_libraries: tuple[LoadedLibrary, ...]
     owned: bool = False
+    build_values: Mapping[str, str] = field(default_factory=dict)
 
     def close(self) -> None:
         """Delete the build directory if this build owns it (uncached); else do nothing."""
@@ -83,15 +86,35 @@ class Build:
 
         The run directory is deleted when this returns or raises (``MTOOLS_KEEP_RUNS=1``
         keeps it).
+
+        A requested parameter the plain build fixed (an array size, an if-equation
+        selector, ``Evaluate=true``) is built into a variant first, which is cached like
+        any build; the other parameters are set on the variant per run.
         """
+        if not self.build_values:
+            split = variants.split_parameters(settings.parameters, self.variables, self.model_name)
+            if split.build_values:
+                logger.info(
+                    "Building a variant of '%s' because %s fixed at build time",
+                    self.model_name,
+                    ", ".join(f"'{name}'" for name in split.build_values)
+                    + (" is" if len(split.build_values) == 1 else " are"),
+                )
+                with build(self.config, split.build_values) as variant:
+                    return variant.simulate(replace(settings, parameters=dict(split.run_parameters)))
         return run.simulate(self, settings)
 
 
-def build(config: BuildConfig) -> Build:
+def build(config: BuildConfig, build_values: Mapping[str, str] | None = None) -> Build:
     """Build ``config``, or take it from the cache when nothing changed.
 
     With ``MTOOLS_NO_CACHE=1`` the build is made in a directory of its own under
     ``runs/``; call ``Build.close()`` (or use the build as a context manager) to delete it.
+
+    Args:
+        config: What to build.
+        build_values: Modifier text by name of parameters to fix at build time; makes a
+            variant (see ``Build.simulate``), cached under a key that includes them.
 
     Raises:
         TranslationError: OMC failed to set options, load or translate the model.
@@ -99,21 +122,21 @@ def build(config: BuildConfig) -> Build:
     """
     if workdir.no_cache():
         directory = workdir.new_run_directory("build-")
-        result = _make(config, directory)
+        result = _make(config, directory, build_values)
         logger.info("Built '%s' without cache in %s", config.model_name, directory)
         return replace(result, owned=True)
 
-    key = cache.cache_key(config)
+    key = cache.cache_key(config, build_values)
     hit = cache.lookup(key, config)
     if hit is None:
-        result = _make(config, workdir.new_tmp_directory())
+        result = _make(config, workdir.new_tmp_directory(), build_values)
         directory, published = cache.publish(result.directory, key)
         if published:
             logger.info("Built '%s' (cache key %s)", config.model_name, key[:12])
             return replace(result, directory=directory)
         hit = cache.lookup(key, config)
         if hit is None:  # removed again meanwhile; keep this build's data uncached
-            return _make(config, workdir.new_run_directory("build-"))
+            return _make(config, workdir.new_run_directory("build-"), build_values)
     directory, record = hit
     logger.info("Reused cached build of '%s' (cache key %s)", config.model_name, key[:12])
     return Build(
@@ -123,21 +146,22 @@ def build(config: BuildConfig) -> Build:
         variables=read_variables(directory / f"{FILE_NAME_PREFIX}_init.xml"),
         experiment=record.experiment,
         loaded_libraries=record.loaded_libraries,
+        build_values=dict(build_values or {}),
     )
 
 
-def _make(config: BuildConfig, directory: Path) -> Build:
+def _make(config: BuildConfig, directory: Path, build_values: Mapping[str, str] | None) -> Build:
     """Run OMC in ``directory``; delete the directory if the build fails."""
     try:
-        return _run_omc(config, directory)
+        return _run_omc(config, directory, build_values)
     except BaseException:
         workdir.discard(directory)
         raise
 
 
-def _run_omc(config: BuildConfig, directory: Path) -> Build:
+def _run_omc(config: BuildConfig, directory: Path, build_values: Mapping[str, str] | None) -> Build:
     script = directory / SCRIPT_NAME
-    script.write_text(build_script(config, FILE_NAME_PREFIX))
+    script.write_text(build_script(config, FILE_NAME_PREFIX, build_values))
     logger.debug("Building '%s' in %s", config.model_name, directory)
 
     completed = subprocess.run(
@@ -169,6 +193,7 @@ def _run_omc(config: BuildConfig, directory: Path) -> Build:
         variables=read_variables(directory / f"{FILE_NAME_PREFIX}_init.xml"),
         experiment=output.experiment,
         loaded_libraries=output.loaded_libraries,
+        build_values=dict(build_values or {}),
     )
 
 
