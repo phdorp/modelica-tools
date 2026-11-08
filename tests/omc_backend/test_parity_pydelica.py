@@ -41,8 +41,7 @@ import numpy as np
 import omegaconf
 import pandas as pd
 import pytest
-from kinematic_vehicle.kinematic_vehicle import \
-    registry  # type: ignore[import-untyped]
+from kinematic_vehicle import kinematic_vehicle  # type: ignore[import-untyped]
 
 import mtools.session_config as session_config
 import mtools.sim_tools as sim_tools
@@ -80,7 +79,7 @@ SCENARIOS = {
 def pydelica_config(scenario: str, model: str, target: Target) -> Any:
     """Compose the example's run config for ``model`` on ``target`` with explicit settings."""
     experiment, overrides = SCENARIOS[scenario]
-    cfg = registry.compose_experiment(experiment, overrides=overrides)
+    cfg = kinematic_vehicle.registry.compose_experiment(experiment, overrides=overrides)
     omegaconf.OmegaConf.set_struct(cfg, False)
     omc_build_flags: dict[str, str | None] = {"-q": None}
     if target == "Cpp":
