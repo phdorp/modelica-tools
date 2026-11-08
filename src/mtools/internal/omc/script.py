@@ -147,7 +147,12 @@ def _checked(statement: str, stage: Stage) -> list[str]:
 
 
 def _errors(stage: Stage) -> str:
-    return f'print("{_BEGIN} errors {int(stage)}\\n" + getErrorString() + "\\n{_END}\\n");'
+    # Read the error string into a variable first: printing a concatenation that calls
+    # getErrorString() directly prints nothing after a failed buildModel (OMC 1.27.2).
+    return (
+        "mtoolsErrors := getErrorString();\n"
+        f'print("{_BEGIN} errors {int(stage)}\\n" + mtoolsErrors + "\\n{_END}\\n");'
+    )
 
 
 def _data(name: str, call: str) -> list[str]:
