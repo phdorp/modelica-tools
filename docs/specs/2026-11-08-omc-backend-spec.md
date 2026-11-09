@@ -255,7 +255,7 @@ class SimulationRun:
 
 ### Plotting tool ([Reading results into DataFrames](https://github.com/phdorp/modelica-tools/issues/49))
 
-- **Only change:** the plotting tool converts Boolean columns to 0/1 before plotting. It keeps reading the CSVs that `save_solutions` writes.
+- **Only change:** the plotting tool converts Boolean columns to 0/1 before plotting. It keeps reading the CSVs that `save_solutions` writes. *Amended by [ADR 0002](../adr/0002-saved-result-format.md): `save_solutions` writes `.mat` by default and the plotting tool reads `.mat` and `.csv`.*
 
 ### Migration ([How mtools switches from pydelica to the new backend](https://github.com/phdorp/modelica-tools/issues/55))
 
@@ -312,7 +312,7 @@ class SimulationRun:
 - Choosing the target automatically.
 - Automatic cache eviction, a cache-clearing command, timeouts on builds.
 - Stable public logger names below `mtools`.
-- The plotting tool reading `.mat` files or run directories.
+- The plotting tool reading run directories. (Reading saved `.mat` files moved into scope with [ADR 0002](../adr/0002-saved-result-format.md).)
 - Inferring the model name from the package ("Infer Model Name from Modelica Package", #25).
 - Contributing fixes to pydelica upstream.
 
