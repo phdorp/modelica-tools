@@ -1,6 +1,7 @@
 # OMC Error Messages Spec
 
-Status: ready-for-agent
+Status: partly superseded by the [In-repo OMC Backend Spec](2026-11-08-omc-backend-spec.md)
+Superseded parts: the preserved pydelica exception types, building inside `instantiate`, and `get_runtime_options`. The backend raises the public `mtools.errors` exceptions instead; the diagnostic filter rules live on in the new spec's "Errors and diagnostics".
 Source: Conversation on 2026-11-07 ("pass the information omc provides to the user when using the mtools framework to run a model")
 
 ## Problem Statement

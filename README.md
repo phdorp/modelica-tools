@@ -1,12 +1,13 @@
 # modelica-tools
 
-A Python toolkit for configuring [Pydelica](https://pypi.org/project/pydelica/) sessions, enabling fully configurable [Modelica](https://modelica.org/) simulation runs from Python.
+A Python toolkit for configuring and running [Modelica](https://modelica.org/) simulations with [OpenModelica](https://openmodelica.org/) from Python.
 
-[Pydelica](https://pypi.org/project/pydelica/) provides Python bindings for [OpenModelica](https://openmodelica.org/), giving access to a `pydelica.Session` API with methods to build models, set parameters, configure solvers, and run simulations. `modelica-tools` wraps this API with typed configuration dataclasses and a registry system powered by [Hydra](https://hydra.cc) / [hydra-zen](https://github.com/mit-ll/hydra-zen), allowing simulation setups to be defined once in Python and then overridden, composed, and swept from the command line.
+`modelica-tools` drives the `omc` compiler directly: it builds a model once, caches the build by content, runs it with per-run parameters and settings, and returns typed [pandas](https://pandas.pydata.org/) DataFrames. Typed configuration dataclasses and a registry system powered by [Hydra](https://hydra.cc) / [hydra-zen](https://github.com/mit-ll/hydra-zen) let you define a simulation setup once in Python, then override, compose and sweep it from the command line.
 
 ## Features
 
-- **Python-native Modelica configuration** — Define simulation parameters, solver settings, and model configurations as typed Python dataclasses.
+- **Python-native Modelica configuration** — Define what to build (`build`) and how to run it (`settings`) as typed Python dataclasses.
+- **Build cache** — Builds are cached by content, so a parameter sweep compiles once and a repeated sweep compiles nothing.
 - **Hierarchical configuration** with [Hydra](https://hydra.cc) / [hydra-zen](https://github.com/mit-ll/hydra-zen) — Compose, override, and reuse configs across runs.
 - **Parameter sweeps** — Launch multirun sweeps over any simulation parameter from the command line.
 - **Reference-model comparison** — Test a model against a reference implementation from a run config in a shared Hydra registry, comparing output signals and values.
@@ -18,7 +19,7 @@ A Python toolkit for configuring [Pydelica](https://pypi.org/project/pydelica/) 
 
 ### Prerequisites
 
-Install [OpenModelica](https://openmodelica.org/) (required by `pydelica`):
+Install [OpenModelica](https://openmodelica.org/) (`omc` and a C compiler with `make`):
 
 - **Debian / Ubuntu**:
   ```bash
@@ -90,7 +91,7 @@ The workspace is mounted into the container, so edits on your host are reflected
 uv run pytest tests
 ```
 
-Tests require OpenModelica installed (see prerequisites) and compile actual Modelica models via `pydelica`.
+Tests require OpenModelica installed (see prerequisites) and compile and simulate real Modelica models with `omc`.
 
 ## Usage
 
@@ -152,7 +153,7 @@ if __name__ == "__main__":
 
 See [`examples/src/kinematic_vehicle/__main__.py`](examples/src/kinematic_vehicle/__main__.py) for the corresponding example.
 
-The `simulate` function instantiates the `Session` via `hydra_zen.instantiate`, which builds the model, applies parameters, configures the solver, and saves simulation results as CSV.
+The `simulate` function validates the run config, builds the model (or reuses a cached build), runs it with the given parameters and settings, and returns one DataFrame per model, keyed by `build.model_name`. `save_solutions` writes them as CSV.
 
 ### Run a simulation
 
@@ -165,12 +166,86 @@ uv run python -m my_simulation
 Override individual parameters or select registered config groups from the command line:
 
 ```bash
-uv run python -m my_simulation session.parameters.some_value=5.0
-uv run python -m my_simulation session.model_configurations.MyModel.time_range.stop_time=20.0
+uv run python -m my_simulation settings.parameters.some_value=5.0
+uv run python -m my_simulation settings.stop_time=20.0
+uv run python -m my_simulation build.target=Cpp
 ```
 
-Parameter paths follow the structure of the config dataclasses defined in `config.py`.
+A run config has two parts: `build` says what to build and `settings` says how to run it.
+
+| Path | Content |
+|---|---|
+| `build.model_path`, `build.model_name` | Source file and fully qualified model class; results are keyed by the name. |
+| `build.target` | `C` (default) or `Cpp`, see [Targets](#targets). |
+| `build.extra_sources`, `build.libraries`, `build.omc_flags` | Extra packages, libraries (`name`, `version`, `directory`) and OMC flags. |
+| `settings.parameters.*` | Parameter values; the structure follows the parameter dataclass in `config.py`. |
+| `settings.start_time`, `stop_time`, `interval`, `tolerance`, `solver` | Unset values come from the model's `experiment` annotation (OMC's defaults, 0 to 1 s, if there is none). The default solver comes from the `__OpenModelica_simulationFlags(s=...)` annotation, else `dassl`. |
+| `settings.variable_filter`, `emit_protected`, `timeout`, `abort_on_chattering` | Result columns (OMC regular expression), protected variables, time limit in seconds, and chattering abort (C only). |
+
+Parameters:
+
+- Nested dataclasses become dotted names and arrays become 1-based indexed names, so `y=[1, 2]` sets `y[1]` and `y[2]`, and a 2-D array sets `m[1,2]` (no space after the comma).
+- A parameter OMC fixes at build time (for example an array size or an `Evaluate=true` parameter) makes mtools build and cache a variant with that value. An enumeration value must then be a qualified literal, `"Mode.high"`.
+- Unknown and protected parameter names raise `ConfigError`.
+
 Refer to the [`kinematic_vehicle` examples](examples/) for a complete working setup.
+
+### Targets
+
+`build.target` selects the OpenModelica simulation runtime. `C` is the default. `Cpp` is a deliberate alternative for installations without the C runtime libraries; mtools never picks it automatically. Config, result shape, column types, errors, partial results and caching are the same on both targets, with these differences on Cpp:
+
+- Only the solvers `dassl`, `cvode` and `ida` run; any other solver, also from the model's annotation, raises `ConfigError`.
+- `dassl` ignores `settings.interval` and logs a WARNING instead of resampling.
+- `abort_on_chattering` has no effect.
+- Events are reported about 1e-6 late.
+- Division by zero and singular linear systems do not fail the run.
+- A failed initialization gives a one-row partial result instead of `None`.
+
+`--simCodeTarget` is rejected in `build.omc_flags`; use `build.target`. The Hydra override grammar cannot express that key, so the check only applies to Python-built configs.
+
+### Environment variables
+
+| Variable | Effect |
+|---|---|
+| `MTOOLS_WORK_DIR` | Work directory holding `builds/` (the cache) and `runs/`. Defaults to `<system temp dir>/mtools-<user>/`; a relative path resolves against the directory the process starts in. |
+| `MTOOLS_NO_CACHE=1` | Build into a throwaway directory and skip the cache. |
+| `MTOOLS_KEEP_RUNS=1` | Keep run directories and uncached builds, log their paths at INFO, and add `Run directory: <path>` to failure diagnostics. |
+
+Run directories and uncached builds are otherwise deleted when `simulate` ends. Hydra's output directory is never touched except by `save_solutions`.
+
+### Build cache
+
+The cache key is a content hash of the source packages (including `Resources/`), library specs, target, `omc_flags`, build-time parameter values, and the OMC and C compiler versions. Editing a file in the package, in an `extra_sources` package or in a `directory` library rebuilds. There is no automatic eviction; delete `<work dir>/builds/` to clear it. C headers included by absolute path from outside any package are not part of the key, so changing one does not trigger a rebuild; use `MTOOLS_NO_CACHE=1` for those models.
+
+### Errors and logging
+
+All failures raise public exceptions from `mtools.errors`, with a header naming the model and stage, followed by OMC's filtered diagnostics:
+
+```
+MtoolsError
+├── ConfigError (also ValueError)
+├── BuildError
+│   ├── TranslationError
+│   └── CompileError
+└── SimulationError                  .partial_result: DataFrame | None
+    └── SimulationTimeout
+```
+
+A failed or timed-out run never returns data as a result; what was written before the failure is in `SimulationError.partial_result`. Every exception has `.model_name` and `.diagnostics`.
+
+mtools logs to the `mtools` logger (builds, cache hits, warnings from OMC and from the run). It attaches no handlers and sets no levels.
+
+### Breaking changes
+
+Replacing Pydelica with the in-repo OMC backend changed the following:
+
+- Override paths are `build.*` and `settings.*`, not `session.*`. Parameters are `settings.parameters.*`, and the config groups are `settings` and `settings/parameters`.
+- `Session`, `Model`, `Simulation`, `TimeRange`, `Tolerance`, `VariableFilter`, `SessionBuilder`, `SessionDirector` and the Pydelica exception types are removed. Use the dataclasses `Build`, `Library`, `RunSettings` and `SimulationRun` in `mtools.session_config` and the exceptions in `mtools.errors`.
+- `create_run` takes `model_name`, `model_path`, `target`, `extra_sources`, `libraries`, `omc_flags` and `settings`.
+- Models without an `experiment` annotation run from 0 to 1 s (OMC's defaults) instead of 0 to 10 s with tolerance 1e-9.
+- Integer and enumeration columns are `int64` and Boolean columns are `bool`. The CSVs from `save_solutions` hold the same values, and the plotting tool shows Boolean columns as 0/1.
+- Results have no parameter columns and keep OMC's repeated rows at events.
+- The cache lives under the system temp directory until the system clears it.
 
 ### Visualize results
 
