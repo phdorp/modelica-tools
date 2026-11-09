@@ -87,7 +87,8 @@ def save_solutions(
 
     ``mat`` writes OMC's MATLAB v4 result layout with the column types stored alongside,
     so the file reads back with ``bool`` and ``int64`` columns; OpenModelica's
-    ``readSimulationResult`` opens it too. ``csv`` writes Booleans as ``True``/``False``. The plotting tool reads both.
+    ``readSimulationResult`` opens it too. ``csv`` writes Booleans as ``True``/``False``.
+    The plotting tool reads both.
 
     Args:
         solutions: Mapping of solution names to pandas data frames, as ``simulate``
@@ -107,9 +108,10 @@ def load_solution(path: str | Path) -> pandas.DataFrame:
     """Read one solution file that ``save_solutions`` wrote, chosen by its suffix.
 
     A ``.mat`` file reads back exactly as it was saved, with ``bool`` and ``int64``
-    columns. A ``.csv`` file reads back with pandas' type inference, so Boolean columns
-    are ``bool`` and whole-number Real columns are ``float64`` as written. An OMC
-    ``_res.mat`` file is read with every column as ``float64``.
+    columns. A ``.csv`` file reads back with pandas' type inference: ``True``/``False``
+    columns become ``bool``, and Real columns stay ``float64`` because CSV writes them
+    with a decimal point (``2.0``). An OMC ``_res.mat`` file is read with every column
+    as ``float64``.
 
     Args:
         path: A ``.mat`` or ``.csv`` file.

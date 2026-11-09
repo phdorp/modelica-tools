@@ -100,6 +100,26 @@ def write_result(path: Path, result: pd.DataFrame) -> Path:
     return path
 
 
+def is_result_file(path: Path) -> bool:
+    """Whether ``path`` starts with OMC's binTrans ``Aclass`` header; reads only that matrix."""
+    try:
+        with open(path, "rb") as handle:
+            header = handle.read(20)
+            if len(header) < 20:
+                return False
+            mopt, rows, cols, _imaginary, name_length = struct.unpack("<5i", header)
+            if mopt != _MOPT_TEXT or not 0 < name_length <= 64 or not 0 < rows * cols <= 1024:
+                return False
+            if handle.read(name_length).rstrip(b"\0") != b"Aclass":
+                return False
+            aclass = np.frombuffer(handle.read(rows * cols), np.uint8)
+    except OSError:
+        return False
+    if aclass.size != rows * cols:
+        return False
+    return len(strings := _strings(aclass.reshape(cols, rows))) == 4 and strings[3] == "binTrans"
+
+
 def _modelica_type(name: str, column: pd.Series) -> str:
     if pd.api.types.is_bool_dtype(column):
         return "Boolean"

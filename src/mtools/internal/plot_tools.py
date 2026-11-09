@@ -9,14 +9,11 @@ import plotly.graph_objects as go
 from dash import ALL, Input, Output, State, dcc, html
 from dash.development.base_component import Component
 
-from mtools.internal.result_files import read_result_file
-
-#: Suffixes of the result files the dashboard lists.
-RESULT_SUFFIXES = (".mat", ".csv")
+from mtools.internal.result_files import is_result_file, read_result_file
 
 
 def find_results(directory: str | Path) -> List[str]:
-    """Find .mat and .csv result files under a directory.
+    """Find .csv files and .mat files in OMC's result layout under a directory.
 
     Args:
         directory: Root directory to search recursively.
@@ -34,9 +31,8 @@ def find_results(directory: str | Path) -> List[str]:
         raise FileNotFoundError(f"Results directory not found: {directory_path}")
     if not directory_path.is_dir():
         raise NotADirectoryError(f"Results path is not a directory: {directory_path}")
-    return sorted(
-        str(path) for path in directory_path.rglob("*") if path.suffix in RESULT_SUFFIXES and path.is_file()
-    )
+    # A .mat file in another layout (MATLAB v5, an unrelated tool) is not listed.
+    return sorted(str(path) for path in directory_path.rglob("*") if path.is_file() and is_result_file(path))
 
 
 def resolve_path(value: str | Path) -> str | None:

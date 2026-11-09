@@ -49,7 +49,7 @@ uv run python -m my_simulation output_format=csv  # <model name>.csv
 
 `load_solution(path)` reads either file back. A `.mat` file reads back unchanged, with `bool` and `int64` columns. A `.csv` file goes through pandas' type inference. `save_solutions` refuses to write a result with no rows as `.mat`. [ADR 0002](adr/0002-saved-result-format.md) records why `.mat` is the default.
 
-The plotting tool (`uv run python -m mtools <directory>`) lists both `.mat` and `.csv` files under the directory and shows Boolean columns as 0/1 lines.
+The plotting tool (`uv run python -m mtools <directory>`) lists the `.csv` files under the directory and the `.mat` files in OMC's result layout, which includes OMC's own `_res.mat` files and skips other `.mat` files, such as MATLAB v5 files. It shows Boolean columns as 0/1 lines.
 
 ## Targets
 

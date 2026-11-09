@@ -1,7 +1,9 @@
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
+from mtools.internal.omc.matfile import write_result
 from mtools.internal.plot_tools import find_results
 
 
@@ -77,9 +79,20 @@ class TestFindResults:
 
         assert results == [str(earlier_result), str(later_result)]
 
-def test_discovers_mat_and_csv_results(tmp_path: Path):
-    (tmp_path / "a.csv").write_text("time,value\n0,1\n")
-    (tmp_path / "nested").mkdir()
-    (tmp_path / "nested" / "b.mat").write_bytes(b"")
+    def test_discovers_mat_and_csv_results(self, tmp_path: Path):
+        """Verify that saved .mat results are listed with CSV results."""
 
-    assert find_results(tmp_path) == [str(tmp_path / "a.csv"), str(tmp_path / "nested" / "b.mat")]
+        csv_result = self._write_csv(tmp_path / "a.csv", 1)
+        (tmp_path / "nested").mkdir()
+        mat_result = write_result(tmp_path / "nested" / "b.mat", pd.DataFrame({"time": [0.0], "value": [1.0]}))
+
+        assert find_results(tmp_path) == [str(csv_result), str(mat_result)]
+
+    def test_skips_mat_files_that_are_not_omc_results(self, tmp_path: Path):
+        """Verify that .mat files in another layout (MATLAB v5, truncated) are not listed."""
+
+        csv_result = self._write_csv(tmp_path / "a.csv", 1)
+        (tmp_path / "v5.mat").write_bytes(b"MATLAB 5.0 MAT-file, Platform: GLNXA64" + b"\0" * 100)
+        (tmp_path / "empty.mat").write_bytes(b"")
+
+        assert find_results(tmp_path) == [str(csv_result)]
