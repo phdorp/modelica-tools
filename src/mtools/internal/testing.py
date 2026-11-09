@@ -185,8 +185,8 @@ def _select_job_value(config: object, path: str) -> object:
 
     Args:
         config: A sweep job's composed config.
-        path: Dot-separated config path (e.g. ``"session.parameters.phi"``,
-            or ``"model_name"`` for the simulated model's name).
+        path: Dot-separated config path (e.g. ``"settings.parameters.phi"``,
+            or ``"build.model_name"`` for the simulated model's name).
 
     Returns:
         The plain-Python value at ``path``. The type is whatever the config
@@ -404,7 +404,7 @@ class _SweepPlan:
         """Map each job's solution table to its raw combination key.
 
         The model name keying a job's solutions is read from that job's own
-        composed config, so a job whose config lacks ``model_name`` fails here
+        composed config, so a job whose config lacks ``build.model_name`` fails here
         rather than returning a mis-keyed table. The distinct names seen are
         exposed on :attr:`model_names` for failure-context reporting.
         """
@@ -413,9 +413,9 @@ class _SweepPlan:
             raw_key = self.key_of(job)
             if raw_key in results:
                 raise ValueError(f"duplicate sweep job for combination {raw_key!r}")
-            model_name = _select_job_value(job.config, "model_name")
+            model_name = _select_job_value(job.config, "build.model_name")
             if not isinstance(model_name, str):
-                raise ValueError("config path 'model_name' is not a string in sweep job config")
+                raise ValueError("config path 'build.model_name' is not a string in sweep job config")
             if model_name not in self.model_names:
                 self.model_names.append(model_name)
             results[raw_key] = job.solutions[model_name]

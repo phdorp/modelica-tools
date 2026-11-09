@@ -13,27 +13,20 @@ from pathlib import Path
 
 import hydra_zen
 import numpy as np
+from hydra_zen import MISSING
 
 import mtools.hydra_registry as hydra_registry
 import mtools.session_config as session_config
 
 MODEL_NAME = "kinematic_vehicle.WrapperKinematicVehicle"
 
-#: OMC flags used by every run config in this example. The Cpp simulation target
-#: exercises pydelica's Cpp support.
-CPP_OMC_BUILD_FLAGS = {"-q": None, "--simCodeTarget": "Cpp"}
+#: Simulation target of every run config in this example: OpenModelica's C++ runtime.
+TARGET = "Cpp"
 
-
-def cpp_build_options(model_name: str) -> dict:
-    """Return pydelica build options for a model using the Cpp target."""
-    return {
-        "model_addr": model_name,
-        "omc_build_flags": dict(CPP_OMC_BUILD_FLAGS),
-    }
-
-
-#: The Cpp runtime does not implement the deprecated ``rungekutta`` solver.
-simulation_default = session_config.Simulation(solver="dassl")
+#: Run settings shared by every run config; the parameters come from the
+#: ``settings/parameters`` group. The model has no experiment annotation, so the time
+#: range and tolerance are set here. The Cpp runtime runs only dassl, cvode and ida.
+settings_default = session_config.RunSettings(parameters=MISSING, stop_time=10.0, tolerance=1e-9, solver="dassl")
 
 
 @dataclasses.dataclass
@@ -48,22 +41,20 @@ vehicle_default = WrapperKinematicVehicle()
 
 registry = hydra_registry.HydraZenRegistry(store=hydra_zen.ZenStore())
 
-# Register `vehicle_default` as the default option for `session.parameters`.
+# Register `vehicle_default` as the default option for `settings.parameters`.
 # The defaults list entry can be overridden by an experiment.
-registry.register_group_options("session/parameters", {"default": vehicle_default}, default="default")
+registry.register_group_options("settings/parameters", {"default": vehicle_default}, default="default")
 
-# Register a default option for `session.sim_configurations` so experiments
-# can override the runtime options.
-registry.register_group_options(
-    "session/sim_configurations", {"default": simulation_default}, default="default"
-)
+# Register a default option for `settings` so experiments can override the run
+# settings; the parameters above are merged into it.
+registry.register_group_options("settings", {"default": settings_default}, default="default")
 
-# Parameters and simulation settings come from the registered group defaults,
-# so only the model name, source, and Cpp build options are supplied here.
+# Parameters and run settings come from the registered group defaults, so only
+# the model name, source, and target are supplied here.
 run_default = registry.create_run(
     model_name=MODEL_NAME,
     model_path=(Path(__file__).parent / "package.mo").resolve(),
-    build_options=cpp_build_options(MODEL_NAME),
+    target=TARGET,
     include_experiment_group=True,
     name="default",
 )
@@ -74,21 +65,21 @@ registry.register_experiment(
     name="standstill",
     base_run_config=run_default,
     overrides={
-        "session/parameters": WrapperKinematicVehicle(v_norm=0.0, phi=0.0, wheelbase=2.0)
+        "settings/parameters": WrapperKinematicVehicle(v_norm=0.0, phi=0.0, wheelbase=2.0)
     },
 )
 registry.register_experiment(
     name="straight_driving",
     base_run_config=run_default,
     overrides={
-        "session/parameters": WrapperKinematicVehicle(v_norm=10.0, phi=0.0, wheelbase=2.0)
+        "settings/parameters": WrapperKinematicVehicle(v_norm=10.0, phi=0.0, wheelbase=2.0)
     },
 )
 registry.register_experiment(
     name="turn_left",
     base_run_config=run_default,
     overrides={
-        "session/parameters": WrapperKinematicVehicle(
+        "settings/parameters": WrapperKinematicVehicle(
             v_norm=10.0, phi=float(np.deg2rad(0.5)), wheelbase=2.0
         )
     },
@@ -97,9 +88,7 @@ registry.register_experiment(
     name="protected_output",
     base_run_config=run_default,
     overrides={
-        "session/sim_configurations": dataclasses.replace(
-            simulation_default, emit_protected=True
-        )
+        "settings": dataclasses.replace(settings_default, emit_protected=True)
     },
 )
 
@@ -107,10 +96,9 @@ registry.add_to_hydra_store()
 
 # Re-exported for convenience.
 __all__ = [
-    "CPP_OMC_BUILD_FLAGS",
     "MODEL_NAME",
-    "cpp_build_options",
+    "TARGET",
     "registry",
     "run_default",
-    "simulation_default",
+    "settings_default",
 ]

@@ -29,13 +29,13 @@ Which fixtures each alias needs:
 - :data:`ExperimentSweepReference` / :data:`ExperimentSweepsReference`:
   ``registry`` + ``reference_run_config``.
 
-A run config holds exactly one ``model_name``, so each base reads the
+A run config holds exactly one ``build.model_name``, so each base reads the
 simulated model's name from its composed config instead of a separate fixture.
 The reference comparison bases simulate the candidate model composed from the
 experiment's registered (default) run config and the reference model composed
 from the same ``registry`` with ``reference_run_config``. The two run configs
-own their own parameters, model source, model configurations, libraries,
-simulation settings, and model name. The bases then expose both result sets
+own their own build config (model name, source, target, libraries) and run
+settings. The bases then expose both result sets
 and ``assert_matches_reference()``.
 
 Experiments are resolved by name: single runs compose via
@@ -226,17 +226,17 @@ class ExperimentT(ExperimentBase, Generic[NameType, ResultType]):
 
         Args:
             registry: Hydra registry used to compose each run config. The
-                composed config's ``model_name`` keys the model's solution
-                table.
+                composed config's ``build.model_name`` keys the model's
+                solution table.
         """
         names = [cls.name] if isinstance(cls.name, str) else cls.name
         results = {}
         candidate_model_names = {}
         for name in names:
             config = registry.compose_experiment(name)
-            candidate_model_names[name] = config.model_name
+            candidate_model_names[name] = config.build.model_name
             results[name] = sim_tools.simulate(cast("session_config.SimulationRun", config))[
-                config.model_name
+                config.build.model_name
             ]
         cls._candidate_model_names = candidate_model_names
         cls.results = cast(ResultType, results[cls.name] if isinstance(cls.name, str) else results)
@@ -263,8 +263,7 @@ class ExperimentReferenceT(
     The candidate experiment is composed from ``registry``'s default run
     config; the reference experiment with the same name is composed from the
     same ``registry`` with ``run_config=reference_run_config``. The two run
-    configs own their own parameters, model source, model configurations,
-    libraries, simulation settings, and model name. Each side's model name is
+    configs own their own build config and run settings. Each side's model name is
     read from its composed config.
     """
 
@@ -290,9 +289,9 @@ class ExperimentReferenceT(
         reference_model_names = {}
         for name in names:
             config = registry.compose_experiment(name, run_config=reference_run_config)
-            reference_model_names[name] = config.model_name
+            reference_model_names[name] = config.build.model_name
             reference_results[name] = sim_tools.simulate(cast("session_config.SimulationRun", config))[
-                config.model_name
+                config.build.model_name
             ]
         cls._reference_model_names = reference_model_names
         cls.reference_results = cast(
@@ -336,7 +335,7 @@ class ExperimentSweepT(ExperimentBase, Generic[NameType, SweepResultType]):
 
     #: Hydra package prefix of swept parameters, i.e. overrides are
     #: ``"<prefix>.<param>=<comma-separated values>"`` (one per entry).
-    sweep_param_prefix: ClassVar[str] = "session.parameters"
+    sweep_param_prefix: ClassVar[str] = "settings.parameters"
     #: Swept parameter names (relative to ``sweep_param_prefix``) mapped to
     #: the values swept over. Values must be Hydra-expressible: scalars
     #: (``bool``, ``int``, ``float``, ``str``, ``None``), ``dict`` (dict
@@ -388,7 +387,7 @@ class ExperimentSweepT(ExperimentBase, Generic[NameType, SweepResultType]):
                 compare equal as dict keys); if normalized sweep values
                 are ambiguous; if a job's composed config matches no
                 swept combination or matches twice; or if a job's composed
-                config lacks ``model_name``.
+                config lacks ``build.model_name``.
         """
         plan = _internal._SweepPlan(cls.sweep_params, cls.sweep_param_prefix, name, registry, run_config=run_config)
         sweep_results = plan.launch(registry, tmp_path_factory)
@@ -443,8 +442,7 @@ class ExperimentSweepReferenceT(
     composes its base run config from the same ``registry`` with
     ``run_config=reference_run_config`` and writes to its own temporary sweep
     directory. Each job's model name is read from its composed config. The two
-    run configs own their own parameters, model source, model configurations,
-    libraries, and simulation settings.
+    run configs own their own build config and run settings.
     """
 
     reference_results: SweepResultType

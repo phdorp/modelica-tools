@@ -34,9 +34,9 @@ class _FakeJob:
 
 
 def _config_model_name(config):
-    """Read ``model_name`` from a composed DictConfig or a base run config object."""
-    if isinstance(config, dict):
-        return config.get("model_name", "my.Model")
+    """Read ``build.model_name`` from a composed config, or ``model_name`` from a fake run config type."""
+    if hasattr(config, "get") and config.get("build") is not None:
+        return config["build"]["model_name"]
     return getattr(config, "model_name", "my.Model")
 
 
@@ -47,7 +47,7 @@ def _fake_simulate(config, **kwargs):
         is_reference = model_name == "ref.Model"
         return [
             _FakeJob(
-                {"model_name": model_name, "session": {"parameters": {"phi": phi}}},
+                {"build": {"model_name": model_name}, "settings": {"parameters": {"phi": phi}}},
                 {model_name: _frame(f"ref={phi}" if is_reference else f"phi={phi}")},
             )
             for phi in (0.1, 0.2)
@@ -80,7 +80,10 @@ INNER_MODULE = textwrap.dedent(
 
         def compose_experiment(self, name, run_config=None, overrides=None):
             return OmegaConf.create(
-                {"composed_experiment": name, "model_name": getattr(run_config, "model_name", self.model_name)}
+                {
+                    "composed_experiment": name,
+                    "build": {"model_name": getattr(run_config, "model_name", self.model_name)},
+                }
             )
 
         def get_experiment_run_config(self, name, run_config=None):
