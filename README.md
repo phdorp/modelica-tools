@@ -171,6 +171,13 @@ uv run python -m my_simulation settings.stop_time=20.0
 uv run python -m my_simulation build.target=Cpp
 ```
 
+`build.omc_flags` maps OMC flags to their values, and `null` gives a flag without a value. Set it from the command line with a leading `+`; without it, Hydra rejects the override with `Key ... is not in struct`. The given flags are added to the configured ones:
+
+```bash
+uv run python -m my_simulation '+build.omc_flags={-d:initialization,--maxSizeLinearTearing:300}'
+uv run python -m my_simulation '+build.omc_flags={--showErrorMessages:null}'
+```
+
 A run config has two parts: `build` says what to build and `settings` says how to run it.
 
 | Path | Content |
@@ -203,7 +210,7 @@ Refer to the [`kinematic_vehicle` examples](examples/) for a complete working se
 - Division by zero and singular linear systems do not fail the run.
 - A failed initialization gives a one-row partial result instead of `None`.
 
-`--simCodeTarget` is rejected in `build.omc_flags`; use `build.target`. The Hydra override grammar cannot express that key, so the check only applies to Python-built configs.
+`--simCodeTarget` is rejected in `build.omc_flags`; use `build.target`.
 
 ### Environment variables
 
