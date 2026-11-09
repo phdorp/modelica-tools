@@ -192,10 +192,12 @@ Refer to the [`kinematic_vehicle` examples](examples/) for a complete working se
 
 ### Targets
 
-`build.target` selects the OpenModelica simulation runtime. `C` is the default. `Cpp` is a deliberate alternative for installations without the C runtime libraries; mtools never picks it automatically. Config, result shape, column types, errors, partial results and caching are the same on both targets, with these differences on Cpp:
+`build.target` selects the OpenModelica simulation runtime. `C` is the default. `Cpp` is a deliberate alternative for installations without the C runtime libraries; mtools never picks it automatically. Config, result columns and rows, column types, errors, partial results and caching are the same on both targets: mtools drops the parameter aliases Cpp writes as columns and writes the repeated rows at the start, at events and at the stop time as C does. These differences remain on Cpp:
 
 - Only the solvers `dassl`, `cvode` and `ida` run; any other solver, also from the model's annotation, raises `ConfigError`.
 - `dassl` ignores `settings.interval` and logs a WARNING instead of resampling.
+- When `settings.interval` does not divide the simulated time span, Cpp writes the grid at multiples of the interval plus the stop time, while C spreads a rounded number of intervals evenly (0 to 1 s with interval 0.3: Cpp writes 0, 0.3, 0.6, 0.9, 1; C writes 0, 0.333, 0.667, 1).
+- An event at the start time that changes no discrete variable in the result gives one row at the start time instead of C's three.
 - `abort_on_chattering` has no effect.
 - Events are reported about 1e-6 late.
 - Division by zero and singular linear systems do not fail the run.

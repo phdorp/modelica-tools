@@ -9,6 +9,7 @@ import logging
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from mtools.errors import ConfigError, SimulationError
@@ -24,6 +25,21 @@ DECAY = (
 )
 EULER_ANNOTATION = DECAY.replace(
     "annotation(", 'annotation(__OpenModelica_simulationFlags(s = "euler"), '
+)
+Q = (
+    "model Q\n  parameter Real phi = 0.1;\n  Real u;\n  Real x(start = 0, fixed = true);\n"
+    "equation\n  u = phi;\n  der(x) = u;\n  annotation(experiment(StopTime = 1, Interval = 0.25));\nend Q;\n"
+)
+# Variables C writes as parameters (aliases of a Real, Integer or Boolean parameter, one
+# negated), a negated alias of a state, and events at the start time, on the grid, between
+# grid points and at the stop time.
+SHAPES = (
+    "model Shapes\n  parameter Real phi = 0.1;\n  parameter Integer n = 3;\n  parameter Boolean flag = true;\n"
+    "  Real u = phi;\n  Real w = -phi;\n  Integer k = n;\n  Boolean f = flag;\n"
+    "  Real x(start = 0, fixed = true);\n  Real z = -x;\n  Integer count(start = 0, fixed = true);\n"
+    "  Boolean between = x > 0.06;\n  Boolean at_stop = time >= 1.0;\nequation\n  der(x) = 0.1;\n"
+    "  when initial() then\n    count = pre(count) + 1;\n  elsewhen sample(0, 0.5) then\n    count = pre(count) + 1;\n"
+    "  end when;\n  annotation(experiment(StopTime = 1, Interval = 0.25));\nend Shapes;\n"
 )
 FAILS = (
     "model Fails\n  Real x(start = 0, fixed = true);\nequation\n  der(x) = 1;\n"
@@ -159,18 +175,70 @@ def test_error_lines_are_distinct_in_order_and_ignore_other_output():
     assert error_lines(output) == ["ERROR  : solver: A", "ERROR  : solver: B"]
 
 
+def _on_both_targets(tmp_path: Path, name: str, source: str, settings: RunSettings) -> dict[str, pd.DataFrame]:
+    path = tmp_path / f"{name}.mo"
+    path.write_text(source)
+    results = {}
+    for target in ("C", "Cpp"):
+        built = build(BuildConfig(model_path=path, model_name=name, target=target))  # type: ignore[arg-type]
+        try:
+            results[target] = built.simulate(settings)
+        except SimulationError as error:
+            assert error.partial_result is not None
+            results[target] = error.partial_result
+    return results
+
+
 @pytest.mark.parametrize("solver", ["ida", "cvode"])
 def test_c_and_cpp_results_agree_closely(tmp_path: Path, solver: str):
-    path = tmp_path / "Decay.mo"
-    path.write_text(DECAY)
-    settings = RunSettings(solver=solver, parameters={"k": 2.0})
+    results = _on_both_targets(tmp_path, "Decay", DECAY, RunSettings(solver=solver, parameters={"k": 2.0}))
 
-    results = {
-        target: build(BuildConfig(model_path=path, model_name="Decay", target=target))  # type: ignore[arg-type]
-        .simulate(settings)
-        .drop_duplicates("time", ignore_index=True)
-        for target in ("C", "Cpp")
-    }
-
-    assert list(results["C"].columns) == list(results["Cpp"].columns)
+    assert list(results["Cpp"].columns) == list(results["C"].columns)
+    assert results["Cpp"]["time"].tolist() == results["C"]["time"].tolist()
     np.testing.assert_allclose(results["Cpp"].to_numpy(), results["C"].to_numpy(), rtol=1e-7, atol=1e-9)
+
+
+@pytest.mark.parametrize("solver", ["ida", "cvode"])
+def test_cpp_result_has_exactly_the_c_result_shape(tmp_path: Path, solver: str):
+    results = _on_both_targets(tmp_path, "Q", Q, RunSettings(solver=solver))
+
+    for result in results.values():
+        assert list(result.columns) == ["time", "x", "der(x)"]
+        assert result["time"].tolist() == [0.0, 0.25, 0.5, 0.75, 1.0, 1.0]
+    np.testing.assert_allclose(results["Cpp"].to_numpy(), results["C"].to_numpy(), rtol=1e-7, atol=1e-9)
+
+
+def test_cpp_drops_parameter_aliases_and_repeats_event_rows_as_c_does(tmp_path: Path):
+    results = _on_both_targets(tmp_path, "Shapes", SHAPES, RunSettings(solver="cvode"))
+    c, cpp = results["C"], results["Cpp"]
+
+    assert sorted(cpp.columns) == sorted(c.columns) == sorted(["time", "x", "der(x)", "z", "count", "between", "at_stop"])
+    assert len(cpp) == len(c)
+    # Cpp finds an event between grid points about 1e-5 s later than C.
+    np.testing.assert_allclose(cpp["time"], c["time"], rtol=0, atol=1e-4)
+    for column in ("count", "between", "at_stop"):
+        assert cpp[column].tolist() == c[column].tolist(), column
+
+
+def test_a_cpp_partial_result_has_the_c_partial_result_shape(tmp_path: Path):
+    results = _on_both_targets(tmp_path, "Fails", FAILS, RunSettings(solver="cvode", stop_time=1.0, interval=0.25))
+
+    assert list(results["Cpp"].columns) == list(results["C"].columns)
+    assert results["Cpp"]["time"].tolist() == results["C"]["time"].tolist()
+
+
+def test_an_interval_that_does_not_divide_the_span_gives_cpp_its_own_grid(tmp_path: Path):
+    """A documented difference: C spreads a rounded number of intervals evenly instead."""
+    results = _on_both_targets(tmp_path, "Q", Q, RunSettings(solver="cvode", interval=0.3))
+
+    np.testing.assert_allclose(results["C"]["time"], [0.0, 1 / 3, 2 / 3, 1.0, 1.0], rtol=1e-12)
+    np.testing.assert_allclose(results["Cpp"]["time"], [0.0, 0.3, 0.6, 0.9, 1.0, 1.0], rtol=1e-12)
+
+
+def test_a_start_event_that_changes_no_discrete_result_column_gives_cpp_one_start_row(tmp_path: Path):
+    """A documented difference: Cpp writes such an event like no event, so it cannot be told apart."""
+    results = _on_both_targets(tmp_path, "Shapes", SHAPES, RunSettings(solver="cvode", variable_filter="x"))
+
+    assert results["C"]["time"].tolist()[:4] == [0.0, 0.0, 0.0, 0.25]
+    assert results["Cpp"]["time"].tolist()[:2] == [0.0, 0.25]
+    np.testing.assert_allclose(results["Cpp"]["time"][2:], results["C"]["time"][4:], rtol=0, atol=1e-4)

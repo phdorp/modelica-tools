@@ -19,6 +19,9 @@ class Variable:
         causality: ``parameter``, ``calculatedParameter``, ``local``, ...
         changeable: Whether a run can set its value (``isValueChangeable``).
         protected: Whether the variable is protected.
+        alias: ``noAlias``, ``alias`` or ``negatedAlias``.
+        value_reference: Index of the value the variable is stored in, per type. On
+            Cpp an alias shares the value reference of the variable it aliases.
     """
 
     name: str
@@ -27,6 +30,8 @@ class Variable:
     causality: str
     changeable: bool
     protected: bool
+    alias: str = "noAlias"
+    value_reference: str = ""
 
 
 def read_variables(path: Path) -> dict[str, Variable]:
@@ -41,5 +46,7 @@ def read_variables(path: Path) -> dict[str, Variable]:
             causality=element.attrib.get("causality", ""),
             changeable=element.attrib.get("isValueChangeable") == "true",
             protected=element.attrib.get("isProtected") == "true",
+            alias=element.attrib.get("alias", "noAlias"),
+            value_reference=element.attrib.get("valueReference", ""),
         )
     return variables

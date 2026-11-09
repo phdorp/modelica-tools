@@ -52,12 +52,12 @@ def test_c_and_cpp_agree(tmp_path, solver):
         "settings.tolerance=1e-10",
         f"settings.solver={solver}",
     ]
-    # The targets repeat different time points (start, stop), so compare each time once.
-    c = _simulate(tmp_path / "C", ["build.target=C", *overrides]).drop_duplicates("time", ignore_index=True)
-    cpp = _simulate(tmp_path / "Cpp", ["build.target=Cpp", *overrides]).drop_duplicates("time", ignore_index=True)
+    c = _simulate(tmp_path / "C", ["build.target=C", *overrides])
+    cpp = _simulate(tmp_path / "Cpp", ["build.target=Cpp", *overrides])
 
-    # Cpp also writes variables bound to parameters (control.phi, control.v_norm) as columns.
-    assert set(c.columns) <= set(cpp.columns)
-    assert len(c) == len(cpp)
+    assert list(cpp.columns) == list(c.columns)
+    assert len(cpp) == len(c)
+    # The runtimes step through the grid differently, so grid times can differ in the last bit.
+    np.testing.assert_allclose(cpp["time"], c["time"], rtol=1e-14, atol=0)
     for column in c.columns:
         np.testing.assert_allclose(cpp[column], c[column], rtol=1e-7, atol=1e-9, err_msg=column)
