@@ -87,9 +87,15 @@ def test_a_protected_build_time_parameter_is_a_config_error() -> None:
 # ---- against OMC -------------------------------------------------------------------------------
 
 
+@pytest.fixture(scope="module")
+def shared_work_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    return tmp_path_factory.mktemp("variants-work")
+
+
 @pytest.fixture(autouse=True)
-def work_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    directory = tmp_path / "work"
+def work_dir(shared_work_dir: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """One work directory for the module: the plain build and each variant are built once per target."""
+    directory = shared_work_dir
     monkeypatch.setenv("MTOOLS_WORK_DIR", str(directory))
     monkeypatch.delenv("MTOOLS_NO_CACHE", raising=False)
     monkeypatch.delenv("MTOOLS_KEEP_RUNS", raising=False)
@@ -180,9 +186,14 @@ def test_one_info_record_names_the_parameters_that_forced_the_variant(
     assert "'loc'" in records[0] and "'a'" in records[0] and "'k'" not in records[0]
 
 
-def test_a_repeated_sweep_reuses_the_cached_variants(plain: Build, caplog: pytest.LogCaptureFixture) -> None:
+def test_a_repeated_sweep_reuses_the_cached_variants(
+    target: Target, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setenv("MTOOLS_WORK_DIR", str(tmp_path / "work"))  # an empty cache, to count what it holds
+    plain = build(BuildConfig(model_path=MODEL, model_name="Variants", target=target))
     values = [1.0, 2.0, 3.0]
     first = [_last(plain, loc=v)["localOut"] for v in values]
+    caplog.clear()  # the first sweep's records are captured too when the logger is already at INFO
     with caplog.at_level(logging.INFO):
         again = [_last(plain, loc=v)["localOut"] for v in values]
 
