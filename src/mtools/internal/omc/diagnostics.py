@@ -77,8 +77,8 @@ def notifications(text: str) -> str:
     return "\n".join(line for kind, lines in _messages(text) if kind == "Notification" for line in lines)
 
 
-#: A compiler diagnostic: ``file:line:col: error|warning|note:``.
-_COMPILER_DIAGNOSTIC = re.compile(r"^\S+?:\d+:\d+: (?P<kind>error|warning|note):")
+#: A compiler diagnostic: ``file:line:col: [fatal ]error|warning|note:``.
+_COMPILER_DIAGNOSTIC = re.compile(r"^\S+?:\d+:\d+: (?P<kind>(?:fatal )?error|warning|note):")
 _LINKER_LINE = re.compile(r"undefined reference|^(\S*/)?(ld|collect2)\b|\b(ld|collect2): ")
 #: A source line as printed by the compiler (``  7 | code``) or its caret line (``      |   ^~~``).
 _SOURCE_OR_CARET = re.compile(r"^\s*\d*\s*\|")
@@ -107,7 +107,7 @@ def _compile_messages(log: str) -> list[_Message]:
 def filter_compile(log: str) -> str:
     """Trim a C compile and link log to its diagnostics.
 
-    Keeps ``file:line:col: error|warning|note:`` lines with their source and caret
+    Keeps ``file:line:col: [fatal ]error|warning|note:`` lines with their source and caret
     lines, ``undefined reference`` lines and ``ld``/``collect2`` lines. Compile command
     lines and ``make`` chatter are dropped. If nothing matches, the whole log is returned.
     """

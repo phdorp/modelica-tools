@@ -52,14 +52,14 @@ def simulate(build: Build, settings: RunSettings) -> pd.DataFrame:
         if result.timed_out or result.returncode != 0:
             partial = _partial_result(result_file, types)
             if partial is not None and build.target == "Cpp":
-                partial = run_cpp.drop_rows_before_start(partial, settings.start_time, build)
+                partial = run_cpp.match_c_result(partial, settings, build)
             raise _simulation_error(build, settings, result, partial, directory)
         if not result_file.exists():
             raise _simulation_error(build, settings, result, None, directory, missing=result_file.name)
         if build.target == "C" and (warnings := notable_entries(result.output)):
             logger.warning("Simulation of '%s' reported warnings:\n%s", build.model_name, "\n".join(warnings))
         data = read_result(result_file, types)
-        return run_cpp.drop_rows_before_start(data, settings.start_time, build) if build.target == "Cpp" else data
+        return run_cpp.match_c_result(data, settings, build) if build.target == "Cpp" else data
 
 
 def _simulation_error(

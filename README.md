@@ -171,6 +171,13 @@ uv run python -m my_simulation settings.stop_time=20.0
 uv run python -m my_simulation build.target=Cpp
 ```
 
+`build.omc_flags` maps OMC flags to their values, and `null` gives a flag without a value. Set it from the command line with a leading `+`; without it, Hydra rejects the override with `Key ... is not in struct`. The given flags are added to the configured ones:
+
+```bash
+uv run python -m my_simulation '+build.omc_flags={-d:initialization,--maxSizeLinearTearing:300}'
+uv run python -m my_simulation '+build.omc_flags={--showErrorMessages:null}'
+```
+
 A run config has two parts: `build` says what to build and `settings` says how to run it.
 
 | Path | Content |
@@ -192,16 +199,18 @@ Refer to the [`kinematic_vehicle` examples](examples/) for a complete working se
 
 ### Targets
 
-`build.target` selects the OpenModelica simulation runtime. `C` is the default. `Cpp` is a deliberate alternative for installations without the C runtime libraries; mtools never picks it automatically. Config, result shape, column types, errors, partial results and caching are the same on both targets, with these differences on Cpp:
+`build.target` selects the OpenModelica simulation runtime. `C` is the default. `Cpp` is a deliberate alternative for installations without the C runtime libraries; mtools never picks it automatically. Config, result columns and rows, column types, errors, partial results and caching are the same on both targets: mtools drops the parameter aliases Cpp writes as columns and writes the repeated rows at the start, at events and at the stop time as C does. These differences remain on Cpp:
 
 - Only the solvers `dassl`, `cvode` and `ida` run; any other solver, also from the model's annotation, raises `ConfigError`.
 - `dassl` ignores `settings.interval` and logs a WARNING instead of resampling.
+- When `settings.interval` does not divide the simulated time span, Cpp writes the grid at multiples of the interval plus the stop time, while C spreads a rounded number of intervals evenly (0 to 1 s with interval 0.3: Cpp writes 0, 0.3, 0.6, 0.9, 1; C writes 0, 0.333, 0.667, 1).
+- An event at the start time that changes no discrete variable in the result gives one row at the start time instead of C's three.
 - `abort_on_chattering` has no effect.
 - Events are reported about 1e-6 late.
 - Division by zero and singular linear systems do not fail the run.
 - A failed initialization gives a one-row partial result instead of `None`.
 
-`--simCodeTarget` is rejected in `build.omc_flags`; use `build.target`. The Hydra override grammar cannot express that key, so the check only applies to Python-built configs.
+`--simCodeTarget` is rejected in `build.omc_flags`; use `build.target`.
 
 ### Environment variables
 
@@ -243,7 +252,9 @@ Replacing Pydelica with the in-repo OMC backend changed the following:
 - `Session`, `Model`, `Simulation`, `TimeRange`, `Tolerance`, `VariableFilter`, `SessionBuilder`, `SessionDirector` and the Pydelica exception types are removed. Use the dataclasses `Build`, `Library`, `RunSettings` and `SimulationRun` in `mtools.session_config` and the exceptions in `mtools.errors`.
 - `create_run` takes `model_name`, `model_path`, `target`, `extra_sources`, `libraries`, `omc_flags` and `settings`.
 - Models without an `experiment` annotation run from 0 to 1 s (OMC's defaults) instead of 0 to 10 s with tolerance 1e-9.
-- Integer and enumeration columns are `int64` and Boolean columns are `bool`. The CSVs from `save_solutions` hold the same values, and the plotting tool shows Boolean columns as 0/1.
+- Boolean columns are `bool` instead of 0/1 integers, so `save_solutions` writes them as `True`/`False` instead of `0`/`1`. The plotting tool still shows them as 0/1.
+- Integer and enumeration columns stay `int64`.
+- Real columns are always `float64`, also when every value is a whole number; Pydelica read those as `int64`.
 - Results have no parameter columns and keep OMC's repeated rows at events.
 - The cache lives under the system temp directory until the system clears it.
 

@@ -83,6 +83,25 @@ def test_compile_keeps_diagnostic_with_source_and_caret_lines():
     ]
 
 
+def test_compile_keeps_a_fatal_error_with_its_source_and_caret_lines():
+    log = (
+        "clang  -Os -DOM_HAVE_PTHREADS -fPIC -I. -c -o model_functions.o model_functions.c\n"
+        "In file included from model_functions.c:7:\n"
+        "./model_includes.h:7:10: fatal error: 'no_such_header.h' file not found\n"
+        '    7 | #include "no_such_header.h"\n'
+        "      |          ^~~~~~~~~~~~~~~~~~\n"
+        "1 error generated.\n"
+        "make: *** [<builtin>: model_functions.o] Error 1\n"
+        "make: *** Waiting for unfinished jobs....\n"
+    )
+
+    assert filter_compile(log).splitlines() == [
+        "./model_includes.h:7:10: fatal error: 'no_such_header.h' file not found",
+        '    7 | #include "no_such_header.h"',
+        "      |          ^~~~~~~~~~~~~~~~~~",
+    ]
+
+
 def test_compile_keeps_notes_and_warnings():
     log = "a.c:1:1: warning: unused\na.c:2:2: note: declared here\nmake: *** Error 1\n"
     assert filter_compile(log).splitlines() == ["a.c:1:1: warning: unused", "a.c:2:2: note: declared here"]
