@@ -222,5 +222,6 @@ class TestBooleanColumns:
         builder._load_results(str(result_file))
         (figure,) = builder._update_graph_callback(["time"], [["flag"]])
 
-        assert figure.data[0].y.dtype.kind in "iuf"
-        assert list(figure.data[0].y) == [0, 1]
+        y = figure["data"][0]["y"]
+        assert y.dtype.kind in "iuf"
+        assert list(y) == [0, 1]
