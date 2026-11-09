@@ -27,9 +27,21 @@ tests/
 │   ├── IKinematicVehicle.mo
 │   ├── KinematicVehicle.mo
 │   └── WrapperKinematicVehicle.mo
+├── test_entry_point.py     # `python -m kinematic_vehicle` saves .mat or .csv
 ├── test_kinematic_vehicle.py  # Plausibility tests via parameterized experiments
 └── test_reference_comparison.py  # Candidate vs reference model comparison
 ```
+
+## How the run config is built
+
+`src/kinematic_vehicle/kinematic_vehicle.py` creates one `HydraZenRegistry` and fills a `SimulationRun` in four steps. [The Hydra registry](../docs/hydra-registry.md) describes each call.
+
+1. `register_group_options("settings/parameters", {"default": vehicle_default}, default="default")` makes the `WrapperKinematicVehicle` dataclass the parameter defaults, overridable as `settings.parameters.*`.
+2. `register_group_options("settings", {"default": settings_default}, default="default")` sets the run settings: `stop_time=10.0`, `tolerance=1e-9` and `solver="dassl"`. Its `parameters` are left `MISSING`, so the group above fills them.
+3. `create_run(model_name=MODEL_NAME, model_path=..., target="Cpp", include_experiment_group=True, name="default")` creates the `build` part and registers the run config as `default`, the `config_name` that `__main__.py` passes to `@hydra.main`.
+4. `register_experiment(name=..., base_run_config=run_default, overrides={...})` registers `standstill`, `straight_driving`, `turn_left` (each replacing `settings/parameters`) and `protected_output` (replacing `settings`).
+
+The composed config has three top-level keys: `build`, `settings` and `output_format`.
 
 ## Prerequisites
 
@@ -61,7 +73,7 @@ Runs `kinematic_vehicle.WrapperKinematicVehicle` with default parameters `v_norm
 `vehicle.theta`.
 
 The run configs set `build.target="Cpp"`, so results come from OpenModelica's C++ simulation
-runtime (see the [Targets section](../README.md#targets) of the main README). The run settings set `solver="dassl"`
+runtime (see [Targets](../docs/omc-backend.md#targets)). The run settings set `solver="dassl"`
 because the Cpp runtime only supports `dassl`, `cvode` and `ida`. The model has no `experiment`
 annotation, so `settings_default` in `src/kinematic_vehicle/kinematic_vehicle.py` sets `stop_time=10.0` and
 `tolerance=1e-9`.
@@ -86,6 +98,25 @@ Applies the `turn_left` experiment defined in `src/kinematic_vehicle/kinematic_v
 all three wrapper parameters (`v_norm`, `phi`, and `wheelbase`).
 
 Experiments are registered via `registry.register_experiment(...)` and compose their configs using Hydra's `override /group` defaults syntax.
+
+### Build and run settings overrides
+
+```bash
+uv run python -m kinematic_vehicle build.target=C
+uv run python -m kinematic_vehicle settings.stop_time=20 "settings.variable_filter='vehicle\.p[xy]'"
+uv run python -m kinematic_vehicle '+build.omc_flags={-d:initialization}'
+```
+
+`build.*` overrides change what is built, so the first run with a new value builds the model and later runs reuse that build. The first command runs the model on OpenModelica's C runtime instead of Cpp. `settings.*` overrides only change the run. `variable_filter` keeps `time`, `vehicle.px` and `vehicle.py`; quote a regular expression with `[` or `,` so Hydra reads it as one string. `build.omc_flags` needs the leading `+`.
+
+### Output format
+
+```bash
+uv run python -m kinematic_vehicle                    # kinematic_vehicle.WrapperKinematicVehicle.mat
+uv run python -m kinematic_vehicle output_format=csv  # kinematic_vehicle.WrapperKinematicVehicle.csv
+```
+
+`src/kinematic_vehicle/__main__.py` passes the run config's `output_format` to `save_solutions`, so the result is saved as `.mat` by default and as `.csv` on request. Read either file back with `mtools.sim_tools.load_solution(path)`. A `.mat` file keeps the column types; `vehicle.*` columns are all `float64` in this model.
 
 ### Parameter sweep
 
@@ -189,7 +220,7 @@ See `tests/test_reference_comparison.py` for the complete example.
 
 ## Results
 
-Simulation results are saved as CSV files in Hydra's run output directory (printed to the console during execution). Visualize results with:
+Simulation results are saved in Hydra's run output directory (printed to the console during execution), as `.mat` unless `output_format=csv` is given. Visualize `.mat` and `.csv` results with:
 
 ```bash
 uv run python -m mtools <output_directory>

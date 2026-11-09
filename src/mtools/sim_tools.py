@@ -86,8 +86,8 @@ def save_solutions(
     """Write each solution to ``<output_path>/<name>.<output_format>``.
 
     ``mat`` writes OMC's MATLAB v4 result layout with the column types stored alongside,
-    so the file reads back with ``bool`` and ``int64`` columns; OpenModelica tools open
-    it too. ``csv`` writes Booleans as ``True``/``False``. The plotting tool reads both.
+    so the file reads back with ``bool`` and ``int64`` columns; OpenModelica's
+    ``readSimulationResult`` opens it too. ``csv`` writes Booleans as ``True``/``False``. The plotting tool reads both.
 
     Args:
         solutions: Mapping of solution names to pandas data frames, as ``simulate``
