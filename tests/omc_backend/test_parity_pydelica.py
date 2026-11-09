@@ -33,6 +33,9 @@ Expected differences, all normalised away here and nowhere else:
 
 from __future__ import annotations
 
+import copy
+import importlib
+import sys
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -41,7 +44,7 @@ import numpy as np
 import omegaconf
 import pandas as pd
 import pytest
-from kinematic_vehicle import kinematic_vehicle  # type: ignore[import-untyped]
+from hydra.core.config_store import ConfigStore
 
 import mtools.session_config as session_config
 import mtools.sim_tools as sim_tools
@@ -76,10 +79,52 @@ SCENARIOS = {
 }
 
 
+def _remove_added(current: dict[str, Any], saved: dict[str, Any]) -> None:
+    """Delete the entries of ``current`` that ``saved`` lacks, keeping Hydra's own ``hydra`` group untouched.
+
+    Hydra registers its plugin configs lazily on the first compose; restoring the whole
+    snapshot would delete those and break later composes.
+    """
+    for key in list(current):
+        if key == "hydra":
+            continue
+        if key not in saved:
+            del current[key]
+        elif isinstance(current[key], dict) and isinstance(saved[key], dict):
+            _remove_added(current[key], saved[key])
+
+
+@pytest.fixture(scope="module", autouse=True)
+def example_registry() -> Iterator[None]:
+    """Import the example registry, then undo its writes to Hydra's global ConfigStore.
+
+    Importing the example and composing its configs register entries in the process-wide
+    ConfigStore, which would make other test modules' registrations fail with "entry
+    already exists". The import happens here, not at module level, so that collection
+    does not touch the store either.
+    """
+    store = ConfigStore.instance()
+    saved = copy.deepcopy(store.repo)
+    modules = set(sys.modules)
+    _REGISTRY.append(importlib.import_module("kinematic_vehicle.kinematic_vehicle").registry)
+    try:
+        yield
+    finally:
+        _REGISTRY.clear()
+        _remove_added(store.repo, saved)
+        for name in set(sys.modules) - modules:
+            if name.split(".")[0] == "kinematic_vehicle":
+                del sys.modules[name]
+
+
+#: Filled by ``example_registry`` for the duration of this module.
+_REGISTRY: list[Any] = []
+
+
 def pydelica_config(scenario: str, model: str, target: Target) -> Any:
     """Compose the example's run config for ``model`` on ``target`` with explicit settings."""
     experiment, overrides = SCENARIOS[scenario]
-    cfg = kinematic_vehicle.registry.compose_experiment(experiment, overrides=overrides)
+    cfg = _REGISTRY[0].compose_experiment(experiment, overrides=overrides)
     omegaconf.OmegaConf.set_struct(cfg, False)
     omc_build_flags: dict[str, str | None] = {"-q": None}
     if target == "Cpp":
