@@ -1,114 +1,63 @@
+"""The same run config on both simulation targets, through ``sim_tools.simulate``."""
+
 from __future__ import annotations
 
-import os
-import pathlib
-import shutil
-
+import hydra_zen
 import numpy as np
-import pydelica
 import pytest
-from models.kinematic_vehicle import vehicle_default
+from models.kinematic_vehicle import run_default
 
-from mtools.internal.pydelica_patch import install_pydelica_patch
-from mtools.internal.session_tools import SessionBuilder, SessionDirector
-from mtools.session_config import Model, Simulation
+from mtools.sim_tools import simulate
 
-MODEL = pathlib.Path(__file__).parent.joinpath("models", "kinematic_vehicle.mo").resolve()
-CPP_BUILD_OPTIONS = {"omc_build_flags": {"-q": None, "--simCodeTarget": "Cpp"}}
+TARGETS = ["C", "Cpp"]
 
 
-def _cpp_runtime_available() -> bool:
-    omc_binary = shutil.which("omc")
-    if omc_binary is None:
-        return False
-    configured_home = os.environ.get("OPENMODELICAHOME")
-    omc_home = (
-        pathlib.Path(configured_home)
-        if configured_home
-        else pathlib.Path(omc_binary).resolve().parent.parent
+def _simulate(tmp_path, overrides):
+    job = hydra_zen.launch(
+        run_default,
+        simulate,
+        [*overrides, f"hydra.run.dir={tmp_path}", "hydra.job.chdir=False"],
+        with_log_configuration=False,
+        version_base=None,
     )
-    return omc_home.joinpath("include", "omc", "cpp", "ModelicaConfig_gcc.inc").is_file()
+    return job.return_value["KinematicVehicle"]
 
 
-pytestmark = pytest.mark.skipif(
-    not _cpp_runtime_available(),
-    reason="OpenModelica Cpp runtime headers are not installed",
-)
+@pytest.mark.parametrize("target", TARGETS)
+def test_target_override_builds_and_solves(tmp_path, target):
+    solution = _simulate(tmp_path, [f"build.target={target}", "settings.stop_time=1.0"])
 
-
-def _configure(builder: SessionBuilder, emit_protected: bool = False) -> None:
-    builder.configure_parameters(
-        {"state_0.px": 0.0, "state_0.py": 0.0, "state_0.theta": 0.0, "v_norm": 10.0, "phi": 0.0}
-    )
-    builder.configure_models(
-        {
-            "KinematicVehicle": {
-                "time_range": {
-                    "model_name": "KinematicVehicle",
-                    "start_time": 0.0,
-                    "stop_time": 1.0,
-                },
-                "tolerance": {"model_name": "KinematicVehicle", "tolerance": 1e-8},
-                "variable_filter": {
-                    "model_name": "KinematicVehicle",
-                    "filter_str": "*",
-                },
-            }
-        }
-    )
-    builder.configure_simulation(
-        {"solver": "dassl", "output_format": "csv", "emit_protected": emit_protected}
-    )
-
-
-def test_cpp_target_compiles_and_simulates_through_session_director():
-    director = SessionDirector(
-        model=MODEL,
-        parameters=vehicle_default,
-        model_configurations={
-            "KinematicVehicle": Model.from_parameters(
-                "KinematicVehicle", start_time=0.0, stop_time=1.0, tolerance=1e-8
-            )
-        },
-        sim_configurations=Simulation(solver="dassl", output_format="csv"),
-        build_options=CPP_BUILD_OPTIONS,
-    )
-    session = director.make_session()
-
-    session.simulate(model_name="KinematicVehicle")
-    solution = session.get_solutions()["KinematicVehicle"]
-
-    assert np.isclose(solution["time"].values[-1], 1.0)
-    assert np.isclose(solution["state.px"].values[-1], 10.0, rtol=1e-4)
-    assert np.allclose(solution["state.py"], 0.0, atol=1e-6)
-    assert np.allclose(solution["state.theta"], 0.0, atol=1e-6)
+    assert solution["time"].values[0] == 0.0
+    assert solution["time"].values[-1] == pytest.approx(1.0)
+    np.testing.assert_allclose(solution["state.px"], 10.0 * solution["time"], rtol=1e-9, atol=1e-12)
+    np.testing.assert_allclose(solution["state.py"], 0.0, atol=1e-12)
     for column in ("px_dot", "py_dot", "theta_dot"):
         assert column not in solution.columns
 
 
-def test_cpp_target_emits_protected_variables_when_enabled():
-    builder = SessionBuilder(MODEL, build_options=CPP_BUILD_OPTIONS)
-    _configure(builder, emit_protected=True)
-
-    builder.session.simulate(model_name="KinematicVehicle")
-    solution = builder.session.get_solutions()["KinematicVehicle"]
+@pytest.mark.parametrize("target", TARGETS)
+def test_protected_variables_emitted_when_enabled(tmp_path, target):
+    solution = _simulate(tmp_path, [f"build.target={target}", "settings.emit_protected=true"])
 
     for column in ("px_dot", "py_dot", "theta_dot"):
         assert column in solution.columns
 
 
-def test_cpp_target_works_with_pydelica_session_directly():
-    install_pydelica_patch()
-    session = pydelica.Session()
-    session.build_model(MODEL, omc_build_flags={"-q": None, "--simCodeTarget": "Cpp"})
-    session.set_parameter("v_norm", 10.0)
-    session.set_parameter("phi", 0.0)
-    session.set_time_range(start_time=0, stop_time=1)
-    session.set_solver("dassl")
-    session.set_output_format("csv")
+@pytest.mark.parametrize("solver", ["cvode", "ida"])
+def test_c_and_cpp_agree(tmp_path, solver):
+    overrides = [
+        "settings.parameters.phi=0.1",
+        "settings.stop_time=2.0",
+        "settings.interval=0.01",
+        "settings.tolerance=1e-10",
+        f"settings.solver={solver}",
+    ]
+    # The targets repeat different time points (start, stop), so compare each time once.
+    c = _simulate(tmp_path / "C", ["build.target=C", *overrides]).drop_duplicates("time", ignore_index=True)
+    cpp = _simulate(tmp_path / "Cpp", ["build.target=Cpp", *overrides]).drop_duplicates("time", ignore_index=True)
 
-    session.simulate(model_name="KinematicVehicle")
-    solution = session.get_solutions()["KinematicVehicle"]
-
-    assert np.isclose(solution["time"].values[-1], 1.0)
-    assert np.isclose(solution["state.px"].values[-1], 10.0, rtol=1e-4)
+    # Cpp also writes variables bound to parameters (control.phi, control.v_norm) as columns.
+    assert set(c.columns) <= set(cpp.columns)
+    assert len(c) == len(cpp)
+    for column in c.columns:
+        np.testing.assert_allclose(cpp[column], c[column], rtol=1e-7, atol=1e-9, err_msg=column)

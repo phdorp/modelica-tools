@@ -1,114 +1,49 @@
 """Internal simulation helpers backing :mod:`mtools.sim_tools`.
 
 This module contains implementation details not intended for direct use:
-solution-key normalization, single-run execution, multirun sweep plumbing,
-and solution persistence. Public entry points live in
-:mod:`mtools.sim_tools` and delegate here.
+single-run execution, multirun sweep plumbing, and solution persistence.
+Public entry points live in :mod:`mtools.sim_tools` and delegate here.
 """
 
 from __future__ import annotations
 
-import logging
-import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import hydra_zen
 import pandas
 from hydra.core.utils import JobReturn
+from omegaconf import DictConfig
 
-import mtools.internal.session_tools as session_tools
+import mtools.internal.omc.build as omc_build
+import mtools.internal.run_config as run_config
 
 if TYPE_CHECKING:
     import mtools.session_config as session_config
 
-logger = logging.getLogger(__name__)
 
+def simulate_run(config: session_config.SimulationRun | DictConfig) -> dict[str, pandas.DataFrame]:
+    """Validate a run config, build its model (or take the build from the cache) and run it.
 
-def _canonical_name(name: str) -> str:
-    """Return a normalized form for comparing model and solution names.
-
-    Args:
-        name: Model or solution name to normalize.
-
-    Returns:
-        Lowercase name with non-alphanumeric runs collapsed to single
-        underscores and surrounding underscores stripped.
-    """
-    return re.sub(r"[^A-Za-z0-9]+", "_", name).strip("_").lower()
-
-
-def _normalize_solution_keys(
-    solutions: dict[str, pandas.DataFrame], model_name: str | None = None
-) -> dict[str, pandas.DataFrame]:
-    """Normalize simulation result keys to match the requested model name.
-
-    Backend-generated solution names may differ from the configured model name
-    (for example ``pkg.SubModel`` vs ``pkg_SubModel``). When a single result can
-    be unambiguously associated with the requested model, expose it under the
-    configured model name so downstream code can rely on a stable key.
+    ``hydra_zen.instantiate`` only turns the config into config objects; building and
+    running happen afterwards, so their exceptions reach the caller unwrapped. Builds
+    and run directories this call creates without caching them are deleted when it ends.
 
     Args:
-        solutions: Mapping of solution names to simulation result data frames.
-        model_name: Requested model name to normalize keys against. When
-            ``None`` or empty, or when ``solutions`` is empty, the mapping is
-            returned unchanged.
+        config: Run config, as config objects or as a composed Hydra config.
 
     Returns:
-        Solution mapping keyed by the requested model name when a single
-        result can be unambiguously associated with it, otherwise the input
-        mapping unchanged.
+        The result keyed by ``build.model_name``.
 
     Raises:
-        ValueError: If no solution key matches the requested model name.
+        mtools.errors.ConfigError: The config is invalid; nothing was built.
+        mtools.errors.BuildError: Translating or compiling the model failed.
+        mtools.errors.SimulationError: The run failed or timed out.
     """
-    if not model_name or not solutions:
-        return solutions
-
-    if model_name in solutions:
-        return solutions
-
-    canonical_model_name = _canonical_name(model_name)
-    matching_keys = [
-        key
-        for key in solutions
-        if _canonical_name(key) == canonical_model_name
-        or _canonical_name(key) == _canonical_name(model_name.split(".")[-1])
-    ]
-
-    # Drops solutions if multiple models are in solutions.
-    # Current API does only support simulation of a single model at at time.
-    # TODO: Modify `pydelica` to not alter model names.
-    if len(matching_keys) == 1:
-        if len(solutions) > 1:
-            logger.warning(
-                "Simulation returned multiple solutions; only '%s' matches the "
-                "requested model. Other solutions are discarded.",
-                matching_keys[0],
-            )
-        return {model_name: solutions[matching_keys[0]]}
-
-    if len(matching_keys) == 0:
-        raise ValueError(f"No solution matches the requested model '{model_name}'. ")
-
-    return solutions
-
-
-def simulate_run(config: session_config.SimulationRun) -> dict[str, pandas.DataFrame]:
-    """Run a configured simulation session and persist all solution tables.
-
-    Args:
-        config: Simulation run configuration including session factory settings
-            and the model name to simulate.
-
-    Returns:
-        Mapping of solution names to simulation result data frames.
-    """
-    director: session_tools.SessionDirector = hydra_zen.instantiate(config.session)
-    session = director.make_session()
-    session.simulate(model_name=config.model_name)
-    solutions = session.get_solutions()
-    return _normalize_solution_keys(solutions, model_name=config.model_name)
+    run = run_config.instantiate(config)
+    build_config, settings = run_config.validate(run)
+    with omc_build.build(build_config) as built:
+        return {build_config.model_name: built.simulate(settings)}
 
 
 def build_multirun_overrides(overrides: list[str], sweep_dir: str | Path | None) -> list[str]:

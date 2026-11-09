@@ -5,7 +5,7 @@ needed. Covered behavior:
 
 - single experiment (``Experiment``): composes the experiment by name via
   the registry, runs a single simulation, and stores the solution table keyed
-  by the composed config's ``model_name`` in ``results``.
+  by the composed config's ``build.model_name`` in ``results``.
 - multiple experiments (``Experiments``): same, but ``name`` is a list and
   ``results`` maps each name to its solution table.
 - parameter sweep (``ExperimentSweep``): resolves the experiment's base
@@ -54,7 +54,7 @@ def _signal_frame(values, signal="signal"):
 
 def test_reference_experiment_uses_reference_run_config(monkeypatch):
     def fake_simulate(config, **kwargs):
-        model_name = config["model_name"]
+        model_name = config["build"]["model_name"]
         return {model_name: _frame(model_name)}
 
     monkeypatch.setattr(sim_tools, "simulate", fake_simulate)
@@ -76,7 +76,7 @@ def test_reference_experiment_uses_reference_run_config(monkeypatch):
 
 def test_reference_experiment_multi_name_returns_mappings(monkeypatch):
     def fake_simulate(config, **kwargs):
-        model_name = config["model_name"]
+        model_name = config["build"]["model_name"]
         tag = f"{model_name}:{config['composed_experiment']}"
         return {model_name: _frame(tag)}
 
@@ -96,7 +96,7 @@ def test_reference_experiment_multi_name_returns_mappings(monkeypatch):
 
 def test_reference_experiment_propagates_missing_reference_solution(monkeypatch):
     def fake_simulate(config, **kwargs):
-        if config["model_name"] == "ref.Model":
+        if config["build"]["model_name"] == "ref.Model":
             raise ValueError("No solution matches the requested model 'ref.Model'.")
         return {"my.Model": _frame("candidate")}
 
@@ -199,8 +199,8 @@ def test_reference_comparison_failure_names_model_pair(monkeypatch):
     """Value-mismatch failures name both the candidate and reference models."""
 
     def fake_simulate(config, **kwargs):
-        signal = [1.0, 2.0] if config["model_name"] == "my.Model" else [1.0, 2.5]
-        return {config["model_name"]: _signal_frame(signal)}
+        signal = [1.0, 2.0] if config["build"]["model_name"] == "my.Model" else [1.0, 2.5]
+        return {config["build"]["model_name"]: _signal_frame(signal)}
 
     monkeypatch.setattr(sim_tools, "simulate", fake_simulate)
     registry = FakeRegistry(model_name="my.Model")
@@ -234,7 +234,7 @@ class FakeRegistry:
         """Record the call and return a composed config for the selected run config."""
         self.calls.append({"compose_experiment": name, "overrides": overrides, "run_config": run_config})
         model_name = getattr(run_config, "model_name", self.model_name)
-        return OmegaConf.create({"composed_experiment": name, "model_name": model_name})
+        return OmegaConf.create({"composed_experiment": name, "build": {"model_name": model_name}})
 
     def get_experiment_run_config(self, name, run_config=None):
         """Return the base run config for experiment ``name``."""
@@ -263,7 +263,7 @@ def test_single_experiment_uses_registry_default_run_config(monkeypatch):
     assert fake_registry.calls == [
         {"compose_experiment": "standstill", "overrides": None, "run_config": None}
     ]
-    assert captured["config"] == {"composed_experiment": "standstill", "model_name": "my.Model"}
+    assert captured["config"] == {"composed_experiment": "standstill", "build": {"model_name": "my.Model"}}
     assert T.results["tag"].iloc[0] == "single"
 
 
@@ -305,7 +305,7 @@ def test_sweep_resolves_base_run_from_registry(monkeypatch, tmp_path_factory):
         assert multirun is True
         return [
             FakeJob(
-                {"model_name": "my.Model", "session": {"parameters": {"phi": phi}}},
+                {"build": {"model_name": "my.Model"}, "settings": {"parameters": {"phi": phi}}},
                 {"my.Model": _frame(f"s{i}")},
             )
             for i, phi in enumerate((0.1, 0.2))
@@ -322,7 +322,7 @@ def test_sweep_resolves_base_run_from_registry(monkeypatch, tmp_path_factory):
     T.fetch_sweep(fake_registry, tmp_path_factory)
 
     assert captured["config"] is sentinel_run
-    assert captured["overrides"] == ["experiment=turn_left", "session.parameters.phi=0.1,0.2"]
+    assert captured["overrides"] == ["experiment=turn_left", "settings.parameters.phi=0.1,0.2"]
     assert set(T.results.keys()) == {(0.1,), (0.2,)}
 
 
@@ -340,7 +340,7 @@ def test_sweep_results_keyed_by_job_config_not_launch_order(monkeypatch, tmp_pat
         assert multirun is True
         jobs = [
             FakeJob(
-                {"model_name": "my.Model", "session": {"parameters": {"phi": phi}}},
+                {"build": {"model_name": "my.Model"}, "settings": {"parameters": {"phi": phi}}},
                 {"my.Model": _frame(f"phi={phi}")},
             )
             for phi in (0.1, 0.2)
@@ -379,8 +379,8 @@ def test_sweep_serializes_hydra_native_types(monkeypatch, tmp_path_factory):
         return [
             FakeJob(
                 {
-                    "model_name": "my.Model",
-                    "session": {"parameters": {"state_0": list(state), "v_norm": v, "flag": flag}},
+                    "build": {"model_name": "my.Model"},
+                    "settings": {"parameters": {"state_0": list(state), "v_norm": v, "flag": flag}},
                 },
                 {"my.Model": _frame(f"s{i}")},
             )
@@ -403,9 +403,9 @@ def test_sweep_serializes_hydra_native_types(monkeypatch, tmp_path_factory):
 
     assert captured["overrides"] == [
         "experiment=straight_driving",
-        "session.parameters.state_0=[0.0,0.0,0.0],[1.0,0.0,0.0]",
-        "session.parameters.v_norm=5,10",
-        "session.parameters.flag=true,false",
+        "settings.parameters.state_0=[0.0,0.0,0.0],[1.0,0.0,0.0]",
+        "settings.parameters.v_norm=5,10",
+        "settings.parameters.flag=true,false",
     ]
     assert set(T.results.keys()) == {
         ((0.0, 0.0, 0.0), 5, True),
@@ -440,7 +440,7 @@ def test_sweep_serializes_dict_values_and_freezes_keys(monkeypatch, tmp_path_fac
         ]
         return [
             FakeJob(
-                {"model_name": "my.Model", "session": {"parameters": {"state_0": dict(state)}}},
+                {"build": {"model_name": "my.Model"}, "settings": {"parameters": {"state_0": dict(state)}}},
                 {"my.Model": _frame(f"s{i}")},
             )
             for i, state in enumerate(states)
@@ -460,7 +460,7 @@ def test_sweep_serializes_dict_values_and_freezes_keys(monkeypatch, tmp_path_fac
 
     assert captured["overrides"] == [
         "experiment=straight_driving",
-        "session.parameters.state_0={px:0.0,py:0.0,theta:0.0},{px:1.0,py:0.0,theta:0.0}",
+        "settings.parameters.state_0={px:0.0,py:0.0,theta:0.0},{px:1.0,py:0.0,theta:0.0}",
     ]
     assert set(T.results.keys()) == {
         ((("px", 0.0), ("py", 0.0), ("theta", 0.0)),),
@@ -484,7 +484,7 @@ def test_sweep_maps_tuples_onto_structured_fields(monkeypatch, tmp_path_factory)
         def compose_experiment(self, name, run_config=None, overrides=None):
             self.calls.append({"compose_experiment": name, "overrides": overrides, "run_config": run_config})
             return OmegaConf.create(
-                {"session": {"parameters": {"state_0": {"px": 0.0, "py": 0.0, "theta": 0.0}}}}
+                {"settings": {"parameters": {"state_0": {"px": 0.0, "py": 0.0, "theta": 0.0}}}}
             )
 
     captured = {}
@@ -496,7 +496,7 @@ def test_sweep_maps_tuples_onto_structured_fields(monkeypatch, tmp_path_factory)
         fields = ("px", "py", "theta")
         return [
             FakeJob(
-                {"model_name": "my.Model", "session": {"parameters": {"state_0": dict(zip(fields, state))}}},
+                {"build": {"model_name": "my.Model"}, "settings": {"parameters": {"state_0": dict(zip(fields, state))}}},
                 {"my.Model": _frame(f"s{i}")},
             )
             for i, state in enumerate(states)
@@ -514,7 +514,7 @@ def test_sweep_maps_tuples_onto_structured_fields(monkeypatch, tmp_path_factory)
 
     assert captured["overrides"] == [
         "experiment=straight_driving",
-        "session.parameters.state_0={px:0.0,py:0.0,theta:0.0},{px:1.0,py:2.0,theta:3.0}",
+        "settings.parameters.state_0={px:0.0,py:0.0,theta:0.0},{px:1.0,py:2.0,theta:3.0}",
     ]
     assert set(T.results.keys()) == {((0.0, 0.0, 0.0),), ((1.0, 2.0, 3.0),)}
 
@@ -527,7 +527,7 @@ def test_sweep_tuple_arity_mismatch_raises(monkeypatch, tmp_path_factory):
 
         def compose_experiment(self, name, run_config=None, overrides=None):
             return OmegaConf.create(
-                {"session": {"parameters": {"state_0": {"px": 0.0, "py": 0.0, "theta": 0.0}}}}
+                {"settings": {"parameters": {"state_0": {"px": 0.0, "py": 0.0, "theta": 0.0}}}}
             )
 
     def fake_simulate(config, *, overrides, multirun, sweep_dir):
@@ -566,7 +566,7 @@ def test_sweep_over_multiple_parameters_uses_cartesian_product(monkeypatch, tmp_
         combos = list(_product((0.0, 1.0), (0.0, 1.0)))
         jobs = [
             FakeJob(
-                {"model_name": "my.Model", "session": {"parameters": {"state_0": {"px": px, "py": py}}}},
+                {"build": {"model_name": "my.Model"}, "settings": {"parameters": {"state_0": {"px": px, "py": py}}}},
                 {"my.Model": _frame(f"s{i}")},
             )
             for i, (px, py) in enumerate(combos)
@@ -585,8 +585,8 @@ def test_sweep_over_multiple_parameters_uses_cartesian_product(monkeypatch, tmp_
 
     assert captured["overrides"] == [
         "experiment=straight_driving",
-        "session.parameters.state_0.px=0.0,1.0",
-        "session.parameters.state_0.py=0.0,1.0",
+        "settings.parameters.state_0.px=0.0,1.0",
+        "settings.parameters.state_0.py=0.0,1.0",
     ]
     assert set(T.results.keys()) == {(0.0, 0.0), (0.0, 1.0), (1.0, 0.0), (1.0, 1.0)}
     assert T.results[(1.0, 0.0)]["tag"].iloc[0] == "s2"
@@ -620,7 +620,7 @@ def test_sweep_serializes_dataclass_values_like_dicts(monkeypatch, tmp_path_fact
         ]
         return [
             FakeJob(
-                {"model_name": "my.Model", "session": {"parameters": {"state_0": dict(state)}}},
+                {"build": {"model_name": "my.Model"}, "settings": {"parameters": {"state_0": dict(state)}}},
                 {"my.Model": _frame(f"s{i}")},
             )
             for i, state in enumerate(states)
@@ -640,7 +640,7 @@ def test_sweep_serializes_dataclass_values_like_dicts(monkeypatch, tmp_path_fact
 
     assert captured["overrides"] == [
         "experiment=straight_driving",
-        "session.parameters.state_0={px:0.0,py:0.0,theta:0.0},{px:1.0,py:0.0,theta:0.0}",
+        "settings.parameters.state_0={px:0.0,py:0.0,theta:0.0},{px:1.0,py:0.0,theta:0.0}",
     ]
     assert set(T.results.keys()) == {
         ((("px", 0.0), ("py", 0.0), ("theta", 0.0)),),
@@ -718,7 +718,7 @@ def test_sweep_dataclass_over_structured_target_needs_no_arity_mapping(monkeypat
         def compose_experiment(self, name, run_config=None, overrides=None):
             self.calls.append({"compose_experiment": name, "overrides": overrides, "run_config": run_config})
             return OmegaConf.create(
-                {"session": {"parameters": {"state_0": {"px": 0.0, "py": 0.0, "theta": 0.0}}}}
+                {"settings": {"parameters": {"state_0": {"px": 0.0, "py": 0.0, "theta": 0.0}}}}
             )
 
     captured = {}
@@ -732,7 +732,7 @@ def test_sweep_dataclass_over_structured_target_needs_no_arity_mapping(monkeypat
         ]
         return [
             FakeJob(
-                {"model_name": "my.Model", "session": {"parameters": {"state_0": dict(state)}}},
+                {"build": {"model_name": "my.Model"}, "settings": {"parameters": {"state_0": dict(state)}}},
                 {"my.Model": _frame(f"s{i}")},
             )
             for i, state in enumerate(states)
@@ -749,7 +749,7 @@ def test_sweep_dataclass_over_structured_target_needs_no_arity_mapping(monkeypat
 
     assert captured["overrides"] == [
         "experiment=straight_driving",
-        "session.parameters.state_0={px:0.0,py:0.0,theta:0.0},{px:1.0,py:2.0,theta:3.0}",
+        "settings.parameters.state_0={px:0.0,py:0.0,theta:0.0},{px:1.0,py:2.0,theta:3.0}",
     ]
     assert set(T.results.keys()) == {
         ((("px", 0.0), ("py", 0.0), ("theta", 0.0)),),
@@ -797,7 +797,7 @@ def test_reference_sweep_uses_reference_run_config_and_matches_combinations(monk
         model_name = config.model_name
         return [
             FakeJob(
-                {"model_name": model_name, "session": {"parameters": {"phi": phi}}},
+                {"build": {"model_name": model_name}, "settings": {"parameters": {"phi": phi}}},
                 {model_name: pd.DataFrame({"time": [0.0, 1.0], "signal": [phi, phi]})},
             )
             for phi in (0.1, 0.2)
@@ -815,8 +815,8 @@ def test_reference_sweep_uses_reference_run_config_and_matches_combinations(monk
 
     T.fetch_reference_sweep(registry, reference_run_config, tmp_path_factory)
 
-    assert calls[0]["overrides"] == ["experiment=turn_left", "session.parameters.phi=0.1,0.2"]
-    assert calls[1]["overrides"] == ["experiment=turn_left", "session.parameters.phi=0.1,0.2"]
+    assert calls[0]["overrides"] == ["experiment=turn_left", "settings.parameters.phi=0.1,0.2"]
+    assert calls[1]["overrides"] == ["experiment=turn_left", "settings.parameters.phi=0.1,0.2"]
     assert calls[0]["sweep_dir"] != calls[1]["sweep_dir"]
     assert set(T.results) == set(T.reference_results) == {(0.1,), (0.2,)}
     assert T.reference_results[(0.2,)]["signal"].iloc[0] == 0.2
@@ -836,7 +836,7 @@ def test_multi_experiment_reference_sweep_maps_each_name_to_both_sides(monkeypat
         model_name = config.model_name
         return [
             FakeJob(
-                {"model_name": model_name, "session": {"parameters": {"phi": phi}}},
+                {"build": {"model_name": model_name}, "settings": {"parameters": {"phi": phi}}},
                 {model_name: _signal_frame([phi])},
             )
             for phi in (0.1, 0.2)
@@ -894,7 +894,7 @@ def test_reference_sweep_launches_reference_pass_with_reference_run_config(monke
         model_name = config.model_name
         return [
             FakeJob(
-                {"model_name": model_name, "session": {"parameters": {"phi": phi}}},
+                {"build": {"model_name": model_name}, "settings": {"parameters": {"phi": phi}}},
                 {model_name: _signal_frame([phi])},
             )
             for phi in (0.1, 0.2)
@@ -949,7 +949,7 @@ def test_sweep_job_config_missing_model_name_raises(monkeypatch, tmp_path_factor
     def fake_simulate(config, *, overrides, multirun, sweep_dir):
         assert multirun is True
         return [
-            FakeJob({"session": {"parameters": {"phi": phi}}}, {"my.Model": _frame(f"phi={phi}")})
+            FakeJob({"settings": {"parameters": {"phi": phi}}}, {"my.Model": _frame(f"phi={phi}")})
             for phi in (0.1, 0.2)
         ]
 
@@ -968,7 +968,7 @@ def test_reference_comparison_accepts_same_run_config_for_both_models(monkeypatc
     """Passing one run config for both sides compares a model against itself."""
 
     def fake_simulate(config, **kwargs):
-        return {config["model_name"]: _signal_frame([1.0, 2.0])}
+        return {config["build"]["model_name"]: _signal_frame([1.0, 2.0])}
 
     monkeypatch.setattr(sim_tools, "simulate", fake_simulate)
     shared = _run_config("my.Model")
@@ -991,10 +991,11 @@ def test_multi_experiment_reference_keys_each_name_by_its_own_model_name(monkeyp
         def compose_experiment(self, name, run_config=None, overrides=None):
             self.calls.append({"compose_experiment": name, "overrides": overrides, "run_config": run_config})
             model_name = "ref.Model" if run_config is not None else f"my.{name}"
-            return OmegaConf.create({"composed_experiment": name, "model_name": model_name})
+            return OmegaConf.create({"composed_experiment": name, "build": {"model_name": model_name}})
 
     def fake_simulate(config, **kwargs):
-        return {config["model_name"]: _frame(f"{config['composed_experiment']}:{config['model_name']}")}
+        model_name = config["build"]["model_name"]
+        return {model_name: _frame(f"{config['composed_experiment']}:{model_name}")}
 
     monkeypatch.setattr(sim_tools, "simulate", fake_simulate)
     registry = PerNameRegistry()

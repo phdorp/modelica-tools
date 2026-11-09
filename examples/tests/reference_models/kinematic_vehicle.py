@@ -6,14 +6,14 @@ tests root as ``tests.reference_models``. The candidate registry is owned by
 registry binds it to the registry's experiments automatically.
 
 The reference model extends the candidate interface, so the reference build
-also has to load the candidate package. Loading the package (rather than the
-interface file alone) is what lets OMC resolve the interface's
+also has to load the candidate package, as an extra source. Loading the package
+(rather than the interface file alone) is what lets OMC resolve the interface's
 ``within kinematic_vehicle`` clause.
 """
 
 from pathlib import Path
 
-from kinematic_vehicle.kinematic_vehicle import cpp_build_options, registry
+from kinematic_vehicle.kinematic_vehicle import TARGET, registry
 
 #: Root of the ``examples`` project, used to address Modelica packages relative
 #: to the project rather than to this module.
@@ -29,10 +29,8 @@ CANDIDATE_PACKAGE_PATH = (
 run_reference = registry.create_run(
     model_name=REFERENCE_MODEL_NAME,
     model_path=REFERENCE_MODEL_PATH,
-    build_options={
-        **cpp_build_options(REFERENCE_MODEL_NAME),
-        "extra_models": [str(CANDIDATE_PACKAGE_PATH)],
-    },
+    target=TARGET,
+    extra_sources=[CANDIDATE_PACKAGE_PATH],
     include_experiment_group=True,
     name="reference",
 )

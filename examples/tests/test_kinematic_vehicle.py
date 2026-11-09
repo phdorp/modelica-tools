@@ -132,16 +132,26 @@ class TestProtectedOutput(Experiment):
 def test_example_builds_and_solves_with_cpp_target():
     config = kinematic_registry.compose("default")
 
-    assert config.model_name == "kinematic_vehicle.WrapperKinematicVehicle"
-    assert config.session.parameters.v_norm == 10.0
-    assert config.session.parameters.phi == 0.0
-    assert config.session.parameters.wheelbase == 2.0
-    assert config.session.build_options.omc_build_flags["--simCodeTarget"] == "Cpp"
-    assert config.session.sim_configurations.solver == "dassl"
+    assert config.build.model_name == "kinematic_vehicle.WrapperKinematicVehicle"
+    assert config.build.target == "Cpp"
+    assert "--simCodeTarget" not in config.build.omc_flags
+    assert config.settings.parameters.v_norm == 10.0
+    assert config.settings.parameters.phi == 0.0
+    assert config.settings.parameters.wheelbase == 2.0
+    assert config.settings.solver == "dassl"
+    assert config.settings.stop_time == 10.0
 
 
 def test_protected_output_experiment_keeps_cpp_solver():
     config = kinematic_registry.compose_experiment("protected_output")
 
-    assert config.session.sim_configurations.solver == "dassl"
-    assert config.session.sim_configurations.emit_protected is True
+    assert config.settings.solver == "dassl"
+    assert config.settings.emit_protected is True
+    assert config.settings.parameters.v_norm == 10.0
+
+
+def test_parameter_override_path():
+    config = kinematic_registry.compose("default", overrides=["settings.parameters.phi=0.1", "settings.stop_time=2"])
+
+    assert config.settings.parameters.phi == 0.1
+    assert config.settings.stop_time == 2.0
