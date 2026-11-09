@@ -60,15 +60,17 @@ Runs `kinematic_vehicle.WrapperKinematicVehicle` with default parameters `v_norm
 `wheelbase=2.0`, `stop_time=10.0`, and zero initial state for `vehicle.px`, `vehicle.py`, and
 `vehicle.theta`.
 
-The run configs build with `--simCodeTarget=Cpp`, so results come from OpenModelica's C++ simulation
-runtime. The default solver is `dassl` because the Cpp runtime does not support the deprecated
-`rungekutta` solver.
+The run configs set `build.target="Cpp"`, so results come from OpenModelica's C++ simulation
+runtime (see the [Targets section](../README.md#targets) of the main README). The run settings set `solver="dassl"`
+because the Cpp runtime only supports `dassl`, `cvode` and `ida`. The model has no `experiment`
+annotation, so `settings_default` in `src/kinematic_vehicle/kinematic_vehicle.py` sets `stop_time=10.0` and
+`tolerance=1e-9`.
 
 ### Parameter overrides
 
 ```bash
-uv run python -m kinematic_vehicle session.parameters.phi=0.1
-uv run python -m kinematic_vehicle session.parameters.wheelbase=3.0
+uv run python -m kinematic_vehicle settings.parameters.phi=0.1
+uv run python -m kinematic_vehicle settings.parameters.wheelbase=3.0
 ```
 
 Overrides a wrapper parameter directly. `phi` is the steering angle in radians and `wheelbase` is the
@@ -88,10 +90,10 @@ Experiments are registered via `registry.register_experiment(...)` and compose t
 ### Parameter sweep
 
 ```bash
-uv run python -m kinematic_vehicle -m session.parameters.v_norm=10,20
+uv run python -m kinematic_vehicle -m settings.parameters.v_norm=10,20
 ```
 
-Launches a multirun sweep over `v_norm` values 10 and 20. Hydra runs separate simulations for each value and stores results in separate output directories. `phi` and `wheelbase` are sweepable the same way, for example `uv run python -m kinematic_vehicle -m session.parameters.wheelbase=2,4`.
+Launches a multirun sweep over `v_norm` values 10 and 20. Hydra runs separate simulations for each value and stores results in separate output directories. `phi` and `wheelbase` are sweepable the same way, for example `uv run python -m kinematic_vehicle -m settings.parameters.wheelbase=2,4`.
 
 ## Tests
 
@@ -103,7 +105,7 @@ uv run pytest
 ```
 
 `TestProtectedOutput` runs the `protected_output` experiment to show the `emit_protected` runtime option: setting
-`sim_configurations.emit_protected=True` logs protected Modelica variables (here `vehicle.px_dot`,
+`settings.emit_protected=True` logs protected Modelica variables (here `vehicle.px_dot`,
 `vehicle.py_dot`, and `vehicle.theta_dot`) as extra result columns. The option defaults to `False`, so protected variables are omitted unless enabled.
 
 ## Compare against a reference model
@@ -113,7 +115,7 @@ package, mirroring the candidate structure: `tests.reference_models.KinematicVeh
 simulated `tests.reference_models.WrapperKinematicVehicle`, with the same `vehicle` component
 and equations. `tests.reference_models.KinematicVehicle` extends the candidate interface
 `kinematic_vehicle.IKinematicVehicle`, and the reference build loads the candidate package as an
-`extra_models` entry, so there is no duplicate interface to maintain. The
+`extra_sources` entry, so there is no duplicate interface to maintain. The
 candidate lives in the `src/kinematic_vehicle` package, so the comparison demonstrates cross-package
 testing rather than two models in one source file.
 

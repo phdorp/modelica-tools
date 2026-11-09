@@ -554,7 +554,11 @@ class DashBuilder:
 
         if not result_file:
             return
-        self._set_data(pd.read_csv(result_file))
+        data = pd.read_csv(result_file)
+        boolean_columns = data.select_dtypes(include="bool").columns
+        # Plotly draws Boolean columns as categories, so plot them as 0/1 signals.
+        data[boolean_columns] = data[boolean_columns].astype(int)
+        self._set_data(data)
 
     def _update_graph_callback(
         self,
