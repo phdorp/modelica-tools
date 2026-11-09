@@ -44,8 +44,9 @@ def simulate(
 ) -> dict[str, pandas.DataFrame] | list[SweepResult]:
     """Run a single simulation or a multirun sweep.
 
-    Single-run: ``simulate(composed_config)`` instantiates the session and
-    returns solution tables.
+    Single-run: ``simulate(config)`` validates the run config, builds the model
+    (or reuses a cached build), runs it and returns the result keyed by
+    ``build.model_name``.
 
     Multirun: ``simulate(run_config_type, overrides=[...], multirun=True)``
     fans out via ``hydra_zen.launch``; each job runs the single-run path.
@@ -54,7 +55,7 @@ def simulate(
         config: Composed run config (single-run) or run config type
             (multirun, e.g. ``run_default`` from the registry).
         overrides: Sweep overrides for multirun (e.g.
-            ``["session.parameters.phi=0.1,0.2"]``). Required if multirun.
+            ``["settings.parameters.phi=0.1,0.2"]``). Required if multirun.
         multirun: Whether to launch a Hydra multirun sweep.
         sweep_dir: Optional ``hydra.sweep.dir`` value for the sweep.
 

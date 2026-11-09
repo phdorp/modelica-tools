@@ -1,8 +1,8 @@
 """Internal simulation helpers backing :mod:`mtools.sim_tools`.
 
 This module contains implementation details not intended for direct use:
-single-run execution, multirun sweep plumbing, and solution persistence. Public entry points live in
-:mod:`mtools.sim_tools` and delegate here.
+single-run execution, multirun sweep plumbing, and solution persistence.
+Public entry points live in :mod:`mtools.sim_tools` and delegate here.
 """
 
 from __future__ import annotations
