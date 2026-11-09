@@ -252,6 +252,9 @@ def test_c_compile_failure_raises_compile_error(tmp_path: Path):
         build(BuildConfig(model_path=source, model_name="CBuild"))
 
     assert raised.value.model_name == "CBuild"
+    assert "fatal error: 'no_such_header.h' file not found" in raised.value.diagnostics
+    for line in raised.value.diagnostics.splitlines():
+        assert "clang " not in line and "make:" not in line, line
 
 
 def test_failed_run_raises_simulation_error(tmp_path: Path, target: Target):
