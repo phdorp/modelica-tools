@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 import dataclasses
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
+from pathlib import Path
 from typing import TYPE_CHECKING, Optional, TypeAlias, cast
 
 import hydra
 import hydra_zen
-import pydantic
 from hydra.core.global_hydra import GlobalHydra
 from hydra_zen import MISSING, ZenStore
-from hydra_zen.typing._implementations import _MISSING_TYPE, DefaultsList
+from hydra_zen.typing._implementations import DefaultsList
 from omegaconf import DictConfig
 
 import mtools.session_config as session_config
@@ -339,8 +339,8 @@ class HydraZenRegistry:
         self,
         *,
         base: type[DataClass],
-        model_name: str,
-        session: type[DataClass],
+        build: session_config.Build | type[DataClass],
+        settings: session_config.RunSettings | type[DataClass],
         selections: Mapping[str, str] | None = None,
         include_experiment_group: bool = False,
         name: Optional[str] = None,
@@ -348,9 +348,11 @@ class HydraZenRegistry:
         """Create a run config type with Hydra defaults.
 
         Args:
-            base: Base config class to inherit from.
-            model_name: Model name value for the generated config.
-            session: Session dataclass type for the generated config.
+            base: Base config class to inherit from, usually
+                :class:`mtools.session_config.SimulationRun`.
+            build: Build config for the generated config.
+            settings: Run settings for the generated config; a group default for
+                ``settings`` or ``settings/parameters`` replaces the parts it sets.
             selections: Optional mapping of hierarchy path to selected option.
             include_experiment_group: Whether to include ``{"experiment": None}``
                 in defaults to allow experiment overrides.
@@ -371,8 +373,8 @@ class HydraZenRegistry:
 
         run_config = hydra_zen.make_config(
             bases=(base,),
-            model_name=model_name,
-            session=session,
+            build=build,
+            settings=settings,
             hydra_defaults=default,
         )
 
@@ -391,36 +393,31 @@ class HydraZenRegistry:
         self,
         *,
         model_name: str,
-        parameters: session_config.DataclassType | _MISSING_TYPE = MISSING,
-        simulation: session_config.Simulation | _MISSING_TYPE = MISSING,
-        model_path: pydantic.FilePath,
-        build_options: dict | None = None,
-        model_configurations: dict[str, session_config.Model] | None = None,
-        libraries: list[dict[str, str]] | None = None,
+        model_path: Path,
+        target: session_config.Target = "C",
+        extra_sources: Sequence[Path] = (),
+        libraries: Sequence[session_config.Library] = (),
+        omc_flags: Mapping[str, str | None] | None = None,
+        settings: session_config.RunSettings | None = None,
         selections: Mapping[str, str] | None = None,
         include_experiment_group: bool = False,
         name: Optional[str] = None,
     ) -> RunConfig:
-        """Create and register a run config from raw session inputs.
+        """Create and register a run config from the build fields and run settings.
 
-        This is a convenience wrapper around ``build_run_config`` that builds
-        the session config from individual inputs, avoiding repeated provision
-        of the model name.
+        This is a convenience wrapper around ``build_run_config`` that assembles the
+        :class:`~mtools.session_config.Build` config from individual inputs.
 
         Args:
-            model_name: Model name used for the run config, the model
-                configurations, and the default build options.
-            parameters: Dataclass object containing model parameter values.
-                Defaults to ``hydra_zen.MISSING``.
-            simulation: Simulation-wide runtime configuration. Defaults to
-                ``hydra_zen.MISSING``.
-            model_path: Path to the model source file to build.
-            build_options: Optional keyword arguments for model building.
-                Defaults to ``{"model_addr": model_name}``.
-            model_configurations: Per-model configuration blocks keyed by model
-                name. Defaults to
-                ``{model_name: Model.from_parameters(model_name)}``.
-            libraries: Optional library configurations for model building.
+            model_name: Fully qualified name of the model class; results are keyed by it.
+            model_path: Modelica source file holding the model.
+            target: Simulation target, ``"C"`` or ``"Cpp"``.
+            extra_sources: Source files or packages loaded before ``model_path``.
+            libraries: Libraries loaded before the sources.
+            omc_flags: Extra OMC flags; the target is set with ``target`` only.
+            settings: Run settings. Defaults to settings whose parameters come from the
+                ``settings/parameters`` group and whose other values come from the
+                model's experiment annotation; a ``settings`` group default replaces it.
             selections: Optional mapping of hierarchy path to selected option.
             include_experiment_group: Whether to include ``{"experiment": None}``
                 in defaults to allow experiment overrides.
@@ -431,25 +428,18 @@ class HydraZenRegistry:
         Returns:
             A config type created by ``hydra_zen.make_config``.
         """
-        if model_configurations is None:
-            model_configurations = {model_name: session_config.Model.from_parameters(model_name)}
-        if build_options is None:
-            build_options = {"model_addr": model_name}
-
-        session_config_type = hydra_zen.make_config(
-            bases=(session_config.Session,),
-            parameters=parameters,
-            model_configurations=model_configurations,
-            sim_configurations=simulation,
-            model=model_path,
-            build_options=build_options,
-            libraries=libraries,
+        build = session_config.Build(
+            model_path=model_path,
+            model_name=model_name,
+            target=target,
+            extra_sources=list(extra_sources),
+            libraries=list(libraries),
+            omc_flags=dict(omc_flags or {}),
         )
-
         return self.build_run_config(
             base=session_config.SimulationRun,
-            model_name=model_name,
-            session=session_config_type,
+            build=build,
+            settings=settings if settings is not None else session_config.RunSettings(parameters=MISSING),
             selections=selections,
             include_experiment_group=include_experiment_group,
             name=name,
@@ -544,8 +534,8 @@ class HydraZenRegistry:
         self._store(group=EXPERIMENT_GROUP, package="_global_")(
             hydra_zen.make_config(
                 bases=bases,
-                model_name=MISSING,
-                session=MISSING,
+                build=MISSING,
+                settings=MISSING,
                 hydra_defaults=self._experiment_defaults[name],
             ),
             name=name,

@@ -153,7 +153,7 @@ class SimulationRun:
 
 - **Removed:** `Session`, `Model`, `TimeRange`, `Tolerance`, `VariableFilter`, `Simulation`, `SimulationRun.model_name`, `build_options`, `model_configurations`, `output_format`.
 - **Override paths:** the `session` group is replaced by `build` and `settings`. `settings/parameters` stays a group of selectable options. `mtools.testing`'s sweep parameter prefix becomes `settings.parameters`.
-- **Parameters:** the parameter dataclass is flattened to dotted names, and array values are expanded to Modelica's 1-based, row-major indexed names (`m[1, 2]`). Empty arrays raise `ValueError`. This keeps today's behaviour.
+- **Parameters:** the parameter dataclass is flattened to dotted names, and array values are expanded to Modelica's 1-based, row-major indexed names (`m[1,2]`; OMC's names have no space after the comma, and the C runtime ignores `m[1, 2]`). Empty arrays raise `ValueError`. This keeps today's behaviour.
 - **Validation** happens once in `simulate_run`, before building, and errors name the config path. Checks include `--simCodeTarget` in `omc_flags`, an explicitly requested Cpp solver outside `dassl`/`cvode`/`ida`, and type errors. Checks that need the build (unknown or protected parameter names, a Cpp-unsupported solver from the annotation) run after building and before the run starts.
 - **Registry:** `create_run(model_name, model_path, target, extra_sources, libraries, omc_flags, settings, ...)` replaces the `build_options` dict. The examples' `cpp_build_options` helper is deleted in favour of `target="Cpp"`.
 
@@ -255,7 +255,7 @@ class SimulationRun:
 
 ### Plotting tool ([Reading results into DataFrames](https://github.com/phdorp/modelica-tools/issues/49))
 
-- **Only change:** the plotting tool converts Boolean columns to 0/1 before plotting. It keeps reading the CSVs that `save_solutions` writes.
+- **Only change:** the plotting tool converts Boolean columns to 0/1 before plotting. It keeps reading the CSVs that `save_solutions` writes. *Amended by [ADR 0002](../adr/0002-saved-result-format.md): `save_solutions` writes `.mat` by default and the plotting tool reads `.mat` and `.csv`.*
 
 ### Migration ([How mtools switches from pydelica to the new backend](https://github.com/phdorp/modelica-tools/issues/55))
 
@@ -312,7 +312,7 @@ class SimulationRun:
 - Choosing the target automatically.
 - Automatic cache eviction, a cache-clearing command, timeouts on builds.
 - Stable public logger names below `mtools`.
-- The plotting tool reading `.mat` files or run directories.
+- The plotting tool reading run directories. (Reading saved `.mat` files moved into scope with [ADR 0002](../adr/0002-saved-result-format.md).)
 - Inferring the model name from the package ("Infer Model Name from Modelica Package", #25).
 - Contributing fixes to pydelica upstream.
 

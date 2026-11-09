@@ -1,78 +1,65 @@
-import numpy as np
+"""Array parameters in a parameter dataclass reach the model as indexed names, set from configs."""
+
+import dataclasses
+from pathlib import Path
+
+import hydra_zen
 import pytest
 
-from mtools.internal.session_tools import SessionBuilder
+from mtools.session_config import Build, RunSettings, SimulationRun
+from mtools.sim_tools import simulate
+
+MODEL_PATH = Path(__file__).parent.joinpath("models", "arrays.mo").resolve()
 
 
-class TestConvertParameters:
-    def test_scalar_passthrough(self):
-        assert SessionBuilder._convert_parameters({"v_norm": 10.0, "phi": 0.1}) == {
-            "v_norm": 10.0,
-            "phi": 0.1,
-        }
+@dataclasses.dataclass
+class ArrayParameters:
+    y: list[float] = dataclasses.field(default_factory=lambda: [1.0, 2.0])
+    m: list[list[float]] = dataclasses.field(default_factory=lambda: [[1.0, 2.0], [3.0, 4.0]])
 
-    def test_non_numeric_scalar_passthrough(self):
-        assert SessionBuilder._convert_parameters({"flag": True, "label": "x"}) == {
-            "flag": True,
-            "label": "x",
-        }
 
-    def test_list_1d_indexed(self):
-        assert SessionBuilder._convert_parameters({"vec": [1.0, 2.0, 3.0]}) == {
-            "vec[1]": 1.0,
-            "vec[2]": 2.0,
-            "vec[3]": 3.0,
-        }
+run_arrays = hydra_zen.make_config(
+    bases=(SimulationRun,),
+    hydra_defaults=["_self_"],
+    build=Build(model_path=MODEL_PATH, model_name="Arrays"),
+    settings=RunSettings(parameters=ArrayParameters(), stop_time=1.0),
+)
 
-    def test_tuple_1d_indexed(self):
-        assert SessionBuilder._convert_parameters({"vec": (1.0, 2.0)}) == {
-            "vec[1]": 1.0,
-            "vec[2]": 2.0,
-        }
 
-    def test_numpy_1d_array_indexed(self):
-        assert SessionBuilder._convert_parameters({"vec": np.array([1.0, 2.0])}) == {
-            "vec[1]": np.float64(1.0),
-            "vec[2]": np.float64(2.0),
-        }
+def _final(tmp_path, overrides):
+    job = hydra_zen.launch(
+        run_arrays,
+        simulate,
+        [*overrides, f"hydra.run.dir={tmp_path}", "hydra.job.chdir=False"],
+        with_log_configuration=False,
+        version_base=None,
+    )
+    return job.return_value["Arrays"].iloc[-1]
 
-    def test_numpy_2d_array_row_major_indexed(self):
-        assert SessionBuilder._convert_parameters({"mat": np.array([[1.0, 2.0], [3.0, 4.0]])}) == {
-            "mat[1, 1]": np.float64(1.0),
-            "mat[1, 2]": np.float64(2.0),
-            "mat[2, 1]": np.float64(3.0),
-            "mat[2, 2]": np.float64(4.0),
-        }
 
-    def test_nested_list_2d_row_major_indexed(self):
-        assert SessionBuilder._convert_parameters({"mat": [[1.0, 2.0], [3.0, 4.0]]}) == {
-            "mat[1, 1]": 1.0,
-            "mat[1, 2]": 2.0,
-            "mat[2, 1]": 3.0,
-            "mat[2, 2]": 4.0,
-        }
+@pytest.mark.parametrize("target", ["C", "Cpp"])
+def test_array_parameters_are_set_element_by_element(tmp_path, target):
+    final = _final(
+        tmp_path,
+        [f"build.target={target}", "settings.parameters.y=[3.0,4.0]", "settings.parameters.m=[[1.0,5.0],[6.0,4.0]]"],
+    )
 
-    def test_mixed_scalar_and_array(self):
-        assert SessionBuilder._convert_parameters({"v_norm": 10.0, "vec": [1.0, 2.0]}) == {
-            "v_norm": 10.0,
-            "vec[1]": 1.0,
-            "vec[2]": 2.0,
-        }
+    assert final["s"] == pytest.approx(3.0 + 10 * 4.0)
+    assert final["t"] == pytest.approx(5.0 + 10 * 6.0)
 
-    def test_empty_list_raises(self):
-        with pytest.raises(ValueError, match="vec"):
-            SessionBuilder._convert_parameters({"vec": []})
 
-    def test_empty_tuple_raises(self):
-        with pytest.raises(ValueError, match="vec"):
-            SessionBuilder._convert_parameters({"vec": ()})
+def test_array_defaults_from_the_dataclass_are_applied(tmp_path):
+    final = _final(tmp_path, [])
 
-    def test_empty_ndarray_raises(self):
-        with pytest.raises(ValueError, match="vec"):
-            SessionBuilder._convert_parameters({"vec": np.array([])})
+    assert final["s"] == pytest.approx(1.0 + 10 * 2.0)
+    assert final["t"] == pytest.approx(2.0 + 10 * 3.0)
 
-    def test_dict_passthrough(self):
-        assert SessionBuilder._convert_parameters({"meta": {"a": 1}}) == {"meta": {"a": 1}}
 
-    def test_string_value_passthrough(self):
-        assert SessionBuilder._convert_parameters({"path": "abc"}) == {"path": "abc"}
+def test_empty_array_parameter_raises_value_error():
+    run = SimulationRun(
+        build=Build(model_path=MODEL_PATH, model_name="Arrays"),
+        settings=RunSettings(parameters=ArrayParameters(y=[])),
+    )
+
+    with pytest.raises(ValueError, match="y"):
+        simulate(run)

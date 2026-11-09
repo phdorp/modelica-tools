@@ -7,6 +7,7 @@ import hydra_zen
 import pytest
 from hydra import compose, initialize
 from hydra.core.global_hydra import GlobalHydra
+from hydra_zen import MISSING
 from omegaconf import OmegaConf
 
 import mtools.session_config as session_config
@@ -76,22 +77,19 @@ class TestHydraRegistryWithHydraComposition:
         registry = HydraZenRegistry(store=hydra_zen.ZenStore())
 
         # Register a package path with a shorter group alias as used in examples.
-        registry.register_group_name("session.parameters.state_0", group_name="parameters/state_0")
+        registry.register_group_name("settings.parameters.state_0", group_name="parameters/state_0")
         registry.register_group_option(group_id="parameters/state_0", name="zero_state", config=State())
         registry.register_group_option(
-            group_id="session.parameters.state_0",
+            group_id="settings.parameters.state_0",
             name="front_position",
             config=State(px=1.0),
         )
 
         model_name = "KinematicVehicle"
         model_path = Path("tests/session_tools/models/kinematic_vehicle.mo").resolve()
-        simulation = session_config.Simulation(solver="rungekutta", output_format="csv")
-
         run_default = registry.create_run(
             model_name=model_name,
-            parameters=KinematicVehicle(state_0=State()),
-            simulation=simulation,
+            settings=session_config.RunSettings(parameters=KinematicVehicle(state_0=State())),
             model_path=model_path,
             selections={"parameters/state_0": "zero_state"},
             include_experiment_group=True,
@@ -123,16 +121,16 @@ class TestHydraRegistryWithHydraComposition:
         with initialize(version_base=None, config_path=None):
             cfg = compose(config_name="default", overrides=list(case.overrides))
 
-        assert cfg.model_name == "KinematicVehicle"
-        assert cfg.session.parameters.state_0.px == case.expected_state_px
-        assert cfg.session.model == Path("tests/session_tools/models/kinematic_vehicle.mo").resolve()
+        assert cfg.build.model_name == "KinematicVehicle"
+        assert cfg.settings.parameters.state_0.px == case.expected_state_px
+        assert cfg.build.model_path == Path("tests/session_tools/models/kinematic_vehicle.mo").resolve()
 
     def test_multirun_parameter_sweep(self, registry_example: RegistryExampleConfig, tmp_path):
         job_runs = hydra_zen.launch(
             registry_example.run_default,
-            lambda cfg: cfg.session.parameters.v_norm,
+            lambda cfg: cfg.settings.parameters.v_norm,
             overrides=[
-                "session.parameters.v_norm=10,20",
+                "settings.parameters.v_norm=10,20",
                 f"hydra.sweep.dir={tmp_path}",
                 "hydra.job.chdir=False",
             ],
@@ -141,7 +139,7 @@ class TestHydraRegistryWithHydraComposition:
         )
 
         run_results = [job.return_value for job in job_runs[0]]
-        expected_results = [job.cfg["session"]["parameters"]["v_norm"] for job in job_runs[0]]
+        expected_results = [job.cfg["settings"]["parameters"]["v_norm"] for job in job_runs[0]]
         assert run_results == expected_results
 
 
@@ -152,8 +150,7 @@ class TestGetRunConfig:
         registry = HydraZenRegistry(store=hydra_zen.ZenStore())
         run_default = registry.create_run(
             model_name="KinematicVehicle",
-            parameters=KinematicVehicle(state_0=State()),
-            simulation=session_config.Simulation(solver="rungekutta", output_format="csv"),
+            settings=session_config.RunSettings(parameters=KinematicVehicle(state_0=State())),
             model_path=Path("tests/session_tools/models/kinematic_vehicle.mo").resolve(),
             name="default",
         )
@@ -179,15 +176,14 @@ class TestExperimentConfigs:
     def _registry_with_experiment(self):
         registry = HydraZenRegistry(store=hydra_zen.ZenStore())
         registry.register_group_option(
-            "session/parameters",
+            "settings/parameters",
             name="default_params",
             config=KinematicVehicle(state_0=State()),
             default=True,
         )
         run_default = registry.create_run(
             model_name="KinematicVehicle",
-            parameters=KinematicVehicle(state_0=State()),
-            simulation=session_config.Simulation(solver="rungekutta", output_format="csv"),
+            settings=session_config.RunSettings(parameters=KinematicVehicle(state_0=State())),
             model_path=Path("tests/session_tools/models/kinematic_vehicle.mo").resolve(),
             include_experiment_group=True,
             name="default",
@@ -195,7 +191,7 @@ class TestExperimentConfigs:
         registry.register_experiment(
             name="fast",
             base_run_config=run_default,
-            overrides={"session/parameters": KinematicVehicle(state_0=State(), v_norm=99.0, phi=0.0)},
+            overrides={"settings/parameters": KinematicVehicle(state_0=State(), v_norm=99.0, phi=0.0)},
         )
         return registry, run_default
 
@@ -220,8 +216,7 @@ class TestExperimentConfigs:
         registry = HydraZenRegistry(store=hydra_zen.ZenStore())
         run_default = registry.create_run(
             model_name="KinematicVehicle",
-            parameters=KinematicVehicle(state_0=State()),
-            simulation=session_config.Simulation(solver="rungekutta", output_format="csv"),
+            settings=session_config.RunSettings(parameters=KinematicVehicle(state_0=State())),
             model_path=Path("tests/session_tools/models/kinematic_vehicle.mo").resolve(),
             name="default",
         )
@@ -234,20 +229,19 @@ class TestExperimentConfigs:
 
         cfg = registry.compose_experiment("fast")
 
-        assert cfg.session.parameters.v_norm == 99.0
+        assert cfg.settings.parameters.v_norm == 99.0
 
     def test_register_experiment_is_callable_as_instance_method(self):
         registry = HydraZenRegistry(store=hydra_zen.ZenStore())
         registry.register_group_option(
-            "session/parameters",
+            "settings/parameters",
             name="default_params",
             config=KinematicVehicle(state_0=State()),
             default=True,
         )
         run_default = registry.create_run(
             model_name="KinematicVehicle",
-            parameters=KinematicVehicle(state_0=State()),
-            simulation=session_config.Simulation(solver="rungekutta", output_format="csv"),
+            settings=session_config.RunSettings(parameters=KinematicVehicle(state_0=State())),
             model_path=Path("tests/session_tools/models/kinematic_vehicle.mo").resolve(),
             include_experiment_group=True,
             name="default",
@@ -257,7 +251,7 @@ class TestExperimentConfigs:
 
         assert registry.get_experiment_run_config("fast") is run_default
         cfg = registry.compose_experiment("fast")
-        assert cfg.model_name == "KinematicVehicle"
+        assert cfg.build.model_name == "KinematicVehicle"
 
     def test_compose_experiment_unknown_raises_key_error(self):
         registry, _ = self._registry_with_experiment()
@@ -273,11 +267,10 @@ def test_register_experiment_can_be_reused_across_registries():
     def registry_with_v_norm(v_norm: float) -> tuple[HydraZenRegistry, object]:
         registry = HydraZenRegistry(store=hydra_zen.ZenStore())
         parameters = KinematicVehicle(state_0=State(), v_norm=v_norm)
-        registry.register_group_option("session/parameters", "default", parameters, default=True)
+        registry.register_group_option("settings/parameters", "default", parameters, default=True)
         run_default = registry.create_run(
             model_name="KinematicVehicle",
-            parameters=parameters,
-            simulation=session_config.Simulation(solver="rungekutta", output_format="csv"),
+            settings=session_config.RunSettings(parameters=parameters),
             model_path=Path("tests/session_tools/models/kinematic_vehicle.mo").resolve(),
             include_experiment_group=True,
             name="default",
@@ -293,13 +286,13 @@ def test_register_experiment_can_be_reused_across_registries():
         register_experiment(second, base_run_config=second_run)
 
         first.add_to_hydra_store(overwrite_ok=True)
-        assert first.compose_experiment("standstill").session.parameters.v_norm == 1.0
+        assert first.compose_experiment("standstill").settings.parameters.v_norm == 1.0
 
         second.add_to_hydra_store(overwrite_ok=True)
-        assert second.compose_experiment("standstill").session.parameters.v_norm == 2.0
+        assert second.compose_experiment("standstill").settings.parameters.v_norm == 2.0
 
         first.add_to_hydra_store(overwrite_ok=True)
-        assert first.compose_experiment("standstill").session.parameters.v_norm == 1.0
+        assert first.compose_experiment("standstill").settings.parameters.v_norm == 1.0
     finally:
         GlobalHydra.instance().clear()
 
@@ -311,66 +304,67 @@ class TestCreateRun:
         yield
         GlobalHydra.instance().clear()
 
-    def test_create_run_derives_model_configurations_and_build_options(self):
+    def test_create_run_maps_its_arguments_onto_build_fields(self, tmp_path):
         registry = HydraZenRegistry(store=hydra_zen.ZenStore())
-        model_name = "KinematicVehicle"
         model_path = Path("tests/session_tools/models/kinematic_vehicle.mo").resolve()
-        simulation = session_config.Simulation(solver="rungekutta", output_format="csv")
-        parameters = KinematicVehicle(state_0=State())
+        extra_source = tmp_path / "Extra.mo"
 
-        derived = registry.create_run(
-            model_name=model_name,
-            parameters=parameters,
-            simulation=simulation,
+        registry.create_run(
+            model_name="KinematicVehicle",
             model_path=model_path,
-            name="derived",
+            target="Cpp",
+            extra_sources=[extra_source],
+            libraries=[session_config.Library("Modelica", version="4.0.0")],
+            omc_flags={"-d": "nogen"},
+            settings=session_config.RunSettings(parameters=KinematicVehicle(state_0=State()), stop_time=3.0),
+            name="mapped",
         )
-        explicit = registry.create_run(
-            model_name=model_name,
-            parameters=parameters,
-            simulation=simulation,
+        registry.create_run(
+            model_name="KinematicVehicle",
             model_path=model_path,
-            build_options={"model_addr": model_name},
-            model_configurations={model_name: session_config.Model.from_parameters(model_name)},
-            name="explicit",
+            settings=session_config.RunSettings(parameters=KinematicVehicle(state_0=State())),
+            name="defaults",
         )
         registry.add_to_hydra_store()
 
         with initialize(version_base=None, config_path=None):
-            derived_cfg = compose(config_name="derived")
-            explicit_cfg = compose(config_name="explicit")
+            mapped = compose(config_name="mapped")
+            defaults = compose(config_name="defaults")
 
-        assert OmegaConf.to_container(derived_cfg.session.build_options, resolve=True) == {
-            "model_addr": model_name
+        assert OmegaConf.to_container(mapped.build, resolve=True) == {
+            "model_path": model_path,
+            "model_name": "KinematicVehicle",
+            "target": "Cpp",
+            "extra_sources": [extra_source],
+            "libraries": [{"name": "Modelica", "version": "4.0.0", "directory": None}],
+            "omc_flags": {"-d": "nogen"},
         }
-        assert OmegaConf.to_container(derived_cfg.session.model_configurations, resolve=True) == OmegaConf.to_container(
-            explicit_cfg.session.model_configurations, resolve=True
-        )
-        assert OmegaConf.to_container(derived_cfg.session.build_options, resolve=True) == OmegaConf.to_container(
-            explicit_cfg.session.build_options, resolve=True
-        )
+        assert mapped.settings.stop_time == 3.0
+        assert defaults.build.target == "C"
+        assert list(defaults.build.extra_sources) == []
+        assert list(defaults.build.libraries) == []
+        assert dict(defaults.build.omc_flags) == {}
 
     def test_create_run_propagates_emit_protected_and_allows_override(self):
         registry = HydraZenRegistry(store=hydra_zen.ZenStore())
-        model_name = "KinematicVehicle"
         model_path = Path("tests/session_tools/models/kinematic_vehicle.mo").resolve()
-        simulation = session_config.Simulation(solver="rungekutta", output_format="csv", emit_protected=True)
 
         registry.create_run(
-            model_name=model_name,
-            parameters=KinematicVehicle(state_0=State()),
-            simulation=simulation,
+            model_name="KinematicVehicle",
             model_path=model_path,
+            settings=session_config.RunSettings(parameters=KinematicVehicle(state_0=State()), emit_protected=True),
             name="protected",
         )
         registry.add_to_hydra_store()
 
         with initialize(version_base=None, config_path=None):
             enabled = compose(config_name="protected")
-            disabled = compose(config_name="protected", overrides=["session.sim_configurations.emit_protected=false"])
+            disabled = compose(config_name="protected", overrides=["settings.emit_protected=false"])
+            cpp = compose(config_name="protected", overrides=["build.target=Cpp"])
 
-        assert enabled.session.sim_configurations.emit_protected is True
-        assert disabled.session.sim_configurations.emit_protected is False
+        assert enabled.settings.emit_protected is True
+        assert disabled.settings.emit_protected is False
+        assert cpp.build.target == "Cpp"
 
 
 class TestRegisterGroupOptions:
@@ -384,7 +378,7 @@ class TestRegisterGroupOptions:
 
     def test_registers_options_and_selects_default(self):
         registry = HydraZenRegistry(store=hydra_zen.ZenStore())
-        registry.register_group_name("session.parameters.state_0", "parameters/state_0")
+        registry.register_group_name("settings.parameters.state_0", "parameters/state_0")
         registry.register_group_options(
             "parameters/state_0",
             {"zero_state": State(), "front_position": State(px=1.0)},
@@ -392,8 +386,7 @@ class TestRegisterGroupOptions:
         )
         registry.create_run(
             model_name="KinematicVehicle",
-            parameters=KinematicVehicle(state_0=State()),
-            simulation=session_config.Simulation(solver="rungekutta", output_format="csv"),
+            settings=session_config.RunSettings(parameters=KinematicVehicle(state_0=State())),
             model_path=Path("tests/session_tools/models/kinematic_vehicle.mo").resolve(),
             selections={"parameters/state_0": "zero_state"},
             name="default",
@@ -404,15 +397,15 @@ class TestRegisterGroupOptions:
             default_cfg = compose(config_name="default")
             front_cfg = compose(config_name="default", overrides=["parameters/state_0=front_position"])
 
-        assert default_cfg.session.parameters.state_0.px == 0.0
-        assert front_cfg.session.parameters.state_0.px == 1.0
+        assert default_cfg.settings.parameters.state_0.px == 0.0
+        assert front_cfg.settings.parameters.state_0.px == 1.0
 
     def test_unknown_default_raises_value_error(self):
         registry = HydraZenRegistry(store=hydra_zen.ZenStore())
 
         with pytest.raises(ValueError, match="default option"):
             registry.register_group_options(
-                "session/parameters",
+                "settings/parameters",
                 {"default": KinematicVehicle(state_0=State())},
                 default="missing",
             )
@@ -429,17 +422,17 @@ class TestRegisterExperiments:
 
     def test_register_experiments_applies_all_specs(self):
         registry = HydraZenRegistry(store=hydra_zen.ZenStore())
-        registry.register_group_name("session.parameters.state_0", "parameters/state_0")
+        registry.register_group_name("settings.parameters.state_0", "parameters/state_0")
         registry.register_group_options(
             "parameters/state_0",
             {"zero_state": State(), "front_position": State(px=1.0)},
             default="zero_state",
         )
         registry.register_group_options(
-            "session/parameters", {"default": KinematicVehicle(state_0=State())}, default="default"
+            "settings/parameters", {"default": KinematicVehicle(state_0=State())}, default="default"
         )
         registry.register_group_options(
-            "session/sim_configurations", {"default": session_config.Simulation()}, default="default"
+            "settings", {"default": session_config.RunSettings(parameters=MISSING)}, default="default"
         )
         run_default = registry.create_run(
             model_name="KinematicVehicle",
@@ -452,20 +445,20 @@ class TestRegisterExperiments:
             [
                 ExperimentSpec(
                     name="slow",
-                    overrides={"session/parameters": KinematicVehicle(state_0=State(), v_norm=1.0)},
+                    overrides={"settings/parameters": KinematicVehicle(state_0=State(), v_norm=1.0)},
                 ),
                 ExperimentSpec(
                     name="fast",
-                    overrides={"session/parameters": KinematicVehicle(state_0=State(), v_norm=99.0)},
+                    overrides={"settings/parameters": KinematicVehicle(state_0=State(), v_norm=99.0)},
                 ),
                 ExperimentSpec(name="with_selection", selections={"parameters/state_0": "front_position"}),
             ],
             base_run_config=run_default,
         )
 
-        assert registry.compose_experiment("slow").session.parameters.v_norm == 1.0
-        assert registry.compose_experiment("fast").session.parameters.v_norm == 99.0
-        assert registry.compose_experiment("with_selection").session.parameters.state_0.px == 1.0
+        assert registry.compose_experiment("slow").settings.parameters.v_norm == 1.0
+        assert registry.compose_experiment("fast").settings.parameters.v_norm == 99.0
+        assert registry.compose_experiment("with_selection").settings.parameters.state_0.px == 1.0
 
     def test_register_experiments_reused_across_registries(self):
         specs = [ExperimentSpec(name="standstill")]
@@ -473,12 +466,12 @@ class TestRegisterExperiments:
         def registry_with_v_norm(v_norm: float) -> HydraZenRegistry:
             registry = HydraZenRegistry(store=hydra_zen.ZenStore())
             registry.register_group_options(
-                "session/parameters",
+                "settings/parameters",
                 {"default": KinematicVehicle(state_0=State(), v_norm=v_norm)},
                 default="default",
             )
             registry.register_group_options(
-                "session/sim_configurations", {"default": session_config.Simulation()}, default="default"
+                "settings", {"default": session_config.RunSettings(parameters=MISSING)}, default="default"
             )
             run_default = registry.create_run(
                 model_name="KinematicVehicle",
@@ -494,31 +487,45 @@ class TestRegisterExperiments:
             second = registry_with_v_norm(2.0)
 
             first.add_to_hydra_store(overwrite_ok=True)
-            assert first.compose_experiment("standstill").session.parameters.v_norm == 1.0
+            assert first.compose_experiment("standstill").settings.parameters.v_norm == 1.0
 
             second.add_to_hydra_store(overwrite_ok=True)
-            assert second.compose_experiment("standstill").session.parameters.v_norm == 2.0
+            assert second.compose_experiment("standstill").settings.parameters.v_norm == 2.0
 
             first.add_to_hydra_store(overwrite_ok=True)
-            assert first.compose_experiment("standstill").session.parameters.v_norm == 1.0
+            assert first.compose_experiment("standstill").settings.parameters.v_norm == 1.0
         finally:
             GlobalHydra.instance().clear()
 
 
-def test_simulation_defaults_are_rungekutta_csv():
-    assert session_config.Simulation() == session_config.Simulation(solver="rungekutta", output_format="csv")
+def test_run_settings_default_to_the_annotation_and_no_limits():
+    settings = session_config.RunSettings(parameters=KinematicVehicle(state_0=State()))
+
+    assert (settings.start_time, settings.stop_time, settings.interval, settings.tolerance, settings.solver) == (
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    assert settings.variable_filter == ".*"
+    assert settings.emit_protected is False
+    assert settings.timeout is None
+    assert settings.abort_on_chattering is True
 
 
-def test_create_run_uses_group_defaults_for_parameters_and_simulation():
-    """Omitting ``parameters`` and ``simulation`` resolves both from group defaults."""
+def test_create_run_uses_group_defaults_for_settings_and_parameters():
+    """Omitting ``settings`` resolves the run settings and their parameters from group defaults."""
     GlobalHydra.instance().clear()
     try:
         registry = HydraZenRegistry(store=hydra_zen.ZenStore())
         registry.register_group_options(
-            "session/parameters", {"default": KinematicVehicle(state_0=State())}, default="default"
+            "settings/parameters", {"default": KinematicVehicle(state_0=State())}, default="default"
         )
         registry.register_group_options(
-            "session/sim_configurations", {"default": session_config.Simulation()}, default="default"
+            "settings",
+            {"default": session_config.RunSettings(parameters=MISSING, solver="cvode", stop_time=5.0)},
+            default="default",
         )
         registry.create_run(
             model_name="KinematicVehicle",
@@ -529,10 +536,13 @@ def test_create_run_uses_group_defaults_for_parameters_and_simulation():
 
         with initialize(version_base=None, config_path=None):
             cfg = compose(config_name="default")
+            swept = compose(config_name="default", overrides=["settings.parameters.v_norm=3.0", "settings.stop_time=7"])
 
-        assert cfg.session.parameters.v_norm == 10.0
-        assert cfg.session.sim_configurations.solver == "rungekutta"
-        assert cfg.session.sim_configurations.output_format == "csv"
+        assert cfg.settings.parameters.v_norm == 10.0
+        assert cfg.settings.solver == "cvode"
+        assert cfg.settings.stop_time == 5.0
+        assert swept.settings.parameters.v_norm == 3.0
+        assert swept.settings.stop_time == 7.0
     finally:
         GlobalHydra.instance().clear()
 
@@ -551,10 +561,10 @@ class TestAutomaticExperimentSharing:
     def _registry(self):
         registry = HydraZenRegistry(store=hydra_zen.ZenStore())
         registry.register_group_options(
-            "session/parameters", {"default": KinematicVehicle(state_0=State())}, default="default"
+            "settings/parameters", {"default": KinematicVehicle(state_0=State())}, default="default"
         )
         registry.register_group_options(
-            "session/sim_configurations", {"default": session_config.Simulation()}, default="default"
+            "settings", {"default": session_config.RunSettings(parameters=MISSING)}, default="default"
         )
         candidate = registry.create_run(
             model_name="CandidateModel",
@@ -566,7 +576,7 @@ class TestAutomaticExperimentSharing:
             [
                 ExperimentSpec(
                     name="standstill",
-                    overrides={"session/parameters": KinematicVehicle(state_0=State(), v_norm=0.0)},
+                    overrides={"settings/parameters": KinematicVehicle(state_0=State(), v_norm=0.0)},
                 )
             ],
             base_run_config=candidate,
@@ -587,15 +597,15 @@ class TestAutomaticExperimentSharing:
 
         cfg = registry.compose_experiment("standstill", run_config=reference)
 
-        assert cfg.model_name == "ReferenceModel"
-        assert cfg.session.parameters.v_norm == 0.0
+        assert cfg.build.model_name == "ReferenceModel"
+        assert cfg.settings.parameters.v_norm == 0.0
 
     def test_default_run_config_is_the_registration_base(self):
         registry, candidate = self._registry()
         self._add_reference(registry)
 
         assert registry.get_experiment_run_config("standstill") is candidate
-        assert registry.compose_experiment("standstill").model_name == "CandidateModel"
+        assert registry.compose_experiment("standstill").build.model_name == "CandidateModel"
 
     def test_run_config_without_experiment_group_is_not_bound(self):
         registry, _ = self._registry()

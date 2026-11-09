@@ -17,7 +17,7 @@ Do not install any dependencie unless the devcontainer is unavailable.
 ## Development
 
 - Run the main test suite with: `uv run pytest tests`
-- Tests compile real Modelica models via `pydelica`, so OpenModelica must be installed and on `PATH`.
+- Tests compile and simulate real Modelica models with `omc`, so OpenModelica must be installed and on `PATH`.
 
 ### Full test suite
 

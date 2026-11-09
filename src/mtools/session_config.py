@@ -1,44 +1,39 @@
+"""Typed run configs: what to build (``build``), how to run it (``settings``) and how to
+save the result (``output_format``).
+
+The classes are plain dataclasses that Hydra composes as structured configs, so every
+field can be overridden from the command line (``build.target=Cpp``,
+``settings.stop_time=20``, ``settings.parameters.phi=0.1``). ``sim_tools.simulate``
+validates a run config once, before anything is built.
+"""
+
 from __future__ import annotations
 
 import dataclasses
-from typing import Any, ClassVar, Dict, Protocol
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, ClassVar, Dict, Literal, Protocol
 
-import hydra_zen
-import pydantic
+if TYPE_CHECKING:
+    from typing import TypeAlias
 
-import mtools.internal.session_tools as session_tools
+    #: Simulation target. OmegaConf has no ``Literal`` support, so Hydra sees ``str``;
+    #: ``sim_tools.simulate`` rejects any other value with a ``ConfigError``.
+    Target: TypeAlias = Literal["C", "Cpp"]
+    #: Saved result file format. Hydra sees ``str``; ``sim_tools.simulate`` and
+    #: ``sim_tools.save_solutions`` reject any other value.
+    OutputFormat: TypeAlias = Literal["mat", "csv"]
+    #: Parameter values: a (nested) parameter dataclass instance. OmegaConf cannot
+    #: type a ``Protocol``, so Hydra sees ``Any``.
+    Parameters: TypeAlias = "DataclassType"
+else:
+    Target = str
+    OutputFormat = str
+    Parameters = Any
 
-
-@dataclasses.dataclass
-class TimeRange:
-    """Simulation time bounds for a specific model."""
-
-    #: Name of the model these time bounds apply to.
-    model_name: str
-    #: Simulation start time.
-    start_time: float
-    #: Simulation stop time.
-    stop_time: float
-
-
-@dataclasses.dataclass
-class Tolerance:
-    """Numerical tolerance configuration for a specific model."""
-
-    #: Name of the model this tolerance applies to.
-    model_name: str
-    #: Solver tolerance value.
-    tolerance: float
-
-
-@dataclasses.dataclass
-class VariableFilter:
-    """Variable selection pattern for simulation outputs of a model."""
-
-    #: Name of the model this variable filter applies to.
-    model_name: str
-    #: Wildcard pattern used to select output variables.
-    filter_str: str = "*"
+#: A Modelica source file; must exist when the run is validated.
+FilePath = Path
+#: A directory; must exist when the run is validated.
+DirectoryPath = Path
 
 
 class DataclassType(Protocol):
@@ -49,67 +44,73 @@ class DataclassType(Protocol):
 
 
 @dataclasses.dataclass
-class Model:
-    """Grouped per-model configuration sections used by session setup."""
+class Library:
+    """A Modelica library loaded before the model's sources."""
 
-    #: Time range settings for the model.
-    time_range: TimeRange
-    #: Numerical tolerance settings for the model.
-    tolerance: Tolerance
-    #: Output variable filtering settings for the model.
-    variable_filter: VariableFilter
-
-    @classmethod
-    def from_parameters(
-        cls, model_name: str, start_time: float = 0.0, stop_time: float = 10.0, tolerance: float = 1e-9
-    ) -> Model:
-        return cls(
-            TimeRange(model_name, start_time, stop_time),
-            Tolerance(model_name, tolerance),
-            VariableFilter(model_name),
-        )
+    #: Library name, e.g. ``Modelica``.
+    name: str
+    #: Exact version to load; ``None`` loads the installed default.
+    version: str | None = None
+    #: Directory holding the library, prepended to OMC's library path.
+    directory: DirectoryPath | None = None
 
 
 @dataclasses.dataclass
-class Simulation:
-    """Global simulation runtime settings.
+class Build:
+    """What to build: one model, its sources, libraries and simulation target."""
 
-    ``solver`` and ``output_format`` are defaulted so a bare ``Simulation()`` is a valid
-    ``session/sim_configurations`` group default that experiments override selectively.
-    """
+    #: Modelica source file holding the model; for a model inside a package, any file
+    #: of the package (the package is loaded from its ``package.mo``).
+    model_path: FilePath
+    #: Fully qualified name of the model class; results are keyed by it.
+    model_name: str
+    #: Simulation target, ``"C"`` or ``"Cpp"``.
+    target: Target = "C"
+    #: Source files or packages loaded before ``model_path``.
+    extra_sources: list[FilePath] = dataclasses.field(default_factory=list)
+    #: Libraries loaded before the sources.
+    libraries: list[Library] = dataclasses.field(default_factory=list)
+    #: Extra OMC flags (``{"-d": "nogen", "--flag": None}``); mtools adds ``-q`` and the
+    #: target itself, so ``--simCodeTarget`` is rejected.
+    omc_flags: dict[str, str | None] = dataclasses.field(default_factory=dict)
 
-    #: Solver backend name used for simulation.
-    solver: str = "rungekutta"
-    #: Output format emitted by the simulation runtime.
-    output_format: str = "csv"
-    #: Emit protected model variables to the result file (OMC ``-emit_protected``).
-    #: Applied to the session's default (built) model.
+
+@dataclasses.dataclass
+class RunSettings:
+    """How to run a build. Unset (``None``) time range, interval, tolerance and solver
+    come from the model's ``experiment`` annotation."""
+
+    #: Parameter values, as a (nested) parameter dataclass instance; nested values become
+    #: dotted names and arrays become 1-based indexed names (``y[1]``, ``m[1,2]``).
+    parameters: Parameters
+    #: Simulation start time.
+    start_time: float | None = None
+    #: Simulation stop time.
+    stop_time: float | None = None
+    #: Output interval.
+    interval: float | None = None
+    #: Solver tolerance.
+    tolerance: float | None = None
+    #: Integration method; on Cpp only ``dassl``, ``cvode`` and ``ida``.
+    solver: str | None = None
+    #: OMC regular expression (full match) selecting result columns; ``time`` is always kept.
+    variable_filter: str = ".*"
+    #: Whether protected variables become result columns.
     emit_protected: bool = False
-
-
-@hydra_zen.hydrated_dataclass(
-    session_tools.SessionDirector, populate_full_signature=True, hydra_convert="object", hydra_recursive=None
-)
-class Session:
-    """Hydra-instantiable session configuration for building a simulation session."""
-
-    #: Dataclass object containing model parameter values.
-    parameters: DataclassType
-    #: Simulation-wide runtime configuration.
-    sim_configurations: Simulation
-    #: Path to the model source file to build.
-    model: pydantic.FilePath
-    #: Per-model configuration blocks keyed by model name.
-    model_configurations: Dict[str, Model] = dataclasses.field(default_factory=dict)
-    build_options: dict | None = None
-    libraries: list[dict[str, str]] | None = None
+    #: Time limit in seconds; ``None`` means no limit.
+    timeout: float | None = None
+    #: Whether a chattering model aborts the run (C only; no effect on Cpp).
+    abort_on_chattering: bool = True
 
 
 @dataclasses.dataclass
 class SimulationRun:
-    """Top-level run configuration for simulating a model with a session."""
+    """Top-level run config: one build, the settings to run it with, and how to save it."""
 
-    #: Name of the model to simulate.
-    model_name: str
-    #: Session configuration used to construct the simulation session.
-    session: Session
+    #: What to build.
+    build: Build
+    #: How to run it.
+    settings: RunSettings
+    #: File format ``sim_tools.save_solutions`` writes: ``"mat"`` (OMC's MATLAB v4
+    #: result layout, the default) or ``"csv"``. Override with ``output_format=csv``.
+    output_format: OutputFormat = "mat"

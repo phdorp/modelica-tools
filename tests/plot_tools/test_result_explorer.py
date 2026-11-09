@@ -3,6 +3,7 @@ from pathlib import Path
 import dash
 import pandas as pd
 
+from mtools.internal.omc.matfile import write_result
 from mtools.internal.plot_tools import DashBuilder, ResultSelectBuilder
 
 
@@ -199,3 +200,41 @@ class TestGraphUpdates:
 
         assert list(figure.data[0].x) == [10, 20]
         assert list(figure.data[0].y) == [2, 3]
+
+
+class TestBooleanColumns:
+    def test_loaded_boolean_columns_become_zero_one(self, tmp_path: Path):
+        result_file = tmp_path / "a.csv"
+        result_file.write_text("time,flag,value\n0,False,1.5\n1,True,2.5\n2,True,3.5\n")
+
+        builder = DashBuilder(__name__)
+        builder._load_results(str(result_file))
+
+        assert builder._data["flag"].tolist() == [0, 1, 1]
+        assert builder._data["flag"].dtype.kind in "iuf"
+        assert builder._data["value"].tolist() == [1.5, 2.5, 3.5]
+        assert "flag" in builder._variable_columns
+
+    def test_plotted_boolean_column_is_numeric(self, tmp_path: Path):
+        result_file = tmp_path / "a.csv"
+        result_file.write_text("time,flag\n0,False\n1,True\n")
+
+        builder = DashBuilder(__name__)
+        builder._load_results(str(result_file))
+        (figure,) = builder._update_graph_callback(["time"], [["flag"]])
+
+        y = figure["data"][0]["y"]
+        assert y.dtype.kind in "iuf"
+        assert list(y) == [0, 1]
+
+    def test_saved_mat_result_loads_with_boolean_columns_as_zero_one(self, tmp_path: Path):
+        frame = pd.DataFrame({"time": [0.0, 1.0, 2.0], "flag": [False, True, True], "value": [1.5, 2.5, 3.5]})
+        result_file = write_result(tmp_path / "a.mat", frame)
+
+        builder = DashBuilder(__name__)
+        builder._load_results(str(result_file))
+
+        assert builder._data["flag"].tolist() == [0, 1, 1]
+        assert builder._data["flag"].dtype.kind in "iuf"
+        assert builder._data["value"].tolist() == [1.5, 2.5, 3.5]
+        assert builder._variable_columns == ["flag", "value"]

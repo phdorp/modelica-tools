@@ -7,8 +7,11 @@ import mtools.sim_tools as sim_tools
 
 
 @hydra.main(config_name="default", version_base=None, config_path=None)
-def main(config: session_config.SimulationRun):
-    sim_tools.save_solutions(sim_tools.simulate(config), HydraConfig.get().runtime.output_dir)
+def main(config: session_config.SimulationRun) -> None:
+    # Saves `<model name>.mat` in Hydra's output directory; `output_format=csv` saves CSV.
+    sim_tools.save_solutions(
+        sim_tools.simulate(config), HydraConfig.get().runtime.output_dir, config.output_format
+    )
 
 
 if __name__ == "__main__":

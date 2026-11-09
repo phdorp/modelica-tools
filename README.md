@@ -1,24 +1,25 @@
 # modelica-tools
 
-A Python toolkit for configuring [Pydelica](https://pypi.org/project/pydelica/) sessions, enabling fully configurable [Modelica](https://modelica.org/) simulation runs from Python.
+A Python toolkit for configuring and running [Modelica](https://modelica.org/) simulations with [OpenModelica](https://openmodelica.org/) from Python.
 
-[Pydelica](https://pypi.org/project/pydelica/) provides Python bindings for [OpenModelica](https://openmodelica.org/), giving access to a `pydelica.Session` API with methods to build models, set parameters, configure solvers, and run simulations. `modelica-tools` wraps this API with typed configuration dataclasses and a registry system powered by [Hydra](https://hydra.cc) / [hydra-zen](https://github.com/mit-ll/hydra-zen), allowing simulation setups to be defined once in Python and then overridden, composed, and swept from the command line.
+`modelica-tools` drives the `omc` compiler directly: it builds a model once, caches the build by content, runs it with per-run parameters and settings, and returns typed [pandas](https://pandas.pydata.org/) DataFrames. Typed configuration dataclasses and a registry system powered by [Hydra](https://hydra.cc) / [hydra-zen](https://github.com/mit-ll/hydra-zen) let you define a simulation setup once in Python, then override, compose and sweep it from the command line.
 
 ## Features
 
-- **Python-native Modelica configuration** — Define simulation parameters, solver settings, and model configurations as typed Python dataclasses.
+- **Python-native Modelica configuration** — Define what to build (`build`) and how to run it (`settings`) as typed Python dataclasses.
+- **Build cache** — Builds are cached by content, so a parameter sweep compiles once and a repeated sweep compiles nothing.
 - **Hierarchical configuration** with [Hydra](https://hydra.cc) / [hydra-zen](https://github.com/mit-ll/hydra-zen) — Compose, override, and reuse configs across runs.
 - **Parameter sweeps** — Launch multirun sweeps over any simulation parameter from the command line.
 - **Reference-model comparison** — Test a model against a reference implementation from a run config in a shared Hydra registry, comparing output signals and values.
 - **Configuration groups and experiments** — Register reusable config groups (e.g., initial states) and named experiment overrides.
-- **Result visualization** — Interactive [Dash](https://dash.plotly.com/) web app for browsing simulation results (CSV) with a grid of time-series plots.
+- **Result visualization** — Interactive [Dash](https://dash.plotly.com/) web app for browsing simulation results (`.mat` and `.csv`) with a grid of time-series plots.
 - **Unit-testable** — Simulations are driven by config objects that can be instantiated and verified in isolation.
 
 ## Installation
 
 ### Prerequisites
 
-Install [OpenModelica](https://openmodelica.org/) (required by `pydelica`):
+Install [OpenModelica](https://openmodelica.org/) (`omc` and a C compiler with `make`):
 
 - **Debian / Ubuntu**:
   ```bash
@@ -90,7 +91,7 @@ The workspace is mounted into the container, so edits on your host are reflected
 uv run pytest tests
 ```
 
-Tests require OpenModelica installed (see prerequisites) and compile actual Modelica models via `pydelica`.
+Tests require OpenModelica installed (see prerequisites) and compile and simulate real Modelica models with `omc`.
 
 ## Usage
 
@@ -142,7 +143,8 @@ import mtools.sim_tools as sim_tools
 
 @hydra.main(config_name="default", version_base=None, config_path=None)
 def main(config: session_config.SimulationRun):
-    sim_tools.save_solutions(sim_tools.simulate(config), HydraConfig.get().runtime.output_dir)
+    solutions = sim_tools.simulate(config)
+    sim_tools.save_solutions(solutions, HydraConfig.get().runtime.output_dir, config.output_format)
 
 
 if __name__ == "__main__":
@@ -152,7 +154,7 @@ if __name__ == "__main__":
 
 See [`examples/src/kinematic_vehicle/__main__.py`](examples/src/kinematic_vehicle/__main__.py) for the corresponding example.
 
-The `simulate` function instantiates the `Session` via `hydra_zen.instantiate`, which builds the model, applies parameters, configures the solver, and saves simulation results as CSV.
+The `simulate` function validates the run config, builds the model (or reuses a cached build), runs it with the given parameters and settings, and returns one DataFrame per model, keyed by `build.model_name`. `save_solutions` writes them as `.mat` files, or as `.csv` with `output_format=csv`; `load_solution` reads either back. See [The Hydra registry](docs/hydra-registry.md) for run configs, config groups and experiments, and [The OMC backend](docs/omc-backend.md) for what a run does.
 
 ### Run a simulation
 
@@ -165,12 +167,54 @@ uv run python -m my_simulation
 Override individual parameters or select registered config groups from the command line:
 
 ```bash
-uv run python -m my_simulation session.parameters.some_value=5.0
-uv run python -m my_simulation session.model_configurations.MyModel.time_range.stop_time=20.0
+uv run python -m my_simulation settings.parameters.some_value=5.0
+uv run python -m my_simulation settings.stop_time=20.0
+uv run python -m my_simulation build.target=Cpp
 ```
 
-Parameter paths follow the structure of the config dataclasses defined in `config.py`.
+`build.omc_flags` maps OMC flags to their values, and `null` gives a flag without a value. Set it from the command line with a leading `+`; without it, Hydra rejects the override with `Key ... is not in struct`. The given flags are added to the configured ones:
+
+```bash
+uv run python -m my_simulation '+build.omc_flags={-d:initialization,--maxSizeLinearTearing:300}'
+uv run python -m my_simulation '+build.omc_flags={--showErrorMessages:null}'
+```
+
+Save CSV instead of `.mat`, or run a sweep:
+
+```bash
+uv run python -m my_simulation output_format=csv
+uv run python -m my_simulation -m settings.parameters.some_value=1,2,3
+```
+
+Every override path, the parameter naming rules and experiments are described in [The Hydra registry](docs/hydra-registry.md#the-run-config).
+
 Refer to the [`kinematic_vehicle` examples](examples/) for a complete working setup.
+
+### OMC backend
+
+mtools builds and runs models with OpenModelica's `omc` and caches builds across runs and sweeps. [The OMC backend](docs/omc-backend.md) describes:
+
+- [how a run works](docs/omc-backend.md#how-a-run-works);
+- [what a result contains](docs/omc-backend.md#results) and [how it is saved](docs/omc-backend.md#saving-results);
+- [the C and Cpp targets](docs/omc-backend.md#targets);
+- [the environment variables](docs/omc-backend.md#environment-variables) (`MTOOLS_WORK_DIR`, `MTOOLS_NO_CACHE`, `MTOOLS_KEEP_RUNS`);
+- [the build cache](docs/omc-backend.md#build-cache);
+- [errors and logging](docs/omc-backend.md#errors-and-logging).
+
+### Breaking changes
+
+Replacing Pydelica with the in-repo OMC backend changed the following:
+
+- Override paths are `build.*` and `settings.*`, not `session.*`. Parameters are `settings.parameters.*`, and the config groups are `settings` and `settings/parameters`.
+- `Session`, `Model`, `Simulation`, `TimeRange`, `Tolerance`, `VariableFilter`, `SessionBuilder`, `SessionDirector` and the Pydelica exception types are removed. Use the dataclasses `Build`, `Library`, `RunSettings` and `SimulationRun` in `mtools.session_config` and the exceptions in `mtools.errors`.
+- `create_run` takes `model_name`, `model_path`, `target`, `extra_sources`, `libraries`, `omc_flags` and `settings`.
+- Models without an `experiment` annotation run from 0 to 1 s (OMC's defaults) instead of 0 to 10 s with tolerance 1e-9.
+- `save_solutions` writes `.mat` by default; pass `output_format="csv"` (or set `output_format=csv` on the command line) for CSV.
+- Boolean columns are `bool` instead of 0/1 integers, so a CSV has `True`/`False` instead of `0`/`1`. The plotting tool still shows them as 0/1.
+- Integer and enumeration columns stay `int64`.
+- Real columns are always `float64`, also when every value is a whole number; Pydelica read those as `int64`.
+- Results have no parameter columns and keep OMC's repeated rows at events.
+- The cache lives under the system temp directory until the system clears it.
 
 ### Visualize results
 
@@ -178,4 +222,4 @@ Refer to the [`kinematic_vehicle` examples](examples/) for a complete working se
 uv run python -m mtools path/to/results
 ```
 
-This launches an interactive Dash dashboard for exploring simulation output CSV files, with per-graph x-axis (`time` or any signal) and y-axis signal selection.
+This launches an interactive Dash dashboard for exploring the `.mat` and `.csv` result files under the directory, with per-graph x-axis (`time` or any signal) and y-axis signal selection.
