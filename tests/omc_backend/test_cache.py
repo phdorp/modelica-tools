@@ -50,6 +50,27 @@ def _messages(caplog: pytest.LogCaptureFixture, word: str) -> list[str]:
     return [r.getMessage() for r in caplog.records if r.getMessage().startswith(word)]
 
 
+@pytest.mark.parametrize("in_package", [False, True], ids=["single-file", "package"])
+def test_an_identical_model_at_another_path_reuses_the_build(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, in_package: bool
+):
+    """Two checkouts of one project (worktrees, a clone and CI) share one build."""
+    caplog.set_level(logging.INFO)
+    if in_package:
+        first, second = (_package(tmp_path / checkout, "Pkg") for checkout in ("a", "b"))
+        configs = [BuildConfig(model_path=model, model_name="Pkg.M") for model in (first, second)]
+    else:
+        for checkout in ("a", "b"):
+            (tmp_path / checkout).mkdir()
+        configs = [_single(tmp_path / checkout) for checkout in ("a", "b")]
+
+    for config in [*configs, configs[0]]:
+        build(config).simulate(RunSettings())
+
+    assert len(_messages(caplog, "Built")) == 1
+    assert len(_messages(caplog, "Reused")) == 2
+
+
 def test_unchanged_build_is_reused_without_compiling(tmp_path: Path, caplog: pytest.LogCaptureFixture, target: Target):
     caplog.set_level(logging.INFO)
     config = _single(tmp_path, target=target)

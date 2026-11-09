@@ -173,7 +173,7 @@ def _stored_build(tmp_path: Path, config: BuildConfig, loaded: tuple[LoadedLibra
     directory = workdir.builds_dir() / key
     directory.mkdir(parents=True)
     experiment = Experiment(0.0, 1.0, 0.1, 1e-6, "dassl")
-    cache.save_record(directory, cache.BuildRecord(experiment, loaded, cache.library_hashes(config, loaded)))
+    cache.save_record(directory, cache.new_record(config, experiment, loaded))
     return key
 
 
@@ -207,3 +207,33 @@ def test_a_hit_is_rejected_when_an_installed_library_changed_version(tmp_path: P
     cache.save_record(workdir.builds_dir() / key, cache.BuildRecord(record.experiment, upgraded, record.hashes))
 
     assert cache.lookup(key, config) is None
+
+
+def _checkout(root: Path, in_package: bool) -> tuple[BuildConfig, LoadedLibrary]:
+    """A model as OMC loads it: a package by its directory, a single file by the file's directory."""
+    if in_package:
+        return BuildConfig(model_path=_package(root), model_name="Pkg.M"), LoadedLibrary("Pkg", root / "Pkg")
+    root.mkdir(parents=True)
+    (root / "A.mo").write_text("model A end A;")
+    return BuildConfig(model_path=root / "A.mo", model_name="A"), LoadedLibrary("A", root)
+
+
+@pytest.mark.parametrize("in_package", [False, True], ids=["single-file", "package"])
+def test_a_hit_is_valid_for_the_same_sources_at_another_path(tmp_path: Path, _work: None, in_package: bool):
+    built, loaded = _checkout(tmp_path / "a", in_package)
+    other, _ = _checkout(tmp_path / "b", in_package)
+    key = _stored_build(tmp_path, built, (loaded,))
+
+    assert cache.cache_key(other) == key
+    assert cache.lookup(key, other) is not None
+    assert cache.lookup(key, built) is not None
+
+
+def test_a_hit_from_another_path_is_rejected_when_the_package_there_changed(tmp_path: Path, _work: None):
+    built, loaded = _checkout(tmp_path / "a", in_package=True)
+    other, _ = _checkout(tmp_path / "b", in_package=True)
+    key = _stored_build(tmp_path, built, (loaded,))
+
+    (tmp_path / "b" / "Pkg" / "Resources" / "data.txt").write_text("changed")
+
+    assert cache.lookup(key, other) is None

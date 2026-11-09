@@ -14,7 +14,7 @@ import logging
 import os
 import shutil
 import subprocess
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -38,11 +38,15 @@ class BuildRecord:
         experiment: The model's experiment annotation.
         loaded_libraries: The build's input list, ``getLoadedLibraries()``.
         hashes: Input hash per entry of ``loaded_libraries``, in the same order.
+        roots: The tracked source and library roots the build was made from, so a hit
+            for the same sources at another path (another checkout) can be validated
+            there.
     """
 
     experiment: Experiment
     loaded_libraries: tuple[LoadedLibrary, ...]
     hashes: tuple[str, ...]
+    roots: tuple[Path, ...] = ()
 
 
 def hash_path(path: Path) -> str:
@@ -136,6 +140,12 @@ def library_hashes(config: BuildConfig, loaded: Iterable[LoadedLibrary]) -> tupl
     return tuple(hashes)
 
 
+def new_record(config: BuildConfig, experiment: Experiment, loaded: Iterable[LoadedLibrary]) -> BuildRecord:
+    """Return the record of a build of ``config`` that loaded ``loaded``."""
+    loaded = tuple(loaded)
+    return BuildRecord(experiment, loaded, library_hashes(config, loaded), tuple(_tracked_roots(config)))
+
+
 def save_record(directory: Path, record: BuildRecord) -> None:
     (directory / RECORD_NAME).write_text(json.dumps(asdict(record), default=str))
 
@@ -148,6 +158,7 @@ def load_record(directory: Path) -> BuildRecord | None:
             experiment=Experiment(**data["experiment"]),
             loaded_libraries=tuple(LoadedLibrary(item["name"], Path(item["path"])) for item in data["loaded_libraries"]),
             hashes=tuple(data["hashes"]),
+            roots=tuple(Path(root) for root in data.get("roots", ())),
         )
     except (OSError, ValueError, KeyError, TypeError):
         return None
@@ -156,14 +167,18 @@ def load_record(directory: Path) -> BuildRecord | None:
 def lookup(key: str, config: BuildConfig) -> tuple[Path, BuildRecord] | None:
     """Return the valid cached build for ``key``, or ``None``.
 
-    A stale entry (a package changed since it was built) is removed.
+    A stale entry (a package changed since it was built) is removed. The same key
+    means the same sources, so a build made from another checkout is validated
+    against the packages in this one.
     """
     directory = workdir.builds_dir() / key
     if not directory.is_dir():
         return None
     record = load_record(directory)
-    if record is not None and library_hashes(config, record.loaded_libraries) == record.hashes:
-        return directory, record
+    if record is not None:
+        loaded = _relocate(record.loaded_libraries, record.roots, _tracked_roots(config))
+        if library_hashes(config, loaded) == record.hashes:
+            return directory, record
     logger.debug("Discarding stale cached build %s", directory)
     _remove(directory)
     return None
@@ -202,6 +217,31 @@ def _tracked_roots(config: BuildConfig) -> list[Path]:
     roots = [package_root(Path(source)) for source in [*config.extra_sources, config.model_path]]
     roots += [library.directory.absolute() for library in config.libraries if library.directory is not None]
     return roots
+
+
+def _relocate(
+    loaded: Iterable[LoadedLibrary], built_roots: Sequence[Path], roots: Sequence[Path]
+) -> list[LoadedLibrary]:
+    """Move each loaded library under (or above) a root the build was made from onto
+    the same place relative to the matching root of the current config.
+
+    Roots match by position; equal keys give equal source and library lists. A record
+    without roots (or with another number of them) is left unchanged.
+    """
+    if len(built_roots) != len(roots):
+        return list(loaded)
+    relocated = []
+    for library in loaded:
+        path = library.path.absolute()
+        for built_root, root in zip(built_roots, roots):
+            if path == built_root or built_root in path.parents:
+                path = root / path.relative_to(built_root)
+                break
+            if path in built_root.parents:
+                path = root.parents[built_root.parents.index(path)]
+                break
+        relocated.append(LoadedLibrary(library.name, path))
+    return relocated
 
 
 def _directory_hash(library: Library) -> str | None:

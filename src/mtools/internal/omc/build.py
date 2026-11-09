@@ -178,14 +178,7 @@ def _run_omc(config: BuildConfig, directory: Path, build_values: Mapping[str, st
         )
     _log_build_diagnostics(config.model_name, stage_text)
 
-    cache.save_record(
-        directory,
-        cache.BuildRecord(
-            output.experiment,
-            output.loaded_libraries,
-            cache.library_hashes(config, output.loaded_libraries),
-        ),
-    )
+    cache.save_record(directory, cache.new_record(config, output.experiment, output.loaded_libraries))
     return Build(
         config=config,
         directory=directory,
