@@ -252,7 +252,9 @@ Replacing Pydelica with the in-repo OMC backend changed the following:
 - `Session`, `Model`, `Simulation`, `TimeRange`, `Tolerance`, `VariableFilter`, `SessionBuilder`, `SessionDirector` and the Pydelica exception types are removed. Use the dataclasses `Build`, `Library`, `RunSettings` and `SimulationRun` in `mtools.session_config` and the exceptions in `mtools.errors`.
 - `create_run` takes `model_name`, `model_path`, `target`, `extra_sources`, `libraries`, `omc_flags` and `settings`.
 - Models without an `experiment` annotation run from 0 to 1 s (OMC's defaults) instead of 0 to 10 s with tolerance 1e-9.
-- Integer and enumeration columns are `int64` and Boolean columns are `bool`. The CSVs from `save_solutions` hold the same values, and the plotting tool shows Boolean columns as 0/1.
+- Boolean columns are `bool` instead of 0/1 integers, so `save_solutions` writes them as `True`/`False` instead of `0`/`1`. The plotting tool still shows them as 0/1.
+- Integer and enumeration columns stay `int64`.
+- Real columns are always `float64`, also when every value is a whole number; Pydelica read those as `int64`.
 - Results have no parameter columns and keep OMC's repeated rows at events.
 - The cache lives under the system temp directory until the system clears it.
 
