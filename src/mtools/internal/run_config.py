@@ -21,6 +21,7 @@ from omegaconf.errors import OmegaConfBaseException
 import mtools.internal.omc.config as backend
 import mtools.session_config as session_config
 from mtools.errors import ConfigError
+from mtools.internal import result_files
 from mtools.internal.omc import run_cpp
 
 TARGETS = ("C", "Cpp")
@@ -52,8 +53,8 @@ def validate(run: session_config.SimulationRun) -> tuple[backend.BuildConfig, ba
     """Check ``run`` and map it onto the backend's build config and run settings.
 
     Checks what needs no build: types, that files and directories exist, the target,
-    no ``--simCodeTarget`` in ``build.omc_flags``, and an explicitly requested Cpp
-    solver. Checks that need the build (parameter names, a solver from the annotation)
+    the output format, no ``--simCodeTarget`` in ``build.omc_flags``, and an
+    explicitly requested Cpp solver. Checks that need the build (parameter names, a solver from the annotation)
     happen when the build runs.
 
     Raises:
@@ -62,6 +63,9 @@ def validate(run: session_config.SimulationRun) -> tuple[backend.BuildConfig, ba
     build, settings = run.build, run.settings
     model_name = build.model_name if isinstance(build.model_name, str) else str(build.model_name)
     problems = [*_build_problems(build), *_settings_problems(settings)]
+    if run.output_format not in result_files.OUTPUT_FORMATS:
+        formats = ", ".join(map(repr, result_files.OUTPUT_FORMATS))
+        problems.append(f"output_format: expected one of {formats}, got {run.output_format!r}")
     if problems:
         raise ConfigError(_HEADER.format(model_name), model_name=model_name, diagnostics="\n".join(problems))
     build_config = backend.BuildConfig(

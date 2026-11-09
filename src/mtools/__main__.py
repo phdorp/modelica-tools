@@ -1,4 +1,4 @@
-"""CLI entry point for visualizing Modelica result CSV files."""
+"""CLI entry point for visualizing Modelica result files (.mat and .csv)."""
 
 import argparse
 from pathlib import Path
@@ -13,12 +13,12 @@ def parse_args() -> argparse.Namespace:
         argparse.Namespace: Parsed CLI arguments containing the results_dir.
     """
 
-    parser = argparse.ArgumentParser(description="Visualize Modelica result CSV files.")
+    parser = argparse.ArgumentParser(description="Visualize Modelica result files (.mat and .csv).")
     parser.add_argument(
         "results_dir",
         nargs="?",
         default=str(Path.cwd()),
-        help="Directory to search for result CSV files (default: current working directory).",
+        help="Directory to search for .mat and .csv result files (default: current working directory).",
     )
     parser.add_argument(
         "--debug",
@@ -34,7 +34,7 @@ def main() -> None:
     args = parse_args()
     result_files = find_results(args.results_dir)
     if not result_files:
-        raise FileNotFoundError(f"No .csv results found under: {args.results_dir}")
+        raise FileNotFoundError(f"No .mat or .csv results found under: {args.results_dir}")
 
     selected_result = result_files[0]
 

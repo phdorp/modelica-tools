@@ -9,15 +9,20 @@ import plotly.graph_objects as go
 from dash import ALL, Input, Output, State, dcc, html
 from dash.development.base_component import Component
 
+from mtools.internal.result_files import read_result_file
+
+#: Suffixes of the result files the dashboard lists.
+RESULT_SUFFIXES = (".mat", ".csv")
+
 
 def find_results(directory: str | Path) -> List[str]:
-    """Find .csv result files under a directory.
+    """Find .mat and .csv result files under a directory.
 
     Args:
         directory: Root directory to search recursively.
 
     Returns:
-        List[str]: Sorted list of CSV file paths.
+        List[str]: Sorted list of result file paths.
 
     Raises:
         FileNotFoundError: If the directory does not exist.
@@ -29,7 +34,9 @@ def find_results(directory: str | Path) -> List[str]:
         raise FileNotFoundError(f"Results directory not found: {directory_path}")
     if not directory_path.is_dir():
         raise NotADirectoryError(f"Results path is not a directory: {directory_path}")
-    return sorted(str(path) for path in directory_path.rglob("*.csv") if path.is_file())
+    return sorted(
+        str(path) for path in directory_path.rglob("*") if path.suffix in RESULT_SUFFIXES and path.is_file()
+    )
 
 
 def resolve_path(value: str | Path) -> str | None:
@@ -425,7 +432,7 @@ class DashBuilder:
         """Register a callback that rescans results_root subdirectories.
 
         Args:
-            results_root: Root directory to search for CSV files.
+            results_root: Root directory to search for result files.
                 Defaults to the current working directory when None.
 
         Returns:
@@ -546,15 +553,15 @@ class DashBuilder:
         self._variable_columns = [column for column in data.columns if column != "time"]
 
     def _load_results(self, result_file: str | None):
-        """Load result data from a CSV file and update internal state.
+        """Load result data from a .mat or .csv file and update internal state.
 
         Args:
-            result_file: CSV file path to load.
+            result_file: Result file path to load.
         """
 
         if not result_file:
             return
-        data = pd.read_csv(result_file)
+        data = read_result_file(result_file)
         boolean_columns = data.select_dtypes(include="bool").columns
         # Plotly draws Boolean columns as categories, so plot them as 0/1 signals.
         data[boolean_columns] = data[boolean_columns].astype(int)
@@ -616,7 +623,7 @@ class DashBuilder:
             cols: Number of grid columns.
             current_x_selections: Prior x-dropdown values in row-major order.
             current_y_selections: Prior y-dropdown values in row-major order.
-                Selections still present in the new CSV are kept; only axes
+                Selections still present in the new result are kept; only axes
                 with no overlap fall back to the default.
 
         Returns:

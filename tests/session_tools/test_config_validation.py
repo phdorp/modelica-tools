@@ -89,3 +89,19 @@ def test_missing_parameters_are_a_config_error():
 def test_unknown_parameter_name_is_a_config_error_naming_its_path():
     with pytest.raises(ConfigError, match=r"settings\.parameters\.bogus"):
         simulate(_run(settings_changes={"parameters": {"bogus": 1.0}}))
+
+
+def test_an_unknown_output_format_fails_before_building(caplog):
+    run = SimulationRun(build=build_default, settings=settings_default, output_format="json")  # type: ignore[arg-type]
+
+    with caplog.at_level(logging.INFO), pytest.raises(ConfigError) as exc:
+        simulate(run)
+
+    assert "output_format: expected one of 'mat', 'csv', got 'json'" in exc.value.diagnostics
+    assert _built(caplog) == []
+
+
+def test_output_format_defaults_to_mat_and_is_overridable():
+    assert hydra_zen.launch(run_default, lambda cfg: cfg, [], version_base=None).cfg.output_format == "mat"
+    config = hydra_zen.launch(run_default, lambda cfg: cfg, ["output_format=csv"], version_base=None).cfg
+    assert config.output_format == "csv"

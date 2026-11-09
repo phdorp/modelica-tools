@@ -5,10 +5,11 @@ from typing import Literal, overload
 import pandas
 from omegaconf import DictConfig
 
+import mtools.internal.result_files as result_files
 import mtools.internal.sim_tools as _internal
 import mtools.session_config as session_config
 
-__all__ = ["SweepResult", "save_solutions", "simulate"]
+__all__ = ["SweepResult", "load_solution", "save_solutions", "simulate"]
 
 
 @dataclasses.dataclass
@@ -77,11 +78,44 @@ def simulate(
     return results
 
 
-def save_solutions(solutions: dict[str, pandas.DataFrame], output_path: str):
-    """Write each solution data frame to CSV in the configured output path.
+def save_solutions(
+    solutions: dict[str, pandas.DataFrame],
+    output_path: str | Path,
+    output_format: session_config.OutputFormat = "mat",
+) -> None:
+    """Write each solution to ``<output_path>/<name>.<output_format>``.
+
+    ``mat`` writes OMC's MATLAB v4 result layout with the column types stored alongside,
+    so the file reads back with ``bool`` and ``int64`` columns; OpenModelica tools open
+    it too. ``csv`` writes Booleans as ``True``/``False``. The plotting tool reads both.
 
     Args:
-        solutions: Mapping of solution names to pandas data frames.
-        output_path: Directory path where CSV files are written.
+        solutions: Mapping of solution names to pandas data frames, as ``simulate``
+            returns them.
+        output_path: Existing directory the files are written to.
+        output_format: ``"mat"`` (default) or ``"csv"``; a run config carries it as
+            ``output_format``.
+
+    Raises:
+        ValueError: ``output_format`` is neither ``"mat"`` nor ``"csv"``, or a
+            solution has no rows and is saved as ``mat``.
     """
-    _internal.write_solutions(solutions, output_path)
+    result_files.write_solutions(solutions, output_path, output_format)
+
+
+def load_solution(path: str | Path) -> pandas.DataFrame:
+    """Read one solution file that ``save_solutions`` wrote, chosen by its suffix.
+
+    A ``.mat`` file reads back exactly as it was saved, with ``bool`` and ``int64``
+    columns. A ``.csv`` file reads back with pandas' type inference, so Boolean columns
+    are ``bool`` and whole-number Real columns are ``float64`` as written. An OMC
+    ``_res.mat`` file is read with every column as ``float64``.
+
+    Args:
+        path: A ``.mat`` or ``.csv`` file.
+
+    Raises:
+        ValueError: The suffix is neither ``.mat`` nor ``.csv``, or a ``.mat`` file is
+            not in OMC's result layout.
+    """
+    return result_files.read_result_file(path)

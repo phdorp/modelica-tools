@@ -83,14 +83,3 @@ def launch_sweep(
     first = launched[0]
     job_iter = first if isinstance(first, (list, tuple)) else launched
     return list(job_iter)
-
-
-def write_solutions(solutions: dict[str, pandas.DataFrame], output_path: str) -> None:
-    """Write each solution data frame to CSV in the configured output path.
-
-    Args:
-        solutions: Mapping of solution names to pandas data frames.
-        output_path: Directory path where CSV files are written.
-    """
-    for name, solution in solutions.items():
-        solution.to_csv(f"{output_path}/{name}.csv", index=False)

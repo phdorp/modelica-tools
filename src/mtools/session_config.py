@@ -1,4 +1,5 @@
-"""Typed run configs: what to build (``build``) and how to run it (``settings``).
+"""Typed run configs: what to build (``build``), how to run it (``settings``) and how to
+save the result (``output_format``).
 
 The classes are plain dataclasses that Hydra composes as structured configs, so every
 field can be overridden from the command line (``build.target=Cpp``,
@@ -18,11 +19,15 @@ if TYPE_CHECKING:
     #: Simulation target. OmegaConf has no ``Literal`` support, so Hydra sees ``str``;
     #: ``sim_tools.simulate`` rejects any other value with a ``ConfigError``.
     Target: TypeAlias = Literal["C", "Cpp"]
+    #: Saved result file format. Hydra sees ``str``; ``sim_tools.simulate`` and
+    #: ``sim_tools.save_solutions`` reject any other value.
+    OutputFormat: TypeAlias = Literal["mat", "csv"]
     #: Parameter values: a (nested) parameter dataclass instance. OmegaConf cannot
     #: type a ``Protocol``, so Hydra sees ``Any``.
     Parameters: TypeAlias = "DataclassType"
 else:
     Target = str
+    OutputFormat = str
     Parameters = Any
 
 #: A Modelica source file; must exist when the run is validated.
@@ -100,9 +105,12 @@ class RunSettings:
 
 @dataclasses.dataclass
 class SimulationRun:
-    """Top-level run config: one build and the settings to run it with."""
+    """Top-level run config: one build, the settings to run it with, and how to save it."""
 
     #: What to build.
     build: Build
     #: How to run it.
     settings: RunSettings
+    #: File format ``sim_tools.save_solutions`` writes: ``"mat"`` (OMC's MATLAB v4
+    #: result layout, the default) or ``"csv"``. Override with ``output_format=csv``.
+    output_format: OutputFormat = "mat"

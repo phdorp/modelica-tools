@@ -76,3 +76,10 @@ class TestFindResults:
         results = find_results(tmp_path)
 
         assert results == [str(earlier_result), str(later_result)]
+
+def test_discovers_mat_and_csv_results(tmp_path: Path):
+    (tmp_path / "a.csv").write_text("time,value\n0,1\n")
+    (tmp_path / "nested").mkdir()
+    (tmp_path / "nested" / "b.mat").write_bytes(b"")
+
+    assert find_results(tmp_path) == [str(tmp_path / "a.csv"), str(tmp_path / "nested" / "b.mat")]
