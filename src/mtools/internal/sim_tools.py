@@ -15,6 +15,7 @@ import pandas
 from hydra.core.utils import JobReturn
 from omegaconf import DictConfig
 
+import mtools.internal.hydra_state as hydra_state
 import mtools.internal.omc.build as omc_build
 import mtools.internal.run_config as run_config
 
@@ -69,6 +70,11 @@ def launch_sweep(
 ) -> list[JobReturn]:
     """Launch a Hydra multirun sweep and return the flat job list.
 
+    The sweep runs in the caller's process, so it leaves that process as it
+    found it: Hydra's config store is restored afterwards, and Hydra does not
+    configure logging unless ``overrides`` choose a ``hydra/job_logging`` or
+    ``hydra/hydra_logging`` option.
+
     Args:
         config: Run config type to fan out via ``hydra_zen.launch``.
         overrides: Full override list including sweep values.
@@ -77,9 +83,14 @@ def launch_sweep(
         Flat list of per-job results, unwrapping the nested list that
         ``hydra_zen.launch`` returns for multirun sweeps.
     """
-    launched = hydra_zen.launch(
-        config, lambda job_config: simulate_run(job_config), overrides=overrides, multirun=True, version_base=None
-    )
+    with hydra_state.config_store_scope():
+        launched = hydra_zen.launch(
+            config,
+            lambda job_config: simulate_run(job_config),
+            overrides=hydra_state.without_logging_setup(overrides),
+            multirun=True,
+            version_base=None,
+        )
     first = launched[0]
     job_iter = first if isinstance(first, (list, tuple)) else launched
     return list(job_iter)

@@ -160,6 +160,10 @@ uv run python -m my_simulation '+build.omc_flags={-d:initialization,--maxSizeLin
 
 From Python, call `registry.add_to_hydra_store()` first. Then `simulate(run_default, overrides=["settings.parameters.k=1,10"], multirun=True)` runs a sweep and returns one `SweepResult(config, solutions)` per point.
 
+A sweep from Python runs inside your process and leaves it as it found it: Hydra's config store is restored, and Hydra changes no log levels or handlers. So Hydra writes no per-job `.log` files; to get them, pass a logging option yourself, e.g. `hydra/job_logging=default`, and Hydra configures logging for your process as it does for a command-line run.
+
 ## Several registries
 
-`add_to_hydra_store()` adds a registry's configs to Hydra's global store once. If two registries use the same names, call `add_to_hydra_store(overwrite_ok=True)` before composing or launching from each. `compose(name, overrides)` does that itself.
+`add_to_hydra_store()` adds a registry's configs to Hydra's global store once. If two registries use the same names, call `add_to_hydra_store(overwrite_ok=True)` before launching from each.
+
+`compose(name, overrides)` and the sweeps in `mtools.testing` see only their own registry's configs, and remove them from the global store again when they return. A name that only another registry defines fails to compose.

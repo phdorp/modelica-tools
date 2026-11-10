@@ -96,4 +96,4 @@ MtoolsError
 
 A failed or timed-out run never returns data as a result; what was written before the failure is in `SimulationError.partial_result`. Every exception has `.model_name` and `.diagnostics`.
 
-mtools logs to the `mtools` logger (builds, cache hits, warnings from OMC and from the run). It attaches no handlers and sets no levels.
+mtools logs to the `mtools` logger (builds, cache hits, warnings from OMC and from the run). It attaches no handlers and sets no levels. That includes sweeps run from Python: mtools tells Hydra not to configure logging there, unless you pass a `hydra/job_logging` or `hydra/hydra_logging` option yourself.

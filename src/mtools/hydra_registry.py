@@ -12,6 +12,7 @@ from hydra_zen import MISSING, ZenStore
 from hydra_zen.typing._implementations import DefaultsList
 from omegaconf import DictConfig
 
+import mtools.internal.hydra_state as hydra_state
 import mtools.session_config as session_config
 
 if TYPE_CHECKING:
@@ -767,10 +768,9 @@ class HydraZenRegistry:
     ) -> DictConfig:
         """Compose a config from the local store using Hydra's compose.
 
-        This method adds all stored entries to Hydra's global config store,
-        overwriting entries from other registries with the same names,
-        initializes Hydra, composes the requested config, and returns the
-        composed result.
+        Hydra composes from this registry's entries only: configs that other
+        registries or other code added to Hydra's global config store are not
+        visible, and the store is left as it was when the call returns.
 
         Args:
             config_name: Name of the primary config to compose.
@@ -779,7 +779,8 @@ class HydraZenRegistry:
         Returns:
             The composed configuration as a DictConfig.
         """
-        self.add_to_hydra_store(overwrite_ok=True)
-        GlobalHydra.instance().clear()
-        with hydra.initialize(version_base=None, config_path=None):
-            return hydra.compose(config_name=config_name, overrides=overrides)
+        with hydra_state.config_store_scope(isolate=True):
+            self.add_to_hydra_store(overwrite_ok=True)
+            GlobalHydra.instance().clear()
+            with hydra.initialize(version_base=None, config_path=None):
+                return hydra.compose(config_name=config_name, overrides=overrides)
