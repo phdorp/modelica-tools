@@ -92,8 +92,6 @@ registry.register_experiment(
     },
 )
 
-registry.add_to_hydra_store()
-
 # Re-exported for convenience.
 __all__ = [
     "MODEL_NAME",

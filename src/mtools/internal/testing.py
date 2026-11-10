@@ -377,12 +377,12 @@ class _SweepPlan:
             registry: Hydra registry providing the multirun base run config.
             tmp_path_factory: Pytest factory used for the sweep directory.
         """
-        registry.add_to_hydra_store(overwrite_ok=True)
         return sim_tools.simulate(
             registry.get_experiment_run_config(self.experiment, run_config=self.run_config),
             overrides=self.build_overrides(),
             multirun=True,
             sweep_dir=str(tmp_path_factory.mktemp(f"{self.experiment}_sweep")),
+            registry=registry,
         )
 
     def key_of(self, job: sim_tools.SweepResult) -> tuple[Hashable, ...]:

@@ -1,3 +1,5 @@
+import contextlib
+
 """Tests for ``mtools.testing`` experiment base classes.
 
 ``mtools.sim_tools.simulate`` is faked, so no OpenModelica installation is
@@ -227,8 +229,9 @@ class FakeRegistry:
         self._runs = runs or {}
         self.model_name = model_name
 
-    def add_to_hydra_store(self, overwrite_ok=None):
-        """Record registry activation as a no-op."""
+    def activated(self):
+        """Activate nothing: sweeps under test never reach Hydra."""
+        return contextlib.nullcontext()
 
     def compose_experiment(self, name, run_config=None, overrides=None):
         """Record the call and return a composed config for the selected run config."""
@@ -297,11 +300,12 @@ def test_sweep_resolves_base_run_from_registry(monkeypatch, tmp_path_factory):
             self.config = config
             self.solutions = solutions
 
-    def fake_simulate(config, *, overrides, multirun, sweep_dir):
+    def fake_simulate(config, *, overrides, multirun, sweep_dir, registry):
         captured["config"] = config
         captured["overrides"] = overrides
         captured["multirun"] = multirun
         captured["sweep_dir"] = sweep_dir
+        captured["registry"] = registry
         assert multirun is True
         return [
             FakeJob(
@@ -322,6 +326,7 @@ def test_sweep_resolves_base_run_from_registry(monkeypatch, tmp_path_factory):
     T.fetch_sweep(fake_registry, tmp_path_factory)
 
     assert captured["config"] is sentinel_run
+    assert captured["registry"] is fake_registry
     assert captured["overrides"] == ["experiment=turn_left", "settings.parameters.phi=0.1,0.2"]
     assert set(T.results.keys()) == {(0.1,), (0.2,)}
 
@@ -336,7 +341,7 @@ def test_sweep_results_keyed_by_job_config_not_launch_order(monkeypatch, tmp_pat
             self.config = config
             self.solutions = solutions
 
-    def fake_simulate(config, *, overrides, multirun, sweep_dir):
+    def fake_simulate(config, *, overrides, multirun, sweep_dir, registry):
         assert multirun is True
         jobs = [
             FakeJob(
@@ -372,7 +377,7 @@ def test_sweep_serializes_hydra_native_types(monkeypatch, tmp_path_factory):
 
     captured = {}
 
-    def fake_simulate(config, *, overrides, multirun, sweep_dir):
+    def fake_simulate(config, *, overrides, multirun, sweep_dir, registry):
         captured["overrides"] = overrides
         assert multirun is True
         combos = list(_product([(0.0, 0.0, 0.0), (1.0, 0.0, 0.0)], [5, 10], [True, False]))
@@ -431,7 +436,7 @@ def test_sweep_serializes_dict_values_and_freezes_keys(monkeypatch, tmp_path_fac
 
     captured = {}
 
-    def fake_simulate(config, *, overrides, multirun, sweep_dir):
+    def fake_simulate(config, *, overrides, multirun, sweep_dir, registry):
         captured["overrides"] = overrides
         assert multirun is True
         states = [
@@ -489,7 +494,7 @@ def test_sweep_maps_tuples_onto_structured_fields(monkeypatch, tmp_path_factory)
 
     captured = {}
 
-    def fake_simulate(config, *, overrides, multirun, sweep_dir):
+    def fake_simulate(config, *, overrides, multirun, sweep_dir, registry):
         captured["overrides"] = overrides
         assert multirun is True
         states = [(0.0, 0.0, 0.0), (1.0, 2.0, 3.0)]
@@ -530,7 +535,7 @@ def test_sweep_tuple_arity_mismatch_raises(monkeypatch, tmp_path_factory):
                 {"settings": {"parameters": {"state_0": {"px": 0.0, "py": 0.0, "theta": 0.0}}}}
             )
 
-    def fake_simulate(config, *, overrides, multirun, sweep_dir):
+    def fake_simulate(config, *, overrides, multirun, sweep_dir, registry):
         raise AssertionError("simulate must not run when tuple arity mismatches")
 
     monkeypatch.setattr(sim_tools, "simulate", fake_simulate)
@@ -560,7 +565,7 @@ def test_sweep_over_multiple_parameters_uses_cartesian_product(monkeypatch, tmp_
 
     captured = {}
 
-    def fake_simulate(config, *, overrides, multirun, sweep_dir):
+    def fake_simulate(config, *, overrides, multirun, sweep_dir, registry):
         captured["overrides"] = overrides
         assert multirun is True
         combos = list(_product((0.0, 1.0), (0.0, 1.0)))
@@ -611,7 +616,7 @@ def test_sweep_serializes_dataclass_values_like_dicts(monkeypatch, tmp_path_fact
 
     captured = {}
 
-    def fake_simulate(config, *, overrides, multirun, sweep_dir):
+    def fake_simulate(config, *, overrides, multirun, sweep_dir, registry):
         captured["overrides"] = overrides
         assert multirun is True
         states = [
@@ -651,7 +656,7 @@ def test_sweep_serializes_dataclass_values_like_dicts(monkeypatch, tmp_path_fact
 def test_sweep_duplicate_frozen_keys_raise(monkeypatch, tmp_path_factory):
     """Sweep values collapsing to the same frozen key (True vs 1) fail fast."""
 
-    def fake_simulate(config, *, overrides, multirun, sweep_dir):
+    def fake_simulate(config, *, overrides, multirun, sweep_dir, registry):
         raise AssertionError("simulate must not run when frozen keys collide")
 
     monkeypatch.setattr(sim_tools, "simulate", fake_simulate)
@@ -672,7 +677,7 @@ def test_sweep_duplicate_frozen_keys_raise(monkeypatch, tmp_path_factory):
 def test_sweep_empty_value_list_raises(monkeypatch, tmp_path_factory):
     """A param with no sweep values fails fast instead of emitting an invalid override."""
 
-    def fake_simulate(config, *, overrides, multirun, sweep_dir):
+    def fake_simulate(config, *, overrides, multirun, sweep_dir, registry):
         raise AssertionError("simulate must not run with empty value lists")
 
     monkeypatch.setattr(sim_tools, "simulate", fake_simulate)
@@ -723,7 +728,7 @@ def test_sweep_dataclass_over_structured_target_needs_no_arity_mapping(monkeypat
 
     captured = {}
 
-    def fake_simulate(config, *, overrides, multirun, sweep_dir):
+    def fake_simulate(config, *, overrides, multirun, sweep_dir, registry):
         captured["overrides"] = overrides
         assert multirun is True
         states = [
@@ -791,7 +796,7 @@ def test_reference_sweep_uses_reference_run_config_and_matches_combinations(monk
             self.config = config
             self.solutions = solutions
 
-    def fake_simulate(config, *, overrides, multirun, sweep_dir):
+    def fake_simulate(config, *, overrides, multirun, sweep_dir, registry):
         calls.append({"overrides": list(overrides), "sweep_dir": sweep_dir})
         assert multirun is True
         model_name = config.model_name
@@ -831,7 +836,7 @@ def test_multi_experiment_reference_sweep_maps_each_name_to_both_sides(monkeypat
             self.config = config
             self.solutions = solutions
 
-    def fake_simulate(config, *, overrides, multirun, sweep_dir):
+    def fake_simulate(config, *, overrides, multirun, sweep_dir, registry):
         assert multirun is True
         model_name = config.model_name
         return [
@@ -890,7 +895,7 @@ def test_reference_sweep_launches_reference_pass_with_reference_run_config(monke
             self.config = config
             self.solutions = solutions
 
-    def fake_simulate(config, *, overrides, multirun, sweep_dir):
+    def fake_simulate(config, *, overrides, multirun, sweep_dir, registry):
         model_name = config.model_name
         return [
             FakeJob(
@@ -946,7 +951,7 @@ def test_sweep_job_config_missing_model_name_raises(monkeypatch, tmp_path_factor
             self.config = config
             self.solutions = solutions
 
-    def fake_simulate(config, *, overrides, multirun, sweep_dir):
+    def fake_simulate(config, *, overrides, multirun, sweep_dir, registry):
         assert multirun is True
         return [
             FakeJob({"settings": {"parameters": {"phi": phi}}}, {"my.Model": _frame(f"phi={phi}")})

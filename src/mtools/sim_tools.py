@@ -1,6 +1,6 @@
 import dataclasses
 from pathlib import Path
-from typing import Literal, overload
+from typing import TYPE_CHECKING, Literal, overload
 
 import pandas
 from omegaconf import DictConfig
@@ -8,6 +8,9 @@ from omegaconf import DictConfig
 import mtools.internal.result_files as result_files
 import mtools.internal.sim_tools as _internal
 import mtools.session_config as session_config
+
+if TYPE_CHECKING:
+    from mtools.internal.hydra_state import ActivatableRegistry
 
 __all__ = ["SweepResult", "load_solution", "save_solutions", "simulate"]
 
@@ -33,6 +36,7 @@ def simulate(
     overrides: list[str],
     multirun: Literal[True],
     sweep_dir: str | Path | None = None,
+    registry: "ActivatableRegistry | None" = None,
 ) -> list[SweepResult]: ...
 
 
@@ -42,6 +46,7 @@ def simulate(
     overrides: list[str] | None = None,
     multirun: bool = False,
     sweep_dir: str | Path | None = None,
+    registry: "ActivatableRegistry | None" = None,
 ) -> dict[str, pandas.DataFrame] | list[SweepResult]:
     """Run a single simulation or a multirun sweep.
 
@@ -49,8 +54,10 @@ def simulate(
     (or reuses a cached build), runs it and returns the result keyed by
     ``build.model_name``.
 
-    Multirun: ``simulate(run_config_type, overrides=[...], multirun=True)``
-    fans out via ``hydra_zen.launch``; each job runs the single-run path.
+    Multirun: ``simulate(run_config_type, overrides=[...], multirun=True,
+    registry=registry)`` fans out via ``hydra_zen.launch``; each job runs the
+    single-run path. The sweep sees only ``registry``'s configs and leaves
+    Hydra's global config store, the registry and logging as it found them.
 
     Args:
         config: Composed run config (single-run) or run config type
@@ -59,6 +66,9 @@ def simulate(
             ``["settings.parameters.phi=0.1,0.2"]``). Required if multirun.
         multirun: Whether to launch a Hydra multirun sweep.
         sweep_dir: Optional ``hydra.sweep.dir`` value for the sweep.
+        registry: Registry the sweep resolves config groups (settings,
+            experiments) from. Without one, the sweep resolves them from
+            Hydra's global config store, filled by ``add_to_hydra_store()``.
 
     Returns:
         Single-run solution mapping, or a list of per-job sweep results.
@@ -68,7 +78,7 @@ def simulate(
     if overrides is None:
         raise ValueError("Multirun simulate() requires 'overrides' with sweep values.")
     full_overrides = _internal.build_multirun_overrides(overrides, sweep_dir)
-    job_iter = _internal.launch_sweep(config, full_overrides)  # type: ignore[arg-type]
+    job_iter = _internal.launch_sweep(config, full_overrides, registry)  # type: ignore[arg-type]
     results = []
     for job in job_iter:
         # A multirun job always carries its composed config; hydra-zen types it

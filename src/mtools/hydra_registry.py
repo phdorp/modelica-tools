@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import dataclasses
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional, TypeAlias, cast
 
@@ -12,6 +13,7 @@ from hydra_zen import MISSING, ZenStore
 from hydra_zen.typing._implementations import DefaultsList
 from omegaconf import DictConfig
 
+import mtools.internal.hydra_state as hydra_state
 import mtools.session_config as session_config
 
 if TYPE_CHECKING:
@@ -748,6 +750,10 @@ class HydraZenRegistry:
     def add_to_hydra_store(self, overwrite_ok: bool | None = None):
         """Add all registered entries to Hydra's global config store.
 
+        Use this for command-line entry points (``hydra.main``), which read
+        the global store. Runs started from Python use :meth:`activated` and
+        need no call to this method.
+
         When ``overwrite_ok`` is True, re-enqueues every registered entry first
         so the same registry can be activated repeatedly. This lets multiple
         registries that reuse config and experiment names overwrite each other
@@ -762,15 +768,25 @@ class HydraZenRegistry:
             self._store.enqueue_all()
         self._store.add_to_hydra_store(overwrite_ok=overwrite_ok)
 
+    @contextmanager
+    def activated(self) -> Iterator[None]:
+        """Let Hydra see exactly this registry's configs inside the block.
+
+        Hydra composes and launches from a store that holds only its own
+        entries and this registry's. When the block ends, Hydra's global
+        config store is as it was before, and this registry is unchanged.
+        """
+        with hydra_state.store_scope(self._store):
+            yield
+
     def compose(
         self, config_name: str, overrides: list[str] | None = None
     ) -> DictConfig:
         """Compose a config from the local store using Hydra's compose.
 
-        This method adds all stored entries to Hydra's global config store,
-        overwriting entries from other registries with the same names,
-        initializes Hydra, composes the requested config, and returns the
-        composed result.
+        Hydra composes from this registry's entries only: configs that other
+        registries or other code added to Hydra's global config store are not
+        visible, and the store is left as it was when the call returns.
 
         Args:
             config_name: Name of the primary config to compose.
@@ -779,7 +795,7 @@ class HydraZenRegistry:
         Returns:
             The composed configuration as a DictConfig.
         """
-        self.add_to_hydra_store(overwrite_ok=True)
-        GlobalHydra.instance().clear()
-        with hydra.initialize(version_base=None, config_path=None):
-            return hydra.compose(config_name=config_name, overrides=overrides)
+        with self.activated():
+            GlobalHydra.instance().clear()
+            with hydra.initialize(version_base=None, config_path=None):
+                return hydra.compose(config_name=config_name, overrides=overrides)
