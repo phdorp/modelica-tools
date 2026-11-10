@@ -232,7 +232,7 @@ class SimulationRun:
   - the source files: the whole top-level package directory including `Resources/` for a model in a package, and the same rule for each `extra_sources` entry;
   - the library specs, plus a content hash of each `directory` library;
   - target, `omc_flags`, build-time parameter values;
-  - the OMC version, the C compiler version, and an mtools backend version that changes whenever the build-script template changes.
+  - the OMC version, the `--version` output of the compilers OMC reports (`getCompiler()`, plus `getCXXCompiler()` for Cpp), and an mtools backend version that changes whenever the build-script template changes.
 - **Validating a hit:** a key match counts only if every package on the cached build's input list (`getLoadedLibraries()`) still hashes to its recorded value. Installed library versions are identified by name and version. Otherwise mtools builds again.
 - **Not covered, to be documented:** C headers included by absolute path from outside any package.
 - **Build variants:** when a run requests a parameter the build marks as non-changeable, the backend builds a variant with that value fixed at build time and caches it under a key that includes the value. One INFO log names the parameters that forced it. The plain build is always made first; its `_init.xml` tells which requested parameters are fixed at build time and gives their types.

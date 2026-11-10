@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+import subprocess
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -14,9 +16,12 @@ from mtools.internal.omc.script import Experiment, LoadedLibrary
 
 
 @pytest.fixture(autouse=True)
-def fixed_tools(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(cache, "omc_version", lambda: "omc 1")
-    monkeypatch.setattr(cache, "compiler_version", lambda: "gcc 1")
+def fixed_tools(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
+    """OMC reports clang and clang++; ``--version`` output by compiler command, editable by a test."""
+    versions = {"clang": "clang 1", "clang++ -std=c++17": "clang++ 1", "gcc": "gcc 1"}
+    monkeypatch.setattr(cache, "omc_info", lambda: cache.OmcInfo("omc 1", "clang", "clang++ -std=c++17"))
+    monkeypatch.setattr(cache, "tool_version", lambda command: versions[command])
+    return versions
 
 
 def _package(root: Path) -> Path:
@@ -100,17 +105,79 @@ def test_extra_sources_flags_target_and_libraries_change_the_key(tmp_path: Path)
     assert len(keys) == 8
 
 
-def test_tool_versions_change_the_key(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_tool_versions_change_the_key(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fixed_tools: dict[str, str]):
     model = tmp_path / "A.mo"
     model.write_text("model A end A;")
     config = BuildConfig(model_path=model, model_name="A")
     before = cache.cache_key(config)
 
-    monkeypatch.setattr(cache, "omc_version", lambda: "omc 2")
+    monkeypatch.setattr(cache, "omc_info", lambda: cache.OmcInfo("omc 2", "clang", "clang++ -std=c++17"))
     after_omc = cache.cache_key(config)
-    monkeypatch.setattr(cache, "compiler_version", lambda: "gcc 2")
+    fixed_tools["clang"] = "clang 2"
 
     assert len({before, after_omc, cache.cache_key(config)}) == 3
+
+
+def test_key_follows_the_c_compiler_omc_reports_not_gcc(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fixed_tools: dict[str, str]
+):
+    model = tmp_path / "A.mo"
+    model.write_text("model A end A;")
+    config = BuildConfig(model_path=model, model_name="A")
+    before = cache.cache_key(config)
+
+    fixed_tools["gcc"] = "gcc 2"
+    assert cache.cache_key(config) == before
+
+    fixed_tools["clang"] = "clang 2"
+    upgraded = cache.cache_key(config)
+    assert upgraded != before
+
+    monkeypatch.setattr(cache, "omc_info", lambda: cache.OmcInfo("omc 1", "gcc", "clang++ -std=c++17"))
+    assert cache.cache_key(config) not in {before, upgraded}
+
+
+def test_only_cpp_keys_follow_the_cxx_compiler_omc_reports(tmp_path: Path, fixed_tools: dict[str, str]):
+    model = tmp_path / "A.mo"
+    model.write_text("model A end A;")
+    c = BuildConfig(model_path=model, model_name="A", target="C")
+    cpp = BuildConfig(model_path=model, model_name="A", target="Cpp")
+    c_before, cpp_before = cache.cache_key(c), cache.cache_key(cpp)
+
+    fixed_tools["clang++ -std=c++17"] = "clang++ 2"
+
+    assert cache.cache_key(c) == c_before
+    assert cache.cache_key(cpp) != cpp_before
+
+
+@pytest.fixture
+def uncached_tools(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[list[str]]]:
+    """Run the real tool lookups against a fake ``subprocess.run``; return the commands it saw."""
+    monkeypatch.undo()  # drop fixed_tools
+    commands: list[list[str]] = []
+    outputs = {"omc": '"OpenModelica 9"\n"clang"\n"clang++ -std=c++17"\n', "clang": "clang 9", "clang++": "clang++ 9"}
+
+    def run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        commands.append(list(command))
+        return subprocess.CompletedProcess(command, 0, outputs[command[0]], "")
+
+    monkeypatch.setattr(cache.subprocess, "run", run)
+    cache.omc_info.cache_clear()
+    cache.tool_version.cache_clear()
+    yield commands
+    cache.omc_info.cache_clear()
+    cache.tool_version.cache_clear()
+
+
+def test_tools_are_queried_once_per_process(tmp_path: Path, uncached_tools: list[list[str]]):
+    model = tmp_path / "A.mo"
+    model.write_text("model A end A;")
+    for target in ["C", "Cpp", "C", "Cpp"]:
+        cache.cache_key(BuildConfig(model_path=model, model_name="A", target=target))  # type: ignore[arg-type]
+
+    assert [command[0] for command in uncached_tools] == ["omc", "clang", "clang++"]
+    assert uncached_tools[2] == ["clang++", "-std=c++17", "--version"]
+    assert cache.omc_info() == cache.OmcInfo("OpenModelica 9", "clang", "clang++ -std=c++17")
 
 
 def test_backend_version_changes_the_key_and_follows_the_script_template(

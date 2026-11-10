@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from mtools.errors import SimulationError
+from mtools.internal.omc import cache
 from mtools.internal.omc.build import build
 from mtools.internal.omc.config import (BuildConfig, Library, RunSettings,
                                         Target)
@@ -247,3 +248,17 @@ def test_failed_builds_leave_nothing_behind(tmp_path: Path, work_dir: Path):
 
     assert list((work_dir / "builds").iterdir()) == []
     assert list((work_dir / "tmp").iterdir()) == []
+
+
+def test_the_key_uses_the_compilers_omc_reports(monkeypatch: pytest.MonkeyPatch):
+    """OMC takes its C compiler from ``CC``; the key must follow what OMC reports."""
+    monkeypatch.setenv("CC", "my-cc")
+    cache.omc_info.cache_clear()
+    try:
+        info = cache.omc_info()
+    finally:
+        cache.omc_info.cache_clear()
+
+    assert info.version.startswith("OpenModelica")
+    assert info.c_compiler == "my-cc"
+    assert info.cxx_compiler

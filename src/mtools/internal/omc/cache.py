@@ -12,14 +12,17 @@ import hashlib
 import json
 import logging
 import os
+import re
+import shlex
 import shutil
 import subprocess
+import tempfile
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from mtools.internal.omc import workdir
-from mtools.internal.omc.config import BuildConfig, Library
+from mtools.internal.omc.config import BuildConfig, Library, Target
 from mtools.internal.omc.packages import package_root
 from mtools.internal.omc.script import Experiment, LoadedLibrary, build_script
 
@@ -28,6 +31,23 @@ logger = logging.getLogger(__name__)
 # Bump when a change to the backend alters builds without altering the build script.
 BACKEND_REVISION = "1"
 RECORD_NAME = "mtools-build.json"
+_TOOLS_SCRIPT = "getVersion();\ngetCompiler();\ngetCXXCompiler();\n"
+_QUOTED = re.compile(r'"((?:[^"\\]|\\.)*)"')
+
+
+@dataclass(frozen=True)
+class OmcInfo:
+    """What OMC reports about itself.
+
+    Attributes:
+        version: ``getVersion()``.
+        c_compiler: ``getCompiler()``, the C compiler command OMC builds with.
+        cxx_compiler: ``getCXXCompiler()``, the C++ compiler command of Cpp builds.
+    """
+
+    version: str
+    c_compiler: str
+    cxx_compiler: str
 
 
 @dataclass(frozen=True)
@@ -89,21 +109,38 @@ def cache_key(config: BuildConfig, build_values: Mapping[str, str] | None = None
         "target": config.target,
         "omc_flags": sorted((name, value) for name, value in config.omc_flags.items()),
         "build_values": sorted((build_values or {}).items()),
-        "omc": omc_version(),
-        "compiler": compiler_version(),
+        "omc": omc_info().version,
+        "compilers": compiler_versions(config.target),
         "backend": backend_version(),
     }
     return hashlib.sha256(json.dumps(description, sort_keys=True).encode()).hexdigest()
 
 
 @functools.cache
-def omc_version() -> str:
-    return _tool_version(["omc", "--version"])
+def omc_info() -> OmcInfo:
+    """Ask OMC for its version and compilers, once per process."""
+    with tempfile.TemporaryDirectory() as directory:
+        (Path(directory) / "tools.mos").write_text(_TOOLS_SCRIPT)
+        output = _tool_output(["omc", "tools.mos"], cwd=directory)
+    strings = [re.sub(r"\\(.)", r"\1", literal) for literal in _QUOTED.findall(output)]
+    if len(strings) != 3:
+        return OmcInfo(output or "unknown", "unknown", "unknown")
+    return OmcInfo(*strings)
+
+
+def compiler_versions(target: Target) -> dict[str, str]:
+    """Return the command and ``--version`` output of each compiler OMC uses for ``target``."""
+    info = omc_info()
+    commands = {"c": info.c_compiler}
+    if target == "Cpp":
+        commands["cxx"] = info.cxx_compiler
+    return {kind: f"{command}\n{tool_version(command)}" for kind, command in commands.items()}
 
 
 @functools.cache
-def compiler_version() -> str:
-    return _tool_version([os.environ.get("CC") or "gcc", "--version"])
+def tool_version(command: str) -> str:
+    """Return the ``--version`` output of a compiler command such as ``clang++ -std=c++17``."""
+    return _tool_output([*shlex.split(command), "--version"])
 
 
 @functools.cache
@@ -261,9 +298,9 @@ def _file_hash(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _tool_version(command: list[str]) -> str:
+def _tool_output(command: list[str], cwd: str | None = None) -> str:
     try:
-        completed = subprocess.run(command, capture_output=True, text=True, errors="replace", check=False)
+        completed = subprocess.run(command, cwd=cwd, capture_output=True, text=True, errors="replace", check=False)
     except OSError:
         return "unknown"
     return (completed.stdout + completed.stderr).strip()
