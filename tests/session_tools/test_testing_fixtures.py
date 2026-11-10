@@ -1,3 +1,5 @@
+import contextlib
+
 """Fixture-wiring tests for ``mtools.testing`` experiment base classes.
 
 ``test_testing.py`` drives ``fetch_experiment``/``fetch_sweep`` directly,
@@ -75,8 +77,8 @@ INNER_MODULE = textwrap.dedent(
             self.model_name = model_name
             self._runs = runs or {}
 
-        def add_to_hydra_store(self, overwrite_ok=None):
-            pass
+        def activated(self):
+            return contextlib.nullcontext()
 
         def compose_experiment(self, name, run_config=None, overrides=None):
             return OmegaConf.create(

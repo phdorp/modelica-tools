@@ -6,7 +6,7 @@ import hydra_zen
 import pytest
 from hydra.core.config_store import ConfigStore
 from hydra.errors import HydraException
-from models.kinematic_vehicle import MODEL_PATH, run_default
+from models.kinematic_vehicle import MODEL_PATH, run_default, settings_default
 
 import mtools.sim_tools as sim_tools
 from mtools.hydra_registry import HydraZenRegistry
@@ -38,8 +38,14 @@ def _store_entries() -> set[str]:
 
 def _registry(name: str) -> HydraZenRegistry:
     registry = HydraZenRegistry(store=hydra_zen.ZenStore())
-    registry.create_run(model_name="KinematicVehicle", model_path=MODEL_PATH, name=name)
+    registry.create_run(
+        model_name="KinematicVehicle", model_path=MODEL_PATH, target="C", settings=settings_default, name=name
+    )
     return registry
+
+
+def _registry_state(registry: HydraZenRegistry) -> tuple[list, bool]:
+    return [(entry["group"], entry["name"]) for entry in registry.store], registry.store.has_enqueued()
 
 
 @pytest.fixture
@@ -114,3 +120,38 @@ def test_compose_sees_only_its_own_registry():
 
     with pytest.raises(HydraException, match="defined_by_first"):
         second.compose("defined_by_first")
+
+
+def test_compose_leaves_the_registry_unchanged():
+    registry = _registry("unchanged")
+    before = _registry_state(registry)
+
+    registry.compose("unchanged")
+
+    assert _registry_state(registry) == before
+
+
+def test_add_to_hydra_store_still_publishes_after_a_compose():
+    registry = _registry("published_later")
+    registry.compose("published_later")
+
+    registry.add_to_hydra_store()
+
+    assert "published_later.yaml" in ConfigStore.instance().repo
+
+
+def test_a_sweep_with_its_registry_needs_no_hydra_store(tmp_path):
+    registry = _registry("swept")
+    store_before, registry_before = _store_entries(), _registry_state(registry)
+
+    results = sim_tools.simulate(
+        registry.get_run_config("swept"),
+        overrides=["settings.stop_time=1.0,2.0"],
+        multirun=True,
+        sweep_dir=str(tmp_path),
+        registry=registry,
+    )
+
+    assert sorted(result.config.settings.stop_time for result in results) == [1.0, 2.0]
+    assert _store_entries() == store_before
+    assert _registry_state(registry) == registry_before

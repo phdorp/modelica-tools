@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import dataclasses
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional, TypeAlias, cast
 
@@ -749,6 +750,10 @@ class HydraZenRegistry:
     def add_to_hydra_store(self, overwrite_ok: bool | None = None):
         """Add all registered entries to Hydra's global config store.
 
+        Use this for command-line entry points (``hydra.main``), which read
+        the global store. Runs started from Python use :meth:`activated` and
+        need no call to this method.
+
         When ``overwrite_ok`` is True, re-enqueues every registered entry first
         so the same registry can be activated repeatedly. This lets multiple
         registries that reuse config and experiment names overwrite each other
@@ -762,6 +767,17 @@ class HydraZenRegistry:
         if overwrite_ok:
             self._store.enqueue_all()
         self._store.add_to_hydra_store(overwrite_ok=overwrite_ok)
+
+    @contextmanager
+    def activated(self) -> Iterator[None]:
+        """Let Hydra see exactly this registry's configs inside the block.
+
+        Hydra composes and launches from a store that holds only its own
+        entries and this registry's. When the block ends, Hydra's global
+        config store is as it was before, and this registry is unchanged.
+        """
+        with hydra_state.store_scope(self._store):
+            yield
 
     def compose(
         self, config_name: str, overrides: list[str] | None = None
@@ -779,8 +795,7 @@ class HydraZenRegistry:
         Returns:
             The composed configuration as a DictConfig.
         """
-        with hydra_state.config_store_scope(isolate=True):
-            self.add_to_hydra_store(overwrite_ok=True)
+        with self.activated():
             GlobalHydra.instance().clear()
             with hydra.initialize(version_base=None, config_path=None):
                 return hydra.compose(config_name=config_name, overrides=overrides)

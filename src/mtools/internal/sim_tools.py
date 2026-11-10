@@ -21,6 +21,7 @@ import mtools.internal.run_config as run_config
 
 if TYPE_CHECKING:
     import mtools.session_config as session_config
+    from mtools.internal.hydra_state import ActivatableRegistry
 
 
 def simulate_run(config: session_config.SimulationRun | DictConfig) -> dict[str, pandas.DataFrame]:
@@ -66,7 +67,9 @@ def build_multirun_overrides(overrides: list[str], sweep_dir: str | Path | None)
 
 
 def launch_sweep(
-    config: type[session_config.SimulationRun], overrides: list[str]
+    config: type[session_config.SimulationRun],
+    overrides: list[str],
+    registry: ActivatableRegistry | None = None,
 ) -> list[JobReturn]:
     """Launch a Hydra multirun sweep and return the flat job list.
 
@@ -78,12 +81,15 @@ def launch_sweep(
     Args:
         config: Run config type to fan out via ``hydra_zen.launch``.
         overrides: Full override list including sweep values.
+        registry: Registry the sweep resolves its config groups from. Without
+            one, the sweep resolves them from Hydra's global config store.
 
     Returns:
         Flat list of per-job results, unwrapping the nested list that
         ``hydra_zen.launch`` returns for multirun sweeps.
     """
-    with hydra_state.config_store_scope():
+    scope = registry.activated() if registry is not None else hydra_state.config_store_scope()
+    with scope:
         launched = hydra_zen.launch(
             config,
             lambda job_config: simulate_run(job_config),

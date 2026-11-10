@@ -158,12 +158,12 @@ uv run python -m my_simulation '+build.omc_flags={-d:initialization,--maxSizeLin
 
 `build.omc_flags` needs the leading `+`; without it, Hydra rejects the override with `Key ... is not in struct`. The given flags are added to the configured ones, and `null` gives a flag without a value (`{--showErrorMessages:null}`).
 
-From Python, call `registry.add_to_hydra_store()` first. Then `simulate(run_default, overrides=["settings.parameters.k=1,10"], multirun=True)` runs a sweep and returns one `SweepResult(config, solutions)` per point.
+From Python, `simulate(run_default, overrides=["settings.parameters.k=1,10"], multirun=True, registry=registry)` runs a sweep and returns one `SweepResult(config, solutions)` per point. No `add_to_hydra_store()` call is needed.
 
 A sweep from Python runs inside your process and leaves it as it found it: Hydra's config store is restored, and Hydra changes no log levels or handlers. So Hydra writes no per-job `.log` files; to get them, pass a logging option yourself, e.g. `hydra/job_logging=default`, and Hydra configures logging for your process as it does for a command-line run.
 
 ## Several registries
 
-`add_to_hydra_store()` adds a registry's configs to Hydra's global store once. If two registries use the same names, call `add_to_hydra_store(overwrite_ok=True)` before launching from each.
+Each run from Python resolves its configs from the registry it is given, and nothing else: `compose(name, overrides)`, `simulate(..., multirun=True, registry=registry)`, and the sweeps in `mtools.testing`. For the duration of the call, Hydra sees only its own configs and that registry's; afterwards Hydra's global config store is as it was, and the registry is unchanged. So separate registries, for example one per run or per test module, never see each other's configs, even when they reuse names. `registry.activated()` gives you the same scope for your own Hydra calls.
 
-`compose(name, overrides)` and the sweeps in `mtools.testing` see only their own registry's configs, and remove them from the global store again when they return. A name that only another registry defines fails to compose.
+Only the command line reads Hydra's global store: `add_to_hydra_store()` adds a registry's configs to it once, for `hydra.main`. If two registries put the same names there, the later call needs `overwrite_ok=True`.

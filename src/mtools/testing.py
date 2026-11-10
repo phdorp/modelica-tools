@@ -52,6 +52,7 @@ from __future__ import annotations
 import dataclasses
 from abc import ABC
 from collections.abc import Hashable, Mapping, Sequence
+from contextlib import AbstractContextManager
 from typing import (TYPE_CHECKING, Any, ClassVar, Generic, Protocol, TypeAlias,
                     TypeVar, cast, runtime_checkable)
 
@@ -129,8 +130,8 @@ class Registry(Protocol):
     only need to implement these three methods.
     """
 
-    def add_to_hydra_store(self, overwrite_ok: bool | None = None) -> None:
-        """Add every registered entry to Hydra's global config store."""
+    def activated(self) -> AbstractContextManager[None]:
+        """Let Hydra see exactly this registry's configs inside the block."""
         ...
 
     def compose_experiment(
