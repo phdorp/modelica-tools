@@ -10,13 +10,15 @@ Do not install any dependencie unless the devcontainer is unavailable.
 
 ## Repository layout
 
-- `src/mtools/` — main package: `session_config.py`, `sim_tools.py`, `hydra_registry.py`, and internal helpers in `internal/`.
-- `tests/session_tools/` — pytest suite (unit and integration tests).
+- `src/mtools/` — main package: `session_config.py`, `sim_tools.py`, `hydra_registry.py`, `testing.py`, `errors.py`, and internal helpers in `internal/`.
+- `src/mtools/internal/omc/` — the OpenModelica backend (build, cache, run); reference in `docs/omc-backend.md`.
+- `tests/omc_backend/`, `tests/session_tools/`, `tests/plot_tools/` — pytest suites; `tests/conftest.py` resets process-wide state between tests.
 - `examples/` — separate uv workspace member with its own `pyproject.toml`, package, and tests.
 
 ## Development
 
-- Run the main test suite with: `uv run pytest tests`
+- Run the main test suite with: `uv run pytest tests`. It runs in parallel, one test file per worker; add `-n0` to run serially.
+- While iterating, add `-m "not cpp"` to skip the slow Cpp-target builds; run the full suite before reporting.
 - Tests compile and simulate real Modelica models with `omc`, so OpenModelica must be installed and on `PATH`.
 
 ### Full test suite

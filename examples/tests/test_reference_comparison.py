@@ -1,8 +1,8 @@
 import pytest
 from kinematic_vehicle.kinematic_vehicle import registry as model_registry
-from tests.reference_models.kinematic_vehicle import run_reference
 
 from mtools.testing import ExperimentReference, ExperimentSweepReference
+from tests.reference_models.kinematic_vehicle import run_reference
 
 
 @pytest.fixture(scope="module")

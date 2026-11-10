@@ -16,3 +16,8 @@ test = ["pytest>=9.0.0", "pandas>=3.0.0"]
 
 [tool.uv.sources]
 modelica-tools = { workspace = true }
+
+# Its own pytest section keeps the examples suite from picking up the root
+# project's pytest settings when run from `examples/`.
+[tool.pytest.ini_options]
+testpaths = ["tests"]
