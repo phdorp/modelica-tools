@@ -15,3 +15,10 @@ def test_dahlquist_runs_with_its_default_experiment():
     # CVODE's absolute tolerance is nominal (1) x tolerance (1e-6), so near zero the
     # relative error exceeds 1e-4: atol keeps the comparison to what the solver promises.
     np.testing.assert_allclose(result["x"], np.exp(-result["time"]), rtol=1e-4, atol=1e-6)
+
+
+def test_result_columns_follow_the_model_description():
+    result = simulate_given(reference_fmu("BouncingBall"))["BouncingBall"]
+
+    assert list(result.columns) == ["time", "h", "der(h)", "v", "der(v)"]  # g, e, v_min dropped
+    assert all(result.dtypes == "float64")

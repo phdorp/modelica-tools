@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from mtools.internal.fmu.description import FmuDescription
+from mtools.internal.fmu.description import FmuDescription, FmuVariable
 from mtools.internal.omc.config import RunSettings
 
 #: OMC's defaults for what neither the settings nor the ``DefaultExperiment`` give.
@@ -15,6 +15,9 @@ DEFAULT_STOP_TIME = 1.0
 DEFAULT_TOLERANCE = 1e-6
 #: OMC's default number of output intervals.
 DEFAULT_INTERVALS = 500
+#: Variables that never become result columns.
+DROPPED_CAUSALITIES = frozenset({"parameter", "calculatedParameter"})
+DROPPED_TYPES = frozenset({"String", "Binary"})
 
 
 @dataclass(frozen=True)
@@ -76,8 +79,19 @@ def resolve(
         tolerance=_first(settings.tolerance, description.tolerance, DEFAULT_TOLERANCE),
         solver="CVode" if resolved_type == "me" else None,
         start_values={},
-        columns={variable.name: variable.name for variable in description.variables if variable.name != "time"},
+        columns={variable.name: variable.name for variable in description.variables if _is_column(variable)},
         cvode_guard=False,
+    )
+
+
+def _is_column(variable: FmuVariable) -> bool:
+    """Whether ``variable`` becomes a result column: ``time`` comes first anyway, and
+    parameters, constants, strings and binaries are dropped as in native results."""
+    return (
+        variable.name != "time"
+        and variable.causality not in DROPPED_CAUSALITIES
+        and variable.variability != "constant"
+        and variable.type not in DROPPED_TYPES
     )
 
 
