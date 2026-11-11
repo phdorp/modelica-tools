@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+FMPY_MISSING = "FMU runs need FMPy: install modelica-tools[fmu]"
+
 #: The binaries directory of a 64-bit Linux FMU, by FMI major version.
 LINUX_PLATFORMS = {"2": "linux64", "3": "x86_64-linux"}
 
@@ -66,6 +68,14 @@ class FmuDescription:
     interval: float | None
     tolerance: float | None
     variables: tuple[FmuVariable, ...]
+
+
+def require_fmpy() -> None:
+    """Raise ``ImportError`` with the install hint when FMPy can't be imported."""
+    try:
+        import fmpy  # noqa: F401
+    except ImportError:
+        raise ImportError(FMPY_MISSING) from None
 
 
 def file_problems(path: Path, config_path: str = "build.fmu_path") -> list[str]:

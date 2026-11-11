@@ -23,7 +23,7 @@ import mtools.session_config as session_config
 from mtools.errors import ConfigError
 from mtools.internal import result_files
 from mtools.internal.fmu.config import FmuFileConfig
-from mtools.internal.fmu.description import file_problems
+from mtools.internal.fmu.description import file_problems, require_fmpy
 from mtools.internal.omc import run_cpp
 
 TARGETS = ("C", "Cpp")
@@ -92,13 +92,15 @@ def validate(run: session_config.SimulationRun) -> tuple[backend.BuildConfig, ba
 def validate_fmu_file(run: session_config.SimulationRun) -> tuple[FmuFileConfig, backend.RunSettings]:
     """Check a run of a given FMU and map it onto its FMU config and the run settings.
 
-    Checks that the FMU file can be run (an archive with a readable model description
-    and a Linux binary) and the run settings. Checks against the model description
-    happen when the run starts.
+    Checks that FMPy is installed, that the FMU file can be run (an archive with a
+    readable model description and a Linux binary), and the run settings. Checks
+    against the model description happen when the run starts.
 
     Raises:
+        ImportError: FMPy isn't installed.
         ConfigError: Listing every invalid value by its config path.
     """
+    require_fmpy()
     build, settings = cast(session_config.FmuFile, run.build), run.settings
     model_name = build.model_name or Path(build.fmu_path).stem
     problems = [*file_problems(Path(build.fmu_path)), *_settings_problems(settings)]

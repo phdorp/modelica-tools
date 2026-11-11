@@ -1,5 +1,7 @@
 """A given FMU runs through ``sim_tools.simulate`` like a native build."""
 
+import sys
+
 import numpy as np
 import pytest
 
@@ -56,3 +58,10 @@ def test_unusable_fmu_file_is_a_config_error(tmp_path, make, phrase):
         simulate_given(make(tmp_path))
 
     assert phrase in error.value.diagnostics
+
+
+def test_missing_fmpy_raises_import_error(monkeypatch):
+    monkeypatch.setitem(sys.modules, "fmpy", None)
+
+    with pytest.raises(ImportError, match=r"install modelica-tools\[fmu\]"):
+        simulate_given(reference_fmu("Dahlquist"))
