@@ -16,7 +16,7 @@ DEFAULT_TOLERANCE = 1e-6
 #: OMC's default number of output intervals.
 DEFAULT_INTERVALS = 500
 #: Variables that never become result columns.
-DROPPED_CAUSALITIES = frozenset({"parameter", "calculatedParameter"})
+DROPPED_CAUSALITIES = frozenset({"independent", "parameter", "calculatedParameter"})
 DROPPED_TYPES = frozenset({"String", "Binary"})
 
 
@@ -85,8 +85,9 @@ def resolve(
 
 
 def _is_column(variable: FmuVariable) -> bool:
-    """Whether ``variable`` becomes a result column: ``time`` comes first anyway, and
-    parameters, constants, strings and binaries are dropped as in native results."""
+    """Whether ``variable`` becomes a result column: the independent variable, whatever
+    its name, is the ``time`` column that comes first anyway, and parameters, constants,
+    strings and binaries are dropped as in native results."""
     return (
         variable.name != "time"
         and variable.causality not in DROPPED_CAUSALITIES

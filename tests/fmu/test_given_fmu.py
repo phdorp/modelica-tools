@@ -1,6 +1,8 @@
 """A given FMU runs through ``sim_tools.simulate`` like a native build."""
 
 import sys
+import zipfile
+from pathlib import Path
 
 import hydra_zen
 import numpy as np
@@ -104,3 +106,25 @@ def test_invalid_output_format_is_a_config_error():
         sim_tools.simulate(config)  # type: ignore[arg-type]
 
     assert "output_format" in error.value.diagnostics
+
+
+def _with_independent_variable_named_t(fmu_path: Path, directory: Path) -> Path:
+    """Copy ``fmu_path`` into ``directory`` with its independent variable renamed from ``time`` to ``t``."""
+    copy = directory / fmu_path.name
+    with zipfile.ZipFile(fmu_path) as source, zipfile.ZipFile(copy, "w") as target:
+        for entry in source.infolist():
+            content = source.read(entry)
+            if entry.filename == "modelDescription.xml":
+                renamed = content.replace(b'<ScalarVariable name="time"', b'<ScalarVariable name="t"')
+                assert renamed != content
+                content = renamed
+            target.writestr(entry, content)
+    return copy
+
+
+def test_independent_variable_of_any_name_becomes_the_time_column(tmp_path):
+    fmu = _with_independent_variable_named_t(reference_fmu("Dahlquist"), tmp_path)
+
+    result = simulate_given(fmu)["Dahlquist"]
+
+    assert list(result.columns) == ["time", "x", "der(x)"]  # no column for 't'
