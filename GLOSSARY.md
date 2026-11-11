@@ -5,11 +5,11 @@ mtools configures and runs OpenModelica simulations from Python, driven by Hydra
 ## Simulation
 
 **Build**:
-One Modelica model compiled with one build configuration, ready to be run any number of times. A build is never changed after it is made.
+One Modelica model compiled with one build configuration, as a simulation binary or an exported FMU, ready to be run any number of times. A build is never changed after it is made.
 _Avoid_: Session, compiled model, binary
 
 **Build config**:
-The inputs that determine a build: model source, model name, simulation target, extra sources, libraries and compiler flags. Two builds with equal build configs are interchangeable.
+The inputs that determine a build: model source, model name, simulation target, extra sources, libraries, compiler flags and, for an exported FMU, its FMU type. Two builds with equal build configs are interchangeable.
 _Avoid_: Build options
 
 **Build-time parameter**:
@@ -37,5 +37,19 @@ The part of a result written before a run failed, kept for debugging and never m
 _Avoid_: Truncated solution
 
 **Diagnostics**:
-The errors, warnings and failed assertions that OMC, the C compiler or the simulation runtime report about a build or run, filtered down to what explains the outcome.
+The errors, warnings and failed assertions that OMC, the C compiler, the simulation runtime or an FMU report about a build or run, filtered down to what explains the outcome.
 _Avoid_: Log, OMC output
+
+## FMUs
+
+**Given FMU**:
+An FMU the user supplies as a file; mtools runs it but never builds it.
+_Avoid_: External FMU, reference FMU (reference is a role, not a kind)
+
+**Exported FMU**:
+A Modelica model that mtools builds as an FMU instead of a simulation binary, then runs like a given FMU.
+_Avoid_: Compiled FMU
+
+**Name map**:
+The table that pairs the names an experiment uses for parameters and signals with the names a given FMU uses for the same things. Results of that FMU are reported in the experiment's names.
+_Avoid_: Alias (FMI's word for variables sharing one value), rename table, variable mapping
