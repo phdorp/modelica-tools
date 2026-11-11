@@ -93,8 +93,8 @@ def validate_fmu_file(run: session_config.SimulationRun) -> tuple[FmuFileConfig,
     """Check a run of a given FMU and map it onto its FMU config and the run settings.
 
     Checks that FMPy is installed, that the FMU file can be run (an archive with a
-    readable model description and a Linux binary), and the run settings. Checks
-    against the model description happen when the run starts.
+    readable model description and a Linux binary), the run settings and the output
+    format. Checks against the model description happen when the run starts.
 
     Raises:
         ImportError: FMPy isn't installed.
@@ -104,6 +104,8 @@ def validate_fmu_file(run: session_config.SimulationRun) -> tuple[FmuFileConfig,
     build, settings = cast(session_config.FmuFile, run.build), run.settings
     model_name = build.model_name or Path(build.fmu_path).stem
     problems = [*file_problems(Path(build.fmu_path)), *_settings_problems(settings)]
+    if (format_problem := result_files.output_format_problem(run.output_format)) is not None:
+        problems.append(format_problem)
     if problems:
         raise ConfigError(_HEADER.format(model_name), model_name=model_name, diagnostics="\n".join(problems))
     fmu_config = FmuFileConfig(

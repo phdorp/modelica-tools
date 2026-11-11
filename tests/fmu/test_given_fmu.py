@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 from omegaconf import OmegaConf
 
+from mtools import sim_tools
 from mtools.errors import ConfigError
 from mtools.hydra_registry import HydraZenRegistry
 from mtools.internal.omc.workdir import KEEP_RUNS_VARIABLE, WORK_DIR_VARIABLE
@@ -93,3 +94,13 @@ def test_run_directory_is_removed_and_kept_with_keep_runs(monkeypatch, tmp_path)
     simulate_given(reference_fmu("Dahlquist"))
     [kept] = (tmp_path / "runs").iterdir()
     assert any(kept.rglob("modelDescription.xml"))  # the extracted FMU
+
+
+def test_invalid_output_format_is_a_config_error():
+    run = HydraZenRegistry().create_fmu_run(fmu_path=reference_fmu("Dahlquist"), settings=RunSettings(parameters={}))
+    config = OmegaConf.merge(OmegaConf.structured(run), OmegaConf.from_dotlist(["output_format=xlsx"]))
+
+    with pytest.raises(ConfigError) as error:
+        sim_tools.simulate(config)  # type: ignore[arg-type]
+
+    assert "output_format" in error.value.diagnostics
