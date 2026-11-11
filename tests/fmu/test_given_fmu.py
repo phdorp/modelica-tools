@@ -2,10 +2,14 @@
 
 import sys
 
+import hydra_zen
 import numpy as np
 import pytest
+from omegaconf import OmegaConf
 
 from mtools.errors import ConfigError
+from mtools.hydra_registry import HydraZenRegistry
+from mtools.session_config import FmuFile, RunSettings
 from tests.fmu.helpers import (capture_request, reference_fmu, simulate_given,
                                write, zip_without)
 
@@ -65,3 +69,14 @@ def test_missing_fmpy_raises_import_error(monkeypatch):
 
     with pytest.raises(ImportError, match=r"install modelica-tools\[fmu\]"):
         simulate_given(reference_fmu("Dahlquist"))
+
+
+def test_fmu_file_composes_and_accepts_overrides():
+    run = HydraZenRegistry().create_fmu_run(fmu_path=reference_fmu("Dahlquist"), settings=RunSettings(parameters={}))
+
+    composed = hydra_zen.instantiate(
+        OmegaConf.merge(OmegaConf.structured(run), OmegaConf.from_dotlist(["build.fmu_type=cs"])), _convert_="object"
+    )
+    assert isinstance(composed.build, FmuFile) and composed.build.fmu_type == "cs"
+    with pytest.raises(Exception):
+        OmegaConf.merge(OmegaConf.structured(run), OmegaConf.from_dotlist(["build.target=C"]))
