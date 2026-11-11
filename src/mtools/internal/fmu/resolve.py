@@ -40,6 +40,8 @@ class ResolvedRun:
         solver: FMPy's solver name, ``"CVode"`` or ``"Euler"``; ``None`` for Co-Simulation.
         start_values: Start values by FMU name, set once before initialisation.
         columns: FMU name to result column name, in model-description order, without ``time``.
+        column_types: FMU name to its FMI type name (``Real``, ``Int32``, ...), for the
+            same variables as ``columns``.
         cvode_guard: Whether the child guards CVODE's steps.
     """
 
@@ -52,6 +54,7 @@ class ResolvedRun:
     solver: str | None
     start_values: Mapping[str, Any]
     columns: Mapping[str, str]
+    column_types: Mapping[str, str]
     cvode_guard: bool
 
 
@@ -79,6 +82,7 @@ def resolve(
     resolved_type = _resolve_type(description, fmu_type, model_name, problems)
     if problems:
         raise ConfigError(f"Invalid run settings for '{model_name}':", model_name=model_name, diagnostics="\n".join(problems))
+    kept = [variable for variable in description.variables if _is_column(variable)]
     return ResolvedRun(
         model_name=model_name,
         fmu_type=resolved_type,
@@ -88,7 +92,8 @@ def resolve(
         tolerance=_first(settings.tolerance, description.tolerance, DEFAULT_TOLERANCE),
         solver="CVode" if resolved_type == "me" else None,
         start_values={},
-        columns={variable.name: variable.name for variable in description.variables if _is_column(variable)},
+        columns={variable.name: variable.name for variable in kept},
+        column_types={variable.name: variable.type for variable in kept},
         cvode_guard=False,
     )
 
