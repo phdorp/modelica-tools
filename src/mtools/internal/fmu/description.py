@@ -5,10 +5,14 @@ FMPy is imported only inside these functions, so importing this module never nee
 
 from __future__ import annotations
 
+import zipfile
 from collections.abc import Mapping
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
+
+#: The binaries directory of a 64-bit Linux FMU, by FMI major version.
+LINUX_PLATFORMS = {"2": "linux64", "3": "x86_64-linux"}
 
 
 @dataclass(frozen=True)
@@ -62,6 +66,32 @@ class FmuDescription:
     interval: float | None
     tolerance: float | None
     variables: tuple[FmuVariable, ...]
+
+
+def file_problems(path: Path, config_path: str = "build.fmu_path") -> list[str]:
+    """Return why the file at ``path`` can't be run as an FMU, naming ``config_path``.
+
+    It must be a zip archive with a readable ``modelDescription.xml`` and a shared
+    library for 64-bit Linux: ``binaries/linux64/*.so`` for FMI 2.0,
+    ``binaries/x86_64-linux/*.so`` for FMI 3.0.
+    """
+    from fmpy import read_model_description
+
+    location = path.absolute()
+    if not path.is_file():
+        return [f"{config_path}: no such file '{location}'"]
+    if not zipfile.is_zipfile(path):
+        return [f"{config_path}: not an FMU archive '{location}'"]
+    try:
+        description = read_model_description(str(path), validate=False)
+    except Exception as error:  # FMPy raises whatever zipfile, lxml or its own parser raise
+        return [f"{config_path}: no readable modelDescription.xml in '{location}': {error}"]
+    platform = LINUX_PLATFORMS.get(description.fmiVersion.split(".")[0], LINUX_PLATFORMS["2"])
+    with zipfile.ZipFile(path) as archive:
+        entries = [PurePosixPath(name) for name in archive.namelist()]
+    if not any(entry.parent == PurePosixPath("binaries", platform) and entry.suffix == ".so" for entry in entries):
+        return [f"{config_path}: no linux64 binary in '{location}'"]
+    return []
 
 
 def read_description(path: Path) -> FmuDescription:

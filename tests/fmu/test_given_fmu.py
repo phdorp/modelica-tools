@@ -3,7 +3,9 @@
 import numpy as np
 import pytest
 
-from tests.fmu.helpers import capture_request, reference_fmu, simulate_given
+from mtools.errors import ConfigError
+from tests.fmu.helpers import (capture_request, reference_fmu, simulate_given,
+                               write, zip_without)
 
 
 def test_dahlquist_runs_with_its_default_experiment():
@@ -32,3 +34,25 @@ def test_unset_tolerance_takes_omc_default(monkeypatch):  # Dahlquist has no tol
 
 def test_model_name_overrides_the_result_key():
     assert list(simulate_given(reference_fmu("Dahlquist"), model_name="ref")) == ["ref"]
+
+
+@pytest.mark.parametrize(
+    "make, phrase",
+    [
+        pytest.param(lambda d: d / "missing.fmu", "no such file", id="missing"),
+        pytest.param(lambda d: write(d / "x.fmu", b"not a zip"), "not an FMU archive", id="not-a-zip"),
+        pytest.param(
+            lambda d: zip_without(reference_fmu("Dahlquist"), d, "modelDescription.xml"),
+            "modelDescription.xml",
+            id="no-model-description",
+        ),
+        pytest.param(
+            lambda d: zip_without(reference_fmu("Dahlquist"), d, "binaries/linux64/"), "linux64", id="no-binary"
+        ),
+    ],
+)
+def test_unusable_fmu_file_is_a_config_error(tmp_path, make, phrase):
+    with pytest.raises(ConfigError, match="build.fmu_path") as error:
+        simulate_given(make(tmp_path))
+
+    assert phrase in error.value.diagnostics
