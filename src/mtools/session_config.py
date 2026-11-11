@@ -25,10 +25,14 @@ if TYPE_CHECKING:
     #: Parameter values: a (nested) parameter dataclass instance. OmegaConf cannot
     #: type a ``Protocol``, so Hydra sees ``Any``.
     Parameters: TypeAlias = "DataclassType"
+    #: What a run simulates: a Modelica build or a given FMU. OmegaConf has no
+    #: ``Union`` support, so Hydra sees ``Any`` and composes the instance it is given.
+    BuildSpec: TypeAlias = "Build | FmuFile"
 else:
     Target = str
     OutputFormat = str
     Parameters = Any
+    BuildSpec = Any
 
 #: A Modelica source file; must exist when the run is validated.
 FilePath = Path
@@ -76,6 +80,22 @@ class Build:
 
 
 @dataclasses.dataclass
+class FmuFile:
+    """A given FMU, run through FMPy instead of a Modelica build."""
+
+    #: The ``.fmu`` file to run.
+    fmu_path: FilePath
+    #: Name the results are keyed by; ``None`` takes the FMU's ``modelName``.
+    model_name: str | None = None
+    #: FMU type to run, ``"me"`` (Model Exchange) or ``"cs"`` (Co-Simulation); ``None``
+    #: runs Model Exchange when the FMU offers it, otherwise Co-Simulation.
+    fmu_type: str | None = None
+    #: Experiment name to FMU variable name, for parameters and result columns alike
+    #: (``{"ctrl.k": "Kp"}``); unmapped names are used as they are.
+    name_map: dict[str, str] = dataclasses.field(default_factory=dict)
+
+
+@dataclasses.dataclass
 class RunSettings:
     """How to run a build. Unset (``None``) time range, interval, tolerance and solver
     come from the model's ``experiment`` annotation."""
@@ -107,8 +127,8 @@ class RunSettings:
 class SimulationRun:
     """Top-level run config: one build, the settings to run it with, and how to save it."""
 
-    #: What to build.
-    build: Build
+    #: What to build: a :class:`Build`, or a given FMU as :class:`FmuFile`.
+    build: BuildSpec
     #: How to run it.
     settings: RunSettings
     #: File format ``sim_tools.save_solutions`` writes: ``"mat"`` (OMC's MATLAB v4

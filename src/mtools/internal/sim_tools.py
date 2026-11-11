@@ -15,12 +15,13 @@ import pandas
 from hydra.core.utils import JobReturn
 from omegaconf import DictConfig
 
+import mtools.internal.fmu.runner as fmu_runner
 import mtools.internal.hydra_state as hydra_state
 import mtools.internal.omc.build as omc_build
 import mtools.internal.run_config as run_config
+import mtools.session_config as session_config
 
 if TYPE_CHECKING:
-    import mtools.session_config as session_config
     from mtools.internal.hydra_state import ActivatableRegistry
 
 
@@ -43,6 +44,10 @@ def simulate_run(config: session_config.SimulationRun | DictConfig) -> dict[str,
         mtools.errors.SimulationError: The run failed or timed out.
     """
     run = run_config.instantiate(config)
+    if isinstance(run.build, session_config.FmuFile):
+        fmu_config, fmu_settings = run_config.validate_fmu_file(run)
+        model_name, result = fmu_runner.simulate_file(fmu_config, fmu_settings)
+        return {model_name: result}
     build_config, settings = run_config.validate(run)
     with omc_build.build(build_config) as built:
         return {build_config.model_name: built.simulate(settings)}
