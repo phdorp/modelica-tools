@@ -9,6 +9,7 @@ from omegaconf import OmegaConf
 
 from mtools.errors import ConfigError
 from mtools.hydra_registry import HydraZenRegistry
+from mtools.internal.omc.workdir import KEEP_RUNS_VARIABLE, WORK_DIR_VARIABLE
 from mtools.session_config import FmuFile, RunSettings
 from tests.fmu.helpers import (capture_request, reference_fmu, simulate_given,
                                write, zip_without)
@@ -80,3 +81,15 @@ def test_fmu_file_composes_and_accepts_overrides():
     assert isinstance(composed.build, FmuFile) and composed.build.fmu_type == "cs"
     with pytest.raises(Exception):
         OmegaConf.merge(OmegaConf.structured(run), OmegaConf.from_dotlist(["build.target=C"]))
+
+
+def test_run_directory_is_removed_and_kept_with_keep_runs(monkeypatch, tmp_path):
+    monkeypatch.setenv(WORK_DIR_VARIABLE, str(tmp_path))
+
+    simulate_given(reference_fmu("Dahlquist"))
+    assert list((tmp_path / "runs").iterdir()) == []
+
+    monkeypatch.setenv(KEEP_RUNS_VARIABLE, "1")
+    simulate_given(reference_fmu("Dahlquist"))
+    [kept] = (tmp_path / "runs").iterdir()
+    assert any(kept.rglob("modelDescription.xml"))  # the extracted FMU

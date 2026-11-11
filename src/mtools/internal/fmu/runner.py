@@ -1,4 +1,8 @@
-"""Run an FMU in a child process in its own run directory."""
+"""Run an FMU in a child process in its own run directory.
+
+The run directory is deleted when the run ends, however it ended, unless
+``MTOOLS_KEEP_RUNS`` is set.
+"""
 
 from __future__ import annotations
 
@@ -38,23 +42,29 @@ def simulate_file(config: FmuFileConfig, settings: RunSettings) -> tuple[str, pd
         exported=False,
     )
     directory = workdir.new_run_directory("fmu-")
-    RunRequest(
-        fmu_path=str(config.fmu_path.absolute()),
-        unzip_dir=str(directory / "fmu"),
-        fmi_type=FMI_TYPES[run.fmu_type],
-        start_time=run.start_time,
-        stop_time=run.stop_time,
-        interval=run.interval,
-        tolerance=run.tolerance,
-        solver=run.solver,
-        start_values=dict(run.start_values),
-        output=list(run.columns),
-        cvode_guard=run.cvode_guard,
-    ).write(directory)
-    result = execute([sys.executable, "-m", "mtools.internal.fmu.child", str(directory)], directory, settings.timeout)
-    if result.returncode != 0:
-        raise SimulationError(
-            f"Simulation of '{run.model_name}' failed:", model_name=run.model_name, diagnostics=result.output.strip()
-        )
-    array = np.load(directory / child.RESULT_FILE_NAME, allow_pickle=False)
-    return run.model_name, to_frame(array, run)
+    try:
+        RunRequest(
+            fmu_path=str(config.fmu_path.absolute()),
+            unzip_dir=str(directory / "fmu"),
+            fmi_type=FMI_TYPES[run.fmu_type],
+            start_time=run.start_time,
+            stop_time=run.stop_time,
+            interval=run.interval,
+            tolerance=run.tolerance,
+            solver=run.solver,
+            start_values=dict(run.start_values),
+            output=list(run.columns),
+            cvode_guard=run.cvode_guard,
+        ).write(directory)
+        command = [sys.executable, "-m", "mtools.internal.fmu.child", str(directory)]
+        result = execute(command, directory, settings.timeout)
+        if result.returncode != 0:
+            raise SimulationError(
+                f"Simulation of '{run.model_name}' failed:",
+                model_name=run.model_name,
+                diagnostics=result.output.strip(),
+            )
+        array = np.load(directory / child.RESULT_FILE_NAME, allow_pickle=False)
+        return run.model_name, to_frame(array, run)
+    finally:
+        workdir.discard(directory)

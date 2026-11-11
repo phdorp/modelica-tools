@@ -28,6 +28,9 @@ if TYPE_CHECKING:
 def simulate_run(config: session_config.SimulationRun | DictConfig) -> dict[str, pandas.DataFrame]:
     """Validate a run config, build its model (or take the build from the cache) and run it.
 
+    A given FMU (an :class:`~mtools.session_config.FmuFile` build) needs no build and
+    runs through FMPy in a child process.
+
     ``hydra_zen.instantiate`` only turns the config into config objects; building and
     running happen afterwards, so their exceptions reach the caller unwrapped. Builds
     and run directories this call creates without caching them are deleted when it ends.
@@ -36,9 +39,11 @@ def simulate_run(config: session_config.SimulationRun | DictConfig) -> dict[str,
         config: Run config, as config objects or as a composed Hydra config.
 
     Returns:
-        The result keyed by ``build.model_name``.
+        The result keyed by ``build.model_name``; for a given FMU without one, by the
+        FMU's ``modelName``.
 
     Raises:
+        ImportError: The run needs FMPy and it isn't installed.
         mtools.errors.ConfigError: The config is invalid; nothing was built.
         mtools.errors.BuildError: Translating or compiling the model failed.
         mtools.errors.SimulationError: The run failed or timed out.
