@@ -6,8 +6,14 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from mtools.errors import ConfigError
 from mtools.internal.fmu.description import FmuDescription, FmuVariable
 from mtools.internal.omc.config import RunSettings
+
+#: The FMU types a run can use.
+FMU_TYPES = ("me", "cs")
+#: What the problem messages call each FMU type.
+_INTERFACE_NAMES = {"me": "Model Exchange", "cs": "Co-Simulation"}
 
 #: OMC's defaults for what neither the settings nor the ``DefaultExperiment`` give.
 DEFAULT_START_TIME = 0.0
@@ -69,7 +75,10 @@ def resolve(
     start_time = _first(settings.start_time, description.start_time, DEFAULT_START_TIME)
     stop_time = _first(settings.stop_time, description.stop_time, DEFAULT_STOP_TIME)
     default_interval = (stop_time - start_time) / DEFAULT_INTERVALS
-    resolved_type = fmu_type or "me"
+    problems: list[str] = []
+    resolved_type = _resolve_type(description, fmu_type, model_name, problems)
+    if problems:
+        raise ConfigError(f"Invalid run settings for '{model_name}':", model_name=model_name, diagnostics="\n".join(problems))
     return ResolvedRun(
         model_name=model_name,
         fmu_type=resolved_type,
@@ -82,6 +91,17 @@ def resolve(
         columns={variable.name: variable.name for variable in description.variables if _is_column(variable)},
         cvode_guard=False,
     )
+
+
+def _resolve_type(description: FmuDescription, requested: str | None, model_name: str, problems: list[str]) -> str:
+    """Return the FMU type that runs: ``requested``, else Model Exchange if offered, else Co-Simulation.
+
+    Appends to ``problems`` when ``requested`` isn't offered."""
+    if requested is None:
+        return "me" if "me" in description.fmu_types else "cs"
+    if requested not in description.fmu_types:
+        problems.append(f"build.fmu_type: '{model_name}' has no {_INTERFACE_NAMES[requested]} interface")
+    return requested
 
 
 def _is_column(variable: FmuVariable) -> bool:

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import xml.etree.ElementTree as ET
 import zipfile
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -73,3 +75,38 @@ def zip_without(fmu_path: Path, directory: Path, prefix: str) -> Path:
             if not entry.filename.startswith(prefix):
                 target.writestr(entry, source.read(entry))
     return copy
+
+
+def edited_fmu(source: Path, directory: Path, edit: Callable[[ET.Element], None]) -> Path:
+    """Copy ``source`` into ``directory`` with ``edit`` applied to its ``modelDescription.xml``."""
+    copy = directory / source.name
+    with zipfile.ZipFile(source) as original, zipfile.ZipFile(copy, "w") as target:
+        for entry in original.infolist():
+            content = original.read(entry)
+            if entry.filename == "modelDescription.xml":
+                root = ET.fromstring(content)
+                edit(root)
+                content = ET.tostring(root, encoding="utf-8", xml_declaration=True)
+            target.writestr(entry, content)
+    return copy
+
+
+def remove_element(tag: str) -> Callable[[ET.Element], None]:
+    """Return an edit that removes every direct child of the root called ``tag``."""
+
+    def edit(root: ET.Element) -> None:
+        for element in root.findall(tag):
+            root.remove(element)
+
+    return edit
+
+
+def set_attribute(tag: str, name: str, value: str) -> Callable[[ET.Element], None]:
+    """Return an edit that sets attribute ``name`` of the first ``tag`` element, anywhere in the tree."""
+
+    def edit(root: ET.Element) -> None:
+        element = root if root.tag == tag else root.find(f".//{tag}")
+        assert element is not None, f"no <{tag}> in the model description"
+        element.set(name, value)
+
+    return edit

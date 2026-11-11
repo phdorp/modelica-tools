@@ -24,6 +24,7 @@ from mtools.errors import ConfigError
 from mtools.internal import result_files
 from mtools.internal.fmu.config import FmuFileConfig
 from mtools.internal.fmu.description import file_problems, require_fmpy
+from mtools.internal.fmu.resolve import FMU_TYPES
 from mtools.internal.omc import run_cpp
 
 TARGETS = ("C", "Cpp")
@@ -104,6 +105,8 @@ def validate_fmu_file(run: session_config.SimulationRun) -> tuple[FmuFileConfig,
     build, settings = cast(session_config.FmuFile, run.build), run.settings
     model_name = build.model_name or Path(build.fmu_path).stem
     problems = [*file_problems(Path(build.fmu_path)), *_settings_problems(settings)]
+    if build.fmu_type is not None and build.fmu_type not in FMU_TYPES:
+        problems.append(f"build.fmu_type: expected 'me', 'cs' or null, got {build.fmu_type!r}")
     if (format_problem := result_files.output_format_problem(run.output_format)) is not None:
         problems.append(format_problem)
     if problems:
