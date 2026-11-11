@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from tests.fmu.helpers import reference_fmu, simulate_given
+from tests.fmu.helpers import capture_request, reference_fmu, simulate_given
 
 
 def test_dahlquist_runs_with_its_default_experiment():
@@ -22,3 +22,9 @@ def test_result_columns_follow_the_model_description():
 
     assert list(result.columns) == ["time", "h", "der(h)", "v", "der(v)"]  # g, e, v_min dropped
     assert all(result.dtypes == "float64")
+
+
+def test_unset_tolerance_takes_omc_default(monkeypatch):  # Dahlquist has no tolerance attribute
+    captured = capture_request(monkeypatch, reference_fmu("Dahlquist"))
+
+    assert captured.tolerance == 1e-6 and captured.solver == "CVode" and captured.interval == 0.1
