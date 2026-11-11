@@ -32,7 +32,7 @@ def simulate_file(config: FmuFileConfig, settings: RunSettings) -> tuple[str, pd
     run = resolve(
         description,
         settings,
-        model_name=description.model_name,
+        model_name=config.model_name or description.model_name,
         fmu_type=config.fmu_type,
         name_map=config.name_map,
         exported=False,

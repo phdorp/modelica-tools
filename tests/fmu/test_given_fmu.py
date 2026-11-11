@@ -28,3 +28,7 @@ def test_unset_tolerance_takes_omc_default(monkeypatch):  # Dahlquist has no tol
     captured = capture_request(monkeypatch, reference_fmu("Dahlquist"))
 
     assert captured.tolerance == 1e-6 and captured.solver == "CVode" and captured.interval == 0.1
+
+
+def test_model_name_overrides_the_result_key():
+    assert list(simulate_given(reference_fmu("Dahlquist"), model_name="ref")) == ["ref"]
