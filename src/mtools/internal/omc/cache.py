@@ -18,11 +18,12 @@ import shutil
 import subprocess
 import tempfile
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
 from mtools.internal.omc import workdir
-from mtools.internal.omc.config import BuildConfig, Library, Target
+from mtools.internal.omc.config import (BuildConfig, FmuExportConfig, Library,
+                                        Target)
 from mtools.internal.omc.packages import package_root
 from mtools.internal.omc.script import Experiment, LoadedLibrary, build_script
 
@@ -31,8 +32,19 @@ logger = logging.getLogger(__name__)
 # Bump when a change to the backend alters builds without altering the build script.
 BACKEND_REVISION = "1"
 RECORD_NAME = "mtools-build.json"
+#: The FMI version of every FMU export.
+FMI_VERSION = "2.0"
 _TOOLS_SCRIPT = "getVersion();\ngetCompiler();\ngetCXXCompiler();\n"
 _QUOTED = re.compile(r'"((?:[^"\\]|\\.)*)"')
+#: A config using every part of the build-script template, to hash the template by.
+_SAMPLE = BuildConfig(
+    model_path=Path("model.mo"),
+    model_name="Model",
+    target="Cpp",
+    extra_sources=(Path("extra.mo"),),
+    libraries=(Library("Lib", "1.0", Path("libs")), Library("Other")),
+    omc_flags={"-d": "nogen", "--flag": None},
+)
 
 
 @dataclass(frozen=True)
@@ -113,6 +125,14 @@ def cache_key(config: BuildConfig, build_values: Mapping[str, str] | None = None
         "compilers": compiler_versions(config.target),
         "backend": backend_version(),
     }
+    if config.fmu is not None:
+        description["fmu"] = {
+            "kind": "fmu",
+            "fmi_version": FMI_VERSION,
+            "fmu_type": config.fmu.fmu_type,
+            "cmake": cmake_version(),
+            "script": fmu_script_version(),
+        }
     return hashlib.sha256(json.dumps(description, sort_keys=True).encode()).hexdigest()
 
 
@@ -144,18 +164,25 @@ def tool_version(command: str) -> str:
 
 
 @functools.cache
+def cmake_version() -> str:
+    """Return the path and ``--version`` output of the ``cmake`` on ``PATH``, which OMC's
+    FMU export calls, once per process."""
+    path = shutil.which("cmake")
+    return f"{path}\n{_tool_output([path or 'cmake', '--version'])}"
+
+
+@functools.cache
 def backend_version() -> str:
     """Return a version that changes whenever the build-script template changes."""
-    sample = BuildConfig(
-        model_path=Path("model.mo"),
-        model_name="Model",
-        target="Cpp",
-        extra_sources=(Path("extra.mo"),),
-        libraries=(Library("Lib", "1.0", Path("libs")), Library("Other")),
-        omc_flags={"-d": "nogen", "--flag": None},
-    )
-    template = hashlib.sha256(build_script(sample, "model").encode()).hexdigest()
+    template = hashlib.sha256(build_script(_SAMPLE, "model").encode()).hexdigest()
     return f"{BACKEND_REVISION}-{template[:16]}"
+
+
+@functools.cache
+def fmu_script_version() -> str:
+    """Return a version that changes whenever the FMU export's build-script template changes."""
+    template = hashlib.sha256(build_script(replace(_SAMPLE, fmu=FmuExportConfig()), "model").encode()).hexdigest()
+    return template[:16]
 
 
 def library_hashes(config: BuildConfig, loaded: Iterable[LoadedLibrary]) -> tuple[str, ...]:

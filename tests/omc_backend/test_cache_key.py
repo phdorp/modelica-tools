@@ -5,12 +5,13 @@ from __future__ import annotations
 import os
 import subprocess
 from collections.abc import Iterator
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
 from mtools.internal.omc import cache, workdir
-from mtools.internal.omc.config import BuildConfig, Library
+from mtools.internal.omc.config import BuildConfig, FmuExportConfig, Library
 from mtools.internal.omc.packages import package_root
 from mtools.internal.omc.script import Experiment, LoadedLibrary
 
@@ -211,6 +212,24 @@ def test_build_time_values_extend_the_key(tmp_path: Path):
     assert cache.cache_key(config, {"n": "3"}) != cache.cache_key(config)
     assert cache.cache_key(config, {"n": "3"}) != cache.cache_key(config, {"n": "4"})
     assert cache.cache_key(config, {"a": "1", "b": "2"}) == cache.cache_key(config, {"b": "2", "a": "1"})
+
+
+def config(tmp_path: Path) -> BuildConfig:
+    """A native build config of a one-line model in ``tmp_path``."""
+    model = tmp_path / "A.mo"
+    model.write_text("model A end A;")
+    return BuildConfig(model_path=model, model_name="A")
+
+
+def test_fmu_fields_extend_the_key_and_leave_native_keys_alone(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(cache, "cmake_version", lambda: "cmake 1")
+    native = config(tmp_path)
+    before = cache.cache_key(native)
+    me = cache.cache_key(replace(native, fmu=FmuExportConfig("me")))
+
+    assert len({before, me, cache.cache_key(replace(native, fmu=FmuExportConfig("cs")))}) == 3
+    monkeypatch.setattr(cache, "cmake_version", lambda: "cmake 2")
+    assert cache.cache_key(native) == before and cache.cache_key(replace(native, fmu=FmuExportConfig("me"))) != me
 
 
 def test_work_directory_defaults_to_the_temp_directory_and_can_be_set(
