@@ -12,7 +12,7 @@ from mtools.internal.fmu.description import FmuVariable
 from mtools.internal.omc.init_xml import Variable
 from mtools.internal.omc.parameters import (_is_array_like, expand_parameters,
                                             flatten_parameters)
-from mtools.internal.omc.variants import literal
+from mtools.internal.omc.variants import fixed_at_build, literal
 
 #: The value kind each FMI type name takes: ``Real``, ``Integer``, ``Boolean``, ``String`` or ``Enumeration``.
 _KINDS = {
@@ -80,7 +80,7 @@ def start_values(
             if protected := [name for name in names if name in build_variables and build_variables[name].protected]:
                 problems.append(f"{path}: '{model_name}' parameter '{protected[0]}' is protected")
                 continue
-            if any(_fixed_at_build(variables.get(to_fmu(name)), build_variables.get(name)) for name in names):
+            if any(_is_build_time(variables.get(to_fmu(name)), build_variables.get(name)) for name in names):
                 added = _add_build_value(key, value, variables, to_fmu, build_variables, build_values)
                 problems.extend(f"{path}: {problem}" for problem in added)
                 continue
@@ -167,13 +167,13 @@ def _names(key: str, value: Any) -> list[str]:
         return []
 
 
-def _fixed_at_build(variable: FmuVariable | None, build_variable: Variable | None) -> bool:
+def _is_build_time(variable: FmuVariable | None, build_variable: Variable | None) -> bool:
     """Whether OMC fixed a variable while translating the exported model: the model
     description makes it a ``calculatedParameter``, or leaves it out while the build
     lists it as a non-changeable parameter."""
     if variable is not None:
         return variable.causality == "calculatedParameter"
-    return build_variable is not None and build_variable.variability == "parameter" and not build_variable.changeable
+    return build_variable is not None and fixed_at_build(build_variable)
 
 
 def _check(variable: FmuVariable, value: Any, model_name: str) -> str | None:
