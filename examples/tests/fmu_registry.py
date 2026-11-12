@@ -6,10 +6,9 @@ settings groups and the ``turn_left`` experiment, but only the two FMU run confi
 """
 
 import hydra_zen
-import numpy as np
-from kinematic_vehicle.kinematic_vehicle import (MODEL_NAME,
-                                                 WrapperKinematicVehicle,
-                                                 settings_fmu)
+from kinematic_vehicle.kinematic_vehicle import (MODEL_NAME, settings_fmu,
+                                                 vehicle_default,
+                                                 vehicle_turn_left)
 
 import mtools.hydra_registry as hydra_registry
 import mtools.session_config as session_config
@@ -19,7 +18,7 @@ from tests.reference_models.kinematic_vehicle import (CANDIDATE_PACKAGE_PATH,
 
 fmu_registry = hydra_registry.HydraZenRegistry(store=hydra_zen.ZenStore())
 
-fmu_registry.register_group_options("settings/parameters", {"default": WrapperKinematicVehicle()}, default="default")
+fmu_registry.register_group_options("settings/parameters", {"default": vehicle_default}, default="default")
 fmu_registry.register_group_options("settings", {"default": settings_fmu}, default="default")
 
 run_fmu_candidate = fmu_registry.create_run(
@@ -44,7 +43,5 @@ run_fmu_reference = fmu_registry.create_run(
 fmu_registry.register_experiment(
     name="turn_left",
     base_run_config=run_fmu_candidate,
-    overrides={
-        "settings/parameters": WrapperKinematicVehicle(phi=float(np.deg2rad(0.5)))
-    },
+    overrides={"settings/parameters": vehicle_turn_left},
 )

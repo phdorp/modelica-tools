@@ -29,3 +29,10 @@ def test_the_result_is_saved_in_the_chosen_format(tmp_path: Path, overrides, suf
     result = load_solution(tmp_path / saved[0])
     assert result.columns[0] == "time"
     assert result["time"].iloc[-1] == pytest.approx(10.0)
+
+
+@pytest.mark.parametrize("experiment", ["standstill", "straight_driving", "turn_left", "protected_output"])
+def test_every_experiment_runs_on_the_fmu_run_config(tmp_path: Path, experiment: str):
+    _run(tmp_path, f"experiment={experiment}", "--config-name=fmu")
+
+    assert (tmp_path / f"{MODEL_NAME}.mat").exists()

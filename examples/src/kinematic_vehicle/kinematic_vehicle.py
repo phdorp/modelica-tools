@@ -43,6 +43,9 @@ class WrapperKinematicVehicle:
 
 vehicle_default = WrapperKinematicVehicle()
 
+#: Parameters of the ``turn_left`` experiment, shared with the FMU reference test's registry.
+vehicle_turn_left = WrapperKinematicVehicle(v_norm=10.0, phi=float(np.deg2rad(0.5)), wheelbase=2.0)
+
 
 registry = hydra_registry.HydraZenRegistry(store=hydra_zen.ZenStore())
 
@@ -97,17 +100,15 @@ registry.register_experiment(
 registry.register_experiment(
     name="turn_left",
     base_run_config=run_default,
-    overrides={
-        "settings/parameters": WrapperKinematicVehicle(
-            v_norm=10.0, phi=float(np.deg2rad(0.5)), wheelbase=2.0
-        )
-    },
+    overrides={"settings/parameters": vehicle_turn_left},
 )
 registry.register_experiment(
     name="protected_output",
     base_run_config=run_default,
     overrides={
-        "settings": dataclasses.replace(settings_default, emit_protected=True)
+        # No solver, so the run takes its own default: dassl natively (the model has no
+        # solver annotation) and CVode on an FMU, where dassl is not a solver.
+        "settings": dataclasses.replace(settings_default, solver=None, emit_protected=True)
     },
 )
 
@@ -119,5 +120,7 @@ __all__ = [
     "run_default",
     "run_fmu",
     "settings_fmu",
+    "vehicle_default",
+    "vehicle_turn_left",
     "settings_default",
 ]

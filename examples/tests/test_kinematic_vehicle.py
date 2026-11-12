@@ -142,10 +142,12 @@ def test_example_builds_and_solves_with_cpp_target():
     assert config.settings.stop_time == 10.0
 
 
-def test_protected_output_experiment_keeps_cpp_solver():
+def test_protected_output_experiment_leaves_the_solver_to_the_run():
+    # Unset, so the native run takes its dassl default (the model has no solver annotation)
+    # and an FMU run takes CVode.
     config = kinematic_registry.compose_experiment("protected_output")
 
-    assert config.settings.solver == "dassl"
+    assert config.settings.solver is None
     assert config.settings.emit_protected is True
     assert config.settings.parameters.v_norm == 10.0
 
