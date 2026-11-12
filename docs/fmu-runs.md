@@ -2,10 +2,10 @@
 
 mtools runs an experiment against an FMU through [FMPy](https://github.com/CATIA-Systems/FMPy), in the same test classes and with the same parameters and run settings as a native run. This page describes the two kinds of FMU, which run settings apply, how a run is isolated, how exported FMUs are cached, how to compare results, and the known limits. For native runs, see [The OMC backend](omc-backend.md); to define run configs, see [The Hydra registry](hydra-registry.md).
 
-Install FMPy with the optional extra:
+Install FMPy with the optional `fmu` extra (the package isn't on PyPI yet, so install it from GitHub as described in the [README](../README.md#install-the-package)):
 
 ```bash
-pip install "modelica-tools[fmu]"
+uv add "modelica-tools[fmu] @ git+https://github.com/phdorp/modelica-tools.git"
 ```
 
 Without FMPy, mtools and native runs work as before. An FMU run raises `ImportError` before anything is built or exported.
@@ -56,14 +56,14 @@ run_ctrl = registry.create_fmu_run(
 
 Its other arguments are `model_name`, `fmu_type`, `settings` and `selections`, as for `create_run`.
 
-- `fmu_path` must exist and hold a readable `modelDescription.xml` and a `linux64` binary; otherwise `simulate` raises a `ConfigError` naming `build.fmu_path`.
+- `fmu_path` must exist and hold a readable `modelDescription.xml` and a Linux binary (`binaries/linux64` for FMI 2.0, `binaries/x86_64-linux` for FMI 3.0); otherwise `simulate` raises a `ConfigError` naming `build.fmu_path`.
 - `fmu_type=None` runs Model Exchange when the FMU offers it, otherwise Co-Simulation. Requesting a type the FMU lacks is a `ConfigError`.
 - The result is keyed by `model_name`, or by the FMU's `modelName` when `model_name` is unset. The test classes handle both, so a given FMU without `model_name` works as candidate or reference unchanged.
 - FMI 2.0 and 3.0 FMUs run. Given FMUs are not cached: each run extracts the file into its own run directory.
 
 ### Name map
 
-A third-party FMU names its variables its own way. `name_map` maps `{experiment name: FMU name}` for parameters and result columns alike, so tests, saved results, plots and comparisons see the experiment's names. The experiment sets `ctrl.k=2.0`, mtools sets `Kp=2.0` in the FMU, and the result column `Kp` comes back as `ctrl.k`.
+A third-party FMU names its variables its own way. `name_map` maps `{experiment name: FMU name}` for parameters and result columns alike, so tests, saved results, plots and comparisons see the experiment's names. For a parameter, the experiment sets `ctrl.k=2.0` and mtools sets `Kp=2.0` in the FMU. Parameters aren't result columns, so the map matters there only for setting. For a signal, `{"vehicle.px": "px"}` renames the FMU's result column `px` to `vehicle.px`, which `variable_filter` and the comparison then see.
 
 - Keys and values are exact, fully flattened and expanded names (`"y0[1]": "Y0_1"`). There are no prefixes or patterns.
 - The map is one-to-one and lives only on the given FMU's build config: candidate and reference carry their own, and sweeps and settings overrides never touch it.
@@ -123,7 +123,7 @@ The key of an exported FMU is the native key plus `fmu_type`, `emit_protected` a
 
 ## Comparing results
 
-`assert_matches_reference()` works for any pair of runs, FMU or native, under one set of rules. Both sides must have exactly the same columns; narrow them with each side's `variable_filter`. Two class variables, set on the test class, control the comparison (documented on `ExperimentBase` in `mtools.testing`):
+`assert_matches_reference()` compares two runs under one set of rules, and `rtol` and `interpolate` apply to native reference tests too. A reference test pairs two FMU runs or two native runs; comparing a native OMC run against an FMU is not supported and not guarded, so no error stops it. Both sides must have exactly the same columns; narrow them with each side's `variable_filter`. Three class variables, set on the test class, control the comparison (documented on `ExperimentBase` in `mtools.testing`):
 
 | Variable | Default | Meaning |
 |---|---|---|
@@ -150,11 +150,11 @@ The kinematic vehicle example compares two exported FMUs; see [`examples/README.
 ## Known limits
 
 - **Co-Simulation CVODE "tout too close"** ([FMPy #882](https://github.com/CATIA-Systems/FMPy/issues/882)). A `sample()` event within one float step of the communication grid can fail inside the FMU's own CVODE. When a failed Co-Simulation run's diagnostics show it, mtools adds a hint line naming the fixes: `fmu_type="me"`, an export without `--fmiFlags=s:cvode` (Euler), or another interval. It applies to given FMUs too.
-- **Two workarounds for FMPy and OMC defects.** On Model Exchange runs with `solver="cvode"`, mtools skips the steps CVODE would refuse (FMPy #882, again). On every Model Exchange run, it zeroes the event-indicator buffer before each call: OMC 1.27.2's Cpp export declares more event indicators than it writes, so unwritten values made results nondeterministic. FMUs that set every indicator are unaffected. Both are dropped once fixed upstream.
+- **Two workarounds for FMPy and OMC defects.** On Model Exchange runs with `solver="cvode"`, mtools skips the steps CVODE would refuse (FMPy #882, again). On every FMI 2.0 Model Exchange run, it zeroes the event-indicator buffer before each call: OMC 1.27.2's Cpp export declares more event indicators than it writes, so unwritten values made results nondeterministic. FMUs that set every indicator are unaffected. Both are dropped once fixed upstream.
 - **Cpp FMUs.** Model Exchange only. Time events (`when sample(...)`) don't fire under FMPy. Resources and shared libraries aren't copied.
 - **Co-Simulation accuracy.** See [Comparing results](#comparing-results).
 - **Model Exchange Euler** steps once per output interval.
-- **Linux FMUs only.** The FMU needs a `linux64` binary.
+- **Linux FMUs only.** The FMU needs a `binaries/linux64` (FMI 2.0) or `binaries/x86_64-linux` (FMI 3.0) binary.
 - **No FMU inputs.**
 - **No native-vs-FMU reference tests.** Both sides of a reference test are native, or both are FMUs.
 - **`name_map`** is set in Python or YAML, not on the command line.

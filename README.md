@@ -48,7 +48,11 @@ cd my_simulation
 uv add git+https://github.com/phdorp/modelica-tools.git
 ```
 
-To run FMUs, install the optional FMPy dependency (`pip install "modelica-tools[fmu]"`, or `uv add "modelica-tools[fmu] @ git+https://github.com/phdorp/modelica-tools.git"`).
+To run FMUs, install the optional FMPy dependency with the `fmu` extra:
+
+```bash
+uv add "modelica-tools[fmu] @ git+https://github.com/phdorp/modelica-tools.git"
+```
 
 For development, clone the repository and install with dev dependencies:
 
@@ -193,6 +197,17 @@ Every override path, the parameter naming rules and experiments are described in
 
 Refer to the [`kinematic_vehicle` examples](examples/) for a complete working setup.
 
+### FMU runs
+
+The same experiments and test classes run against an FMU through FMPy; install the `[fmu]` extra as described under [Installation](#install-the-package).
+
+- `create_run(..., fmu=FmuExport())` exports a Modelica model as an FMU and runs it; exports are cached.
+- `create_fmu_run(fmu_path=..., name_map={...})` runs an FMU you supply, translating names between the experiment and the FMU.
+- Each run is isolated in a child process, so a crashing FMU raises `SimulationError`; `settings.timeout` stops a hung one.
+- The class variables `rtol` and `interpolate` on the reference test classes compare results on different time grids.
+
+See [FMU runs](docs/fmu-runs.md) for settings, caching and known limits.
+
 ### OMC backend
 
 mtools builds and runs models with OpenModelica's `omc` and caches builds across runs and sweeps. [The OMC backend](docs/omc-backend.md) describes:
@@ -218,17 +233,6 @@ Replacing Pydelica with the in-repo OMC backend changed the following:
 - Real columns are always `float64`, also when every value is a whole number; Pydelica read those as `int64`.
 - Results have no parameter columns and keep OMC's repeated rows at events.
 - The cache lives under the system temp directory until the system clears it.
-
-### FMU runs
-
-The same experiments and test classes run against an FMU through FMPy, with `pip install "modelica-tools[fmu]"`:
-
-- `create_run(..., fmu=FmuExport())` exports a Modelica model as an FMU and runs it; exports are cached.
-- `create_fmu_run(fmu_path=..., name_map={...})` runs an FMU you supply, translating names between the experiment and the FMU.
-- Each run is isolated in a child process, so a crashing FMU raises `SimulationError`; `settings.timeout` stops a hung one.
-- `assert_matches_reference()` gains `rtol` and `interpolate` for comparing results on different time grids.
-
-See [FMU runs](docs/fmu-runs.md) for settings, caching and known limits.
 
 ### Visualize results
 
