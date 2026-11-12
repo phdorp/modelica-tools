@@ -2,6 +2,7 @@
 
 import logging
 import sys
+from typing import Any
 
 import fmpy
 import numpy as np
@@ -88,8 +89,9 @@ def _simulate_source(tmp_path, model: str, source: str) -> None:
     """Export ``model`` from ``source``, written into ``tmp_path``, and run it."""
     path = tmp_path / f"{model}.mo"
     path.write_text(source)
+    no_parameters: Any = {}
     run = HydraZenRegistry().create_run(
-        model_name=model, model_path=path, settings=RunSettings(parameters={}), fmu=FmuExport()
+        model_name=model, model_path=path, settings=RunSettings(parameters=no_parameters), fmu=FmuExport()
     )
     sim_tools.simulate(OmegaConf.structured(run))
 

@@ -318,6 +318,7 @@ class TestCreateRun:
             omc_flags={"-d": "nogen"},
             settings=session_config.RunSettings(parameters=KinematicVehicle(state_0=State()), stop_time=3.0),
             name="mapped",
+            fmu=session_config.FmuExport("cs"),
         )
         registry.create_run(
             model_name="KinematicVehicle",
@@ -338,9 +339,11 @@ class TestCreateRun:
             "extra_sources": [extra_source],
             "libraries": [{"name": "Modelica", "version": "4.0.0", "directory": None}],
             "omc_flags": {"-d": "nogen"},
+            "fmu": {"fmu_type": "cs"},
         }
         assert mapped.settings.stop_time == 3.0
         assert defaults.build.target == "C"
+        assert defaults.build.fmu is None
         assert list(defaults.build.extra_sources) == []
         assert list(defaults.build.libraries) == []
         assert dict(defaults.build.omc_flags) == {}
