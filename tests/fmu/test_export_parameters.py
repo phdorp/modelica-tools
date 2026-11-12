@@ -18,6 +18,11 @@ def test_array_size_sweep_exports_a_cached_variant(fresh_work_dir, caplog):
     assert [m.split(" ")[0] for m in build_messages(caplog)] == ["Built", "Built", "Reused", "Reused"]
 
 
+def test_other_parameters_are_checked_against_the_variant():
+    result = simulate_exported(MODEL, parameters={"n": 3, "y0": [1.0, 2.0, 3.0]})[MODEL]
+    assert list(result.loc[0, ["y[1]", "y[2]", "y[3]"]]) == pytest.approx([1.0, 2.0, 3.0])
+
+
 def test_evaluate_true_parameter_exports_a_variant(caplog):
     caplog.set_level(logging.INFO)
     assert (simulate_exported(MODEL)[MODEL]["z"] == 1.0).all()

@@ -49,7 +49,9 @@ def start_values(
     For an exported FMU, a requested name is first protected, as ``build_variables``
     marks it (the model description doesn't tell), then fixed at build time, when the
     model description makes it a ``calculatedParameter``. Its key then needs a variant
-    FMU (ADR 0001).
+    FMU (ADR 0001), and the other keys are set on the variant and checked against its
+    model description instead: an array sized by a build-time parameter has other
+    elements there.
 
     Args:
         parameters: The run settings' parameters (dataclass instance or mapping).
@@ -62,10 +64,13 @@ def start_values(
 
     Returns:
         The start values by FMU name, the problems by config path, and the modifier text
-        by key of the build-time parameters (none for a given FMU).
+        by key of the build-time parameters (none for a given FMU). With build-time
+        parameters, the start values are empty and the problems are those of the
+        protected and build-time keys.
     """
     values: dict[str, Any] = {}
     problems: list[str] = []
+    run_problems: list[str] = []
     build_values: dict[str, str] = {}
     for key, value in flatten_parameters(parameters).items():
         path = f"settings.parameters.{key}"
@@ -80,28 +85,42 @@ def start_values(
                 else:
                     build_values.update(build_time_values({key: value}, build_variables))
                 continue
-        variable = variables.get(to_fmu(key))
-        if variable is not None and _is_array_like(value):
-            problems.append(f"{path}: expected {_expectation(variable)}, got {_show(value)}")
-            continue
-        try:
-            expanded = expand_parameters({key: value})
-        except ValueError:
-            problems.append(f"{path}: '{key}' has an empty array value; nothing to set")
-            continue
-        unknown = [name for name in expanded if to_fmu(name) not in variables]
-        if unknown:
-            listed = ", ".join(f"'{name}'" for name in unknown)
-            problems.append(f"{path}: '{model_name}' has no parameter {listed}")
-            continue
-        for name, element in expanded.items():
-            fmu_name = to_fmu(name)
-            problem = _check(variables[fmu_name], element, model_name)
-            if problem is None:
-                values[fmu_name] = _convert(variables[fmu_name], element)
-            else:
-                problems.append(f"{path}: {problem}")
-    return values, problems, build_values
+        added = _add_start_values(key, value, variables, model_name, to_fmu, values)
+        run_problems.extend(f"{path}: {problem}" for problem in added)
+    if build_values:
+        return {}, problems, build_values
+    return values, problems + run_problems, build_values
+
+
+def _add_start_values(
+    key: str,
+    value: Any,
+    variables: Mapping[str, FmuVariable],
+    model_name: str,
+    to_fmu: Callable[[str], str],
+    values: dict[str, Any],
+) -> list[str]:
+    """Add the start values of ``key`` to ``values`` by FMU name; return why they can't be set."""
+    variable = variables.get(to_fmu(key))
+    if variable is not None and _is_array_like(value):
+        return [f"expected {_expectation(variable)}, got {_show(value)}"]
+    try:
+        expanded = expand_parameters({key: value})
+    except ValueError:
+        return [f"'{key}' has an empty array value; nothing to set"]
+    unknown = [name for name in expanded if to_fmu(name) not in variables]
+    if unknown:
+        listed = ", ".join(f"'{name}'" for name in unknown)
+        return [f"'{model_name}' has no parameter {listed}"]
+    problems: list[str] = []
+    for name, element in expanded.items():
+        fmu_name = to_fmu(name)
+        problem = _check(variables[fmu_name], element, model_name)
+        if problem is None:
+            values[fmu_name] = _convert(variables[fmu_name], element)
+        else:
+            problems.append(problem)
+    return problems
 
 
 def build_time_values(candidates: Mapping[str, Any], init_variables: Mapping[str, Variable]) -> dict[str, str]:
