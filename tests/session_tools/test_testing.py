@@ -1112,3 +1112,22 @@ def test_interpolate_rejects_an_empty_table(empty):
 
     with pytest.raises(AssertionError, match=f"{empty} solution is empty"):
         T().assert_matches_reference()
+
+
+class TestPickSolution:
+    def test_named_model_takes_its_table(self):
+        table = pd.DataFrame({"a": [1.0]})
+        assert internal_testing.pick_solution({"m": table, "n": pd.DataFrame()}, "m") == ("m", table)
+
+    def test_unset_model_name_takes_the_single_table_and_its_key(self):
+        table = pd.DataFrame({"a": [1.0]})
+        assert internal_testing.pick_solution({"FmuTests.Decay": table}, None) == ("FmuTests.Decay", table)
+
+    @pytest.mark.parametrize("solutions", [{}, {"a": pd.DataFrame(), "b": pd.DataFrame()}])
+    def test_unset_model_name_needs_exactly_one_table(self, solutions):
+        with pytest.raises(AssertionError, match=r"expected one solution table .* got \d+: .*set build.model_name"):
+            internal_testing.pick_solution(solutions, None)
+
+    def test_unknown_model_name_names_it_and_the_keys_found(self):
+        with pytest.raises(AssertionError, match=r"'x'.*\['a', 'b'\]"):
+            internal_testing.pick_solution({"a": pd.DataFrame(), "b": pd.DataFrame()}, "x")

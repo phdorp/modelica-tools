@@ -181,9 +181,13 @@ def pick_solution(solutions: Mapping[str, pd.DataFrame], model_name: str | None)
     A given FMU configured without ``build.model_name`` has ``None`` here; its run
     returns a single table keyed by the FMU's own ``modelName``, which is taken instead.
     """
+    keys = list(solutions)
     if model_name is None:
-        ((model_name, table),) = solutions.items()
-        return model_name, table
+        assert len(keys) == 1, (
+            f"expected one solution table when build.model_name is unset, got {len(keys)}: {keys}; set build.model_name"
+        )
+        model_name = keys[0]
+    assert model_name in solutions, f"no solution for build.model_name {model_name!r}; the run returned {keys}"
     return model_name, solutions[model_name]
 
 
@@ -465,8 +469,9 @@ class _SweepPlan:
         """Map each job's solution table to its raw combination key.
 
         The model name keying a job's solutions is read from that job's own
-        composed config, so a job whose config lacks ``build.model_name`` fails here
-        rather than returning a mis-keyed table. The distinct names seen are
+        composed config; a job whose ``build.model_name`` is unset (a given FMU) takes
+        the single table its run returned, and any other job whose name is absent from
+        its solutions fails here rather than returning a mis-keyed table. The distinct names seen are
         exposed on :attr:`model_names` for failure-context reporting.
         """
         results = {}
@@ -476,7 +481,7 @@ class _SweepPlan:
                 raise ValueError(f"duplicate sweep job for combination {raw_key!r}")
             configured = _select_job_value(job.config, "build.model_name")
             if configured is not None and not isinstance(configured, str):
-                raise ValueError("config path 'build.model_name' is not a string in sweep job config")
+                raise ValueError("config path 'build.model_name' is neither a string nor unset in sweep job config")
             model_name, results[raw_key] = pick_solution(job.solutions, configured)
             if model_name not in self.model_names:
                 self.model_names.append(model_name)
