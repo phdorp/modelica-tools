@@ -133,7 +133,7 @@ def resolve(
         start_values=values,
         columns={variable.name: to_experiment(variable.name) for variable in kept},
         column_types={variable.name: variable.type for variable in kept},
-        cvode_guard=False,
+        cvode_guard=resolved_type == "me" and solver == "CVode",
         build_values=build_values,
     )
 

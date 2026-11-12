@@ -16,7 +16,7 @@ from typing import Any
 
 import numpy as np
 
-from mtools.internal.fmu import indicator_guard
+from mtools.internal.fmu import cvode_guard, indicator_guard
 from mtools.internal.fmu.request import RunRequest
 
 RESULT_FILE_NAME = "result.npy"
@@ -98,6 +98,8 @@ def _run(directory: Path) -> int:
     fmpy.extract(request.fmu_path, unzipdir=request.unzip_dir)
     if request.fmi_type == "ModelExchange":
         indicator_guard.install()
+    if request.cvode_guard:
+        cvode_guard.install()
     saver = _PartialSaver(directory, request.save_every)
     try:
         result = _simulate(request, saver)

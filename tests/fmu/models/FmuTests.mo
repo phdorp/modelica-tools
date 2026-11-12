@@ -118,7 +118,7 @@ package FmuTests "Models the FMU tests export and run"
     discrete Real y(start = 0, fixed = true);
   equation
     der(x) = 1;
-    when sample(0.005, 0.01) then
+    when sample(0, 0.01) then
       y = slow(time);
     end when;
     annotation(experiment(StopTime = 1));
