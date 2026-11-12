@@ -1097,3 +1097,18 @@ def test_columns_must_match_in_interpolate_mode():
 
     with pytest.raises(AssertionError, match="output signals differ"):
         T().assert_matches_reference()
+
+
+@pytest.mark.parametrize("empty", ["candidate", "reference"])
+def test_interpolate_rejects_an_empty_table(empty):
+    full = pd.DataFrame({"time": [0.0, 1.0], "y": [0.0, 1.0]})
+    none = pd.DataFrame({"time": [], "y": []})
+
+    class T(testing.ExperimentReference):
+        name = "x"
+        interpolate = True
+        results = none if empty == "candidate" else full
+        reference_results = none if empty == "reference" else full
+
+    with pytest.raises(AssertionError, match=f"{empty} solution is empty"):
+        T().assert_matches_reference()

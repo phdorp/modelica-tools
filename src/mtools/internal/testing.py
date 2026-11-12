@@ -221,10 +221,14 @@ def align(
     columns take the last value at or before each reference time.
 
     Raises:
-        AssertionError: If a reference time lies outside the candidate's span.
+        AssertionError: If either table is empty, or a reference time lies
+            outside the candidate's span.
     """
     actual = actual.drop_duplicates("time", keep="last")
     reference = reference.drop_duplicates("time", keep="last")
+    for side, frame in (("candidate", actual), ("reference", reference)):
+        if frame.empty:
+            raise AssertionError(f"{context}: {side} solution is empty; nothing to interpolate")
     times = actual["time"].to_numpy(dtype=float)
     targets = reference["time"].to_numpy(dtype=float)
     low, high = times[0], times[-1]
@@ -256,16 +260,15 @@ def assert_solutions_match(
 ) -> None:
     """Recursively assert that candidate solutions match reference solutions.
 
-    Data frame references are compared by column set, row count, and
-    positionally per column. The ``time`` column is compared like any other
-    column: both models must be simulated under the same conditions, so a
-    time mismatch indicates a differing simulation setup. With
+    By default, data frame references are compared by column set, row count,
+    and positionally per column. The ``time`` column is compared like any
+    other column: both models must be simulated under the same conditions, so
+    a time mismatch indicates a differing simulation setup. With
     ``interpolate`` the candidate is first aligned onto the reference's time
     points (see :func:`align`); row counts then need not match and ``time``
-    isn't compared. Dict references
-    require the same key set and are compared recursively; ``context`` is
-    extended with each key so failures identify the offending experiment or
-    sweep combination.
+    isn't compared. Dict references require the same key set and are compared
+    recursively; ``context`` is extended with each key so failures identify
+    the offending experiment or sweep combination.
 
     Args:
         actual: Candidate solution structure (data frame or dict of them).
