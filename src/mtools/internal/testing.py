@@ -175,6 +175,18 @@ def _ensure_unique(keys: list, message: str) -> None:
         raise ValueError(message)
 
 
+def pick_solution(solutions: Mapping[str, pd.DataFrame], model_name: str | None) -> tuple[str, pd.DataFrame]:
+    """Return ``(name, table)`` of the model ``model_name`` from one run's ``solutions``.
+
+    A given FMU configured without ``build.model_name`` has ``None`` here; its run
+    returns a single table keyed by the FMU's own ``modelName``, which is taken instead.
+    """
+    if model_name is None:
+        ((model_name, table),) = solutions.items()
+        return model_name, table
+    return model_name, solutions[model_name]
+
+
 def _select_job_value(config: object, path: str) -> object:
     """Extract the value at ``path`` from a job's composed config.
 
@@ -462,12 +474,12 @@ class _SweepPlan:
             raw_key = self.key_of(job)
             if raw_key in results:
                 raise ValueError(f"duplicate sweep job for combination {raw_key!r}")
-            model_name = _select_job_value(job.config, "build.model_name")
-            if not isinstance(model_name, str):
+            configured = _select_job_value(job.config, "build.model_name")
+            if configured is not None and not isinstance(configured, str):
                 raise ValueError("config path 'build.model_name' is not a string in sweep job config")
+            model_name, results[raw_key] = pick_solution(job.solutions, configured)
             if model_name not in self.model_names:
                 self.model_names.append(model_name)
-            results[raw_key] = job.solutions[model_name]
         assert len(results) == len(self.combos), (
             f"expected {len(self.combos)} sweep results, got {len(results)}"
         )

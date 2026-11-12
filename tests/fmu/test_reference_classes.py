@@ -1,0 +1,87 @@
+"""FMU runs compared through the reference test classes, with the test classes unchanged."""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from pathlib import Path
+from typing import Any
+
+import hydra_zen
+import pytest
+from hydra_zen import MISSING
+
+from mtools.hydra_registry import HydraZenRegistry, RunConfig
+from mtools.session_config import FmuExport, RunSettings
+from mtools.testing import ExperimentReference, ExperimentSweepReference
+from tests.fmu.fmu_models import MODEL_PATH, DecayParameters
+
+pytestmark = pytest.mark.fmu
+
+MODEL = "FmuTests.Decay"
+
+#: Communication interval of the ME vs CS pair. The Co-Simulation FMU embeds fixed-step Euler, whose error at the
+#: model's own 0.01 interval is 2 % (above the pinned rtol 1e-3); 2e-4 brings it under.
+CS_INTERVAL = 2e-4
+
+
+def _decay_registry(
+    candidate: Callable[[HydraZenRegistry], RunConfig],
+    reference: Callable[[HydraZenRegistry], RunConfig],
+    interval: float | None = None,
+) -> HydraZenRegistry:
+    """A registry with the experiment ``decay`` on the candidate run config and a ``reference`` run config."""
+    registry = HydraZenRegistry(store=hydra_zen.ZenStore())
+    registry.register_group_options("settings/parameters", {"default": DecayParameters()}, default="default")
+    registry.register_group_options(
+        "settings", {"default": RunSettings(parameters=MISSING, interval=interval)}, default="default"
+    )
+    base = candidate(registry)
+    reference(registry)
+    registry.register_experiment(
+        name="decay", base_run_config=base, overrides={"settings/parameters": DecayParameters(k=2.0)}
+    )
+    return registry
+
+
+class TestGivenFmusWithoutModelName(ExperimentReference):
+    """Both sides are given FMUs without ``model_name``; results are keyed by the FMU's ``modelName``."""
+
+    name = "decay"
+
+    @pytest.fixture(scope="class")
+    def registry(self, exported_fmu: Callable[..., Path]) -> HydraZenRegistry:
+        given = exported_fmu("FmuTests.Decay")
+        return _decay_registry(
+            lambda r: r.create_fmu_run(fmu_path=given, include_experiment_group=True, name="default"),
+            lambda r: r.create_fmu_run(fmu_path=given, include_experiment_group=True, name="reference"),
+        )
+
+    @pytest.fixture(scope="class")
+    def reference_run_config(self, registry: HydraZenRegistry) -> RunConfig:
+        return registry.get_run_config("reference")
+
+    def test_matches(self) -> None:
+        self.assert_matches_reference()
+        assert list(self.results.columns) == list(self.reference_results.columns)
+
+
+class TestGivenFmuSweepWithoutModelName(ExperimentSweepReference):
+    """A sweep over given FMUs without ``model_name`` keys each job's table by the FMU's ``modelName``."""
+
+    name = "decay"
+    sweep_params = {"k": [1.0, 3.0]}
+
+    @pytest.fixture(scope="class")
+    def registry(self, exported_fmu: Callable[..., Path]) -> HydraZenRegistry:
+        given = exported_fmu("FmuTests.Decay")
+        return _decay_registry(
+            lambda r: r.create_fmu_run(fmu_path=given, include_experiment_group=True, name="default"),
+            lambda r: r.create_fmu_run(fmu_path=given, include_experiment_group=True, name="reference"),
+        )
+
+    @pytest.fixture(scope="class")
+    def reference_run_config(self, registry: HydraZenRegistry) -> RunConfig:
+        return registry.get_run_config("reference")
+
+    def test_matches(self) -> None:
+        self.assert_matches_reference()

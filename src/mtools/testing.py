@@ -261,10 +261,10 @@ class ExperimentT(ExperimentBase, Generic[NameType, ResultType]):
         candidate_model_names = {}
         for name in names:
             config = registry.compose_experiment(name)
-            candidate_model_names[name] = config.build.model_name
-            results[name] = sim_tools.simulate(cast("session_config.SimulationRun", config))[
-                config.build.model_name
-            ]
+            model_name, results[name] = _internal.pick_solution(
+                sim_tools.simulate(cast("session_config.SimulationRun", config)), config.build.model_name
+            )
+            candidate_model_names[name] = model_name
         cls._candidate_model_names = candidate_model_names
         cls.results = cast(ResultType, results[cls.name] if isinstance(cls.name, str) else results)
 
@@ -316,10 +316,10 @@ class ExperimentReferenceT(
         reference_model_names = {}
         for name in names:
             config = registry.compose_experiment(name, run_config=reference_run_config)
-            reference_model_names[name] = config.build.model_name
-            reference_results[name] = sim_tools.simulate(cast("session_config.SimulationRun", config))[
-                config.build.model_name
-            ]
+            model_name, reference_results[name] = _internal.pick_solution(
+                sim_tools.simulate(cast("session_config.SimulationRun", config)), config.build.model_name
+            )
+            reference_model_names[name] = model_name
         cls._reference_model_names = reference_model_names
         cls.reference_results = cast(
             ResultType,
