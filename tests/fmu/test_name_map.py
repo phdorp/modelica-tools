@@ -10,8 +10,6 @@ from mtools.internal import run_config
 from mtools.session_config import FmuFile, RunSettings, SimulationRun
 from tests.fmu.helpers import reference_fmu, simulate_given
 
-pytestmark = pytest.mark.fmu
-
 
 def test_map_renames_parameters_in_and_columns_out():
     result = simulate_given(
@@ -39,6 +37,24 @@ def test_map_problems(name_map, line):
     with pytest.raises(ConfigError) as error:
         simulate_given(reference_fmu("Dahlquist"), name_map=name_map, variable_filter="x")
     assert line in error.value.diagnostics  # collision checked regardless of variable_filter
+
+
+@pytest.mark.parametrize(
+    "name_map, lines",
+    [
+        pytest.param({"a": "time"}, ["build.name_map: 'time' can't be mapped"], id="time-as-fmu-name"),
+        pytest.param({"x": "time"}, ["build.name_map: 'time' can't be mapped"], id="fmu-variable-to-time"),
+        pytest.param(
+            {"a": "x", "b": "x", "c": "x"},
+            ["build.name_map: 'a', 'b' and 'c' all map to FMU name 'x'"],
+            id="three-keys-one-name",
+        ),
+    ],
+)
+def test_map_problem_is_reported_once(name_map, lines):
+    with pytest.raises(ConfigError) as error:
+        simulate_given(reference_fmu("Dahlquist"), name_map=name_map)
+    assert error.value.diagnostics.splitlines() == lines
 
 
 def test_collision_is_checked_whatever_the_filter_keeps():

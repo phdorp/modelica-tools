@@ -6,9 +6,9 @@ import numpy as np
 import pandas as pd
 
 from mtools.errors import SimulationError
+from mtools.internal.fmu.description import VALUE_KINDS
 from mtools.internal.fmu.resolve import ResolvedRun
 
-_FLOAT_TYPES = frozenset({"Real", "Float32", "Float64"})
 _INT64_MAX = np.iinfo(np.int64).max
 
 
@@ -24,15 +24,18 @@ def cast_column(name: str, values: np.ndarray, fmi_type: str, model_name: str) -
     """Return ``values`` as the native dtype of ``fmi_type``.
 
     Real types become ``float64``, Boolean ``bool``, and Integer, every sized
-    integer and Enumeration ``int64``.
+    integer and Enumeration ``int64``. Any other type keeps FMPy's dtype.
 
     Raises:
         SimulationError: A ``UInt64`` value is above the ``int64`` range.
     """
-    if fmi_type in _FLOAT_TYPES:
+    kind = VALUE_KINDS.get(fmi_type)
+    if kind == "Real":
         return values.astype(np.float64)
-    if fmi_type == "Boolean":
+    if kind == "Boolean":
         return values.astype(np.bool_)
+    if kind not in ("Integer", "Enumeration"):
+        return values
     if fmi_type == "UInt64" and values.size and values.max() > _INT64_MAX:
         raise SimulationError(
             f"Simulation of '{model_name}' failed:",

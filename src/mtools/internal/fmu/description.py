@@ -13,6 +13,25 @@ from typing import Any
 
 FMPY_MISSING = "FMU runs need FMPy: install modelica-tools[fmu]"
 
+#: The FMU types a run can use, ``"me"`` and ``"cs"``, by the interface name FMPy takes.
+FMI_TYPES = {"me": "ModelExchange", "cs": "CoSimulation"}
+FMU_TYPES = tuple(FMI_TYPES)
+#: What messages call each FMU type.
+INTERFACE_NAMES = {"me": "Model Exchange", "cs": "Co-Simulation"}
+
+#: The value kind of each FMI type name: ``Real``, ``Integer``, ``Boolean``, ``String`` or
+#: ``Enumeration``. FMI 3.0's sized types take the kind of FMI 2.0's ``Real`` and ``Integer``.
+VALUE_KINDS = {
+    "Real": "Real",
+    "Float32": "Real",
+    "Float64": "Real",
+    "Integer": "Integer",
+    **{f"{prefix}Int{width}": "Integer" for prefix in ("", "U") for width in (8, 16, 32, 64)},
+    "Boolean": "Boolean",
+    "String": "String",
+    "Enumeration": "Enumeration",
+}
+
 #: The binaries directory of a 64-bit Linux FMU, by FMI major version; FMI 1.0 and 2.0
 #: share ``linux64``, so an unknown version is checked for that.
 LINUX_PLATFORMS = {"1": "linux64", "2": "linux64", "3": "x86_64-linux"}
@@ -112,11 +131,11 @@ def read_description(path: Path) -> FmuDescription:
     description = read_model_description(str(path), validate=False)
     experiment = description.defaultExperiment
     co_simulation = description.coSimulation
-    fmu_types = {"me": description.modelExchange, "cs": co_simulation}
+    interfaces = {"me": description.modelExchange, "cs": co_simulation}
     return FmuDescription(
         model_name=description.modelName,
         fmi_version=description.fmiVersion,
-        fmu_types=frozenset(name for name, interface in fmu_types.items() if interface is not None),
+        fmu_types=frozenset(name for name in FMU_TYPES if interfaces[name] is not None),
         can_handle_variable_step=bool(co_simulation and co_simulation.canHandleVariableCommunicationStepSize),
         start_time=_float(experiment and experiment.startTime),
         stop_time=_float(experiment and experiment.stopTime),

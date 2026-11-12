@@ -62,10 +62,13 @@ def test_derivative_of_an_exported_fmu_is_fixed_without_the_given_fmu_hint():
         "settings.parameters.der(y[1]): 'FmuTests.BuildTime' parameter 'der(y[1])' is fixed in the FMU (continuous)"
     )
 
+
 def test_parameter_evaluated_out_of_the_model_description_is_build_time():
     # OMC can leave an evaluated parameter out of the model description; the export's
     # model_init.xml still lists it as a public non-changeable parameter.
-    k = FmuVariable("k", "Real", "parameter", "fixed", "exact", None, {})
+    k = FmuVariable(
+        name="k", type="Real", causality="parameter", variability="fixed", initial="exact", declared_type=None, items={}
+    )
     build_variables = {
         "n": Variable("n", "Integer", "parameter", "calculatedParameter", changeable=False, protected=False),
         "k": Variable("k", "Real", "parameter", "parameter", changeable=True, protected=False),
@@ -101,6 +104,7 @@ def test_parameter_evaluated_out_of_the_model_description_is_type_checked_agains
     ]
     assert build_values == {"mode": "Mode.high", "k": "2.0"}
 
+
 def test_build_time_value_that_is_no_literal_of_its_type_is_a_problem():
     # OMC lists an enumeration as Integer in model_init.xml, so only a qualified literal can be written.
     build_variables = {
@@ -121,7 +125,15 @@ def test_build_time_value_that_is_no_literal_of_its_type_is_a_problem():
 
 def test_calculated_parameter_missing_from_model_init_xml_is_fixed_not_build_time():
     # Without its model_init.xml entry, no modifier can be written for it.
-    n = FmuVariable("n", "Integer", "calculatedParameter", "fixed", "calculated", None, {})
+    n = FmuVariable(
+        name="n",
+        type="Integer",
+        causality="calculatedParameter",
+        variability="fixed",
+        initial="calculated",
+        declared_type=None,
+        items={},
+    )
     _, problems, build_values = start_values(
         {"n": 3},
         {"n": n},

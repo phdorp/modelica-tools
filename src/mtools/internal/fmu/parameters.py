@@ -8,23 +8,12 @@ from typing import Any
 
 import numpy as np
 
-from mtools.internal.fmu.description import FmuVariable
+from mtools.internal.fmu.description import VALUE_KINDS, FmuVariable
 from mtools.internal.omc.init_xml import Variable
-from mtools.internal.omc.parameters import (_is_array_like, expand_parameters,
-                                            flatten_parameters)
+from mtools.internal.omc.parameters import (expand_parameters,
+                                            flatten_parameters, is_array_like)
 from mtools.internal.omc.variants import fixed_at_build, literal
 
-#: The value kind each FMI type name takes: ``Real``, ``Integer``, ``Boolean``, ``String`` or ``Enumeration``.
-_KINDS = {
-    "Real": "Real",
-    "Float32": "Real",
-    "Float64": "Real",
-    "Integer": "Integer",
-    **{f"{prefix}Int{width}": "Integer" for prefix in ("", "U") for width in (8, 16, 32, 64)},
-    "Boolean": "Boolean",
-    "String": "String",
-    "Enumeration": "Enumeration",
-}
 _ARTICLES = {"Integer": "an"}
 
 
@@ -75,8 +64,8 @@ def start_values(
     build_values: dict[str, str] = {}
     for key, value in flatten_parameters(parameters).items():
         path = f"settings.parameters.{key}"
-        if to_fmu(key) != key:
-            path += f" (FMU name '{to_fmu(key)}')"
+        if (fmu_name := to_fmu(key)) != key:
+            path += f" (FMU name '{fmu_name}')"
         if exported:
             names = _names(key, value)
             if protected := [name for name in names if name in build_variables and build_variables[name].protected]:
@@ -104,22 +93,23 @@ def _add_start_values(
 ) -> list[str]:
     """Add the start values of ``key`` to ``values`` by FMU name; return why they can't be set."""
     variable = variables.get(to_fmu(key))
-    if variable is not None and _is_array_like(value):
-        return [f"expected {_expectation(variable)}, got {_show(value)}"]
+    if variable is not None and is_array_like(value):
+        return [f"expected {_expectation(variable)}, got {value!r}"]
     try:
         expanded = expand_parameters({key: value})
     except ValueError:
         return [f"'{key}' has an empty array value; nothing to set"]
-    unknown = [name for name in expanded if to_fmu(name) not in variables]
-    if unknown:
-        listed = ", ".join(f"'{name}'" for name in unknown)
-        return [f"'{model_name}' has no parameter {listed}"]
     problems: list[str] = []
+    if unknown := [name for name in expanded if to_fmu(name) not in variables]:
+        listed = ", ".join(f"'{name}'" for name in unknown)
+        problems.append(f"'{model_name}' has no parameter {listed}")
     for name, element in expanded.items():
         fmu_name = to_fmu(name)
+        if fmu_name not in variables:
+            continue
         problem = _check(variables[fmu_name], element, model_name, exported)
         if problem is None:
-            values[fmu_name] = _convert(variables[fmu_name], element)
+            values[fmu_name] = _converted(variables[fmu_name], element)
         else:
             problems.append(problem)
     return problems
@@ -140,10 +130,10 @@ def _add_build_value(
     for name, element in expand_parameters({key: value}).items():
         variable = variables.get(to_fmu(name))
         if variable is not None and not _accepts(variable, element):
-            wrong.append(f"expected {_expectation(variable)}, got {_show(element)}")
+            wrong.append(f"expected {_expectation(variable)}, got {element!r}")
         elif variable is None and name in build_variables and not _accepts_build(build_variables[name], element):
-            kind = _KINDS.get(build_variables[name].type, build_variables[name].type)
-            wrong.append(f"expected {_kind_expectation(kind)}, got {_show(element)}")
+            kind = VALUE_KINDS.get(build_variables[name].type, build_variables[name].type)
+            wrong.append(f"expected {_kind_expectation(kind)}, got {element!r}")
     if wrong:
         return wrong
     try:
@@ -195,21 +185,18 @@ def _check(variable: FmuVariable, value: Any, model_name: str, exported: bool) -
         return fixed if exported else f"{fixed}; a given FMU can't be rebuilt"
     if _accepts(variable, value):
         return None
-    return f"expected {_expectation(variable)}, got {_show(value)}"
+    return f"expected {_expectation(variable)}, got {value!r}"
 
 
 def _accepts(variable: FmuVariable, value: Any) -> bool:
-    kind = _KINDS.get(variable.type)
-    if kind == "Enumeration":
-        return _enumeration(variable, value) is not None
-    return _accepts_kind(kind, value)
+    return _converted(variable, value) is not None
 
 
 def _accepts_build(variable: Variable, value: Any) -> bool:
     """Whether ``value`` fits the type ``model_init.xml`` gives ``variable``. OMC lists an
     enumeration as Integer there, so an Integer also takes a string, which
     :func:`~mtools.internal.omc.variants.literal` requires to be a qualified literal."""
-    kind = _KINDS.get(variable.type)
+    kind = VALUE_KINDS.get(variable.type)
     if kind in ("Integer", "Enumeration"):
         return isinstance(value, str) or _integer(value) is not None
     return _accepts_kind(kind, value)
@@ -252,22 +239,25 @@ def _enumeration(variable: FmuVariable, value: Any) -> int | None:
     return int(value) if int(value) in variable.items.values() else None
 
 
-def _convert(variable: FmuVariable, value: Any) -> Any:
-    """Return ``value`` as the plain Python type FMPy takes; ``value`` has passed :func:`_accepts`."""
-    kind = _KINDS[variable.type]
+def _converted(variable: FmuVariable, value: Any) -> Any:
+    """Return ``value`` as the plain Python type FMPy takes for ``variable``, or ``None``
+    if it doesn't fit the variable's type."""
+    kind = VALUE_KINDS.get(variable.type)
+    if kind == "Enumeration":
+        return _enumeration(variable, value)
+    if not _accepts_kind(kind, value):
+        return None
     if kind == "Real":
         return float(value)
     if kind == "Integer":
         return _integer(value)
     if kind == "Boolean":
         return bool(value)
-    if kind == "Enumeration":
-        return _enumeration(variable, value)
     return value
 
 
 def _expectation(variable: FmuVariable) -> str:
-    kind = _KINDS.get(variable.type, variable.type)
+    kind = VALUE_KINDS.get(variable.type, variable.type)
     if kind != "Enumeration":
         return _kind_expectation(kind)
     type_name = (variable.declared_type or "Type").rpartition(".")[2]
@@ -277,7 +267,3 @@ def _expectation(variable: FmuVariable) -> str:
 
 def _kind_expectation(kind: str) -> str:
     return f"{_ARTICLES.get(kind, 'a')} {kind}"
-
-
-def _show(value: Any) -> str:
-    return repr(value)

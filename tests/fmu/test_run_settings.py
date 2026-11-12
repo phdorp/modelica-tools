@@ -1,5 +1,8 @@
 """Solver, interval, tolerance and ``variable_filter`` for FMU runs."""
 
+import logging
+
+import numpy as np
 import pytest
 
 from mtools.errors import ConfigError
@@ -7,7 +10,7 @@ from tests.fmu.helpers import (capture_request, edited_fmu, reference_fmu,
                                remove_element, set_attribute, simulate_given)
 
 
-@pytest.mark.parametrize("solver", ["dassl", "ida", "rungekutta"])
+@pytest.mark.parametrize("solver", ["dassl", "ida", "rungekutta", "CVode", "Euler"])
 def test_other_me_solvers_are_config_errors(solver):
     with pytest.raises(ConfigError) as error:
         simulate_given(reference_fmu("Dahlquist"), solver=solver)
@@ -20,6 +23,13 @@ def test_other_me_solvers_are_config_errors(solver):
 def test_euler_runs_once_per_interval(monkeypatch):
     request = capture_request(monkeypatch, reference_fmu("Dahlquist"), solver="euler", interval=0.5)
     assert request.solver == "Euler" and request.interval == 0.5
+
+
+def test_euler_takes_one_step_per_interval():
+    result = simulate_given(reference_fmu("Dahlquist"), solver="euler", interval=0.5)["Dahlquist"]
+
+    # x' = -x from x = 1: one explicit Euler step of 0.5 halves x
+    np.testing.assert_allclose(result["x"], 0.5 ** (result["time"] / 0.5), rtol=1e-12)
 
 
 def test_co_simulation_solver_warns(caplog):
@@ -61,7 +71,7 @@ def test_variable_filter_full_match_keeps_time():
 def test_tolerance_goes_to_both_fmu_types(monkeypatch, caplog, fmu_type):
     request = capture_request(monkeypatch, reference_fmu("Dahlquist"), fmu_type=fmu_type, tolerance=1e-8)
     assert request.tolerance == 1e-8
-    assert "tolerance" not in caplog.text
+    assert [record.getMessage() for record in caplog.records if record.levelno >= logging.WARNING] == []
 
 
 def test_all_step4_problems_come_in_one_error(tmp_path):
@@ -77,13 +87,11 @@ def test_all_step4_problems_come_in_one_error(tmp_path):
 def test_invalid_variable_filter_is_a_config_error():
     with pytest.raises(ConfigError) as error:
         simulate_given(reference_fmu("Dahlquist"), variable_filter="(")
-    assert "settings.variable_filter: invalid regular expression '(': missing ), unterminated subpattern at position 0" in (
-        error.value.diagnostics
-    )
+    assert error.value.diagnostics.startswith("settings.variable_filter: invalid regular expression '(': ")
 
 
 @pytest.mark.parametrize("fmu_type", ["me", "cs"])
-@pytest.mark.parametrize("interval", [0.0, -0.5])
+@pytest.mark.parametrize("interval", [0.0, -0.5, float("nan")])
 def test_non_positive_interval_is_a_config_error(fmu_type, interval):
     with pytest.raises(ConfigError) as error:
         simulate_given(reference_fmu("Dahlquist"), fmu_type=fmu_type, interval=interval)

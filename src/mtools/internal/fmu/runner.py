@@ -17,7 +17,7 @@ import pandas as pd
 from mtools.errors import SimulationError, SimulationTimeout
 from mtools.internal.fmu import child
 from mtools.internal.fmu.config import FmuFileConfig
-from mtools.internal.fmu.description import read_description
+from mtools.internal.fmu.description import FMI_TYPES, read_description
 from mtools.internal.fmu.diagnostics import (cvode_hint, failure_diagnostics,
                                              warning_entries)
 from mtools.internal.fmu.request import RunRequest
@@ -31,9 +31,6 @@ from mtools.internal.omc.parameters import flatten_parameters
 from mtools.internal.omc.process import ProcessResult, execute
 
 logger = logging.getLogger(__name__)
-
-FMI_TYPES = {"me": "ModelExchange", "cs": "CoSimulation"}
-
 
 def simulate_file(config: FmuFileConfig, settings: RunSettings) -> tuple[str, pd.DataFrame]:
     """Run the given FMU ``config`` with ``settings``; return its model name and result.
@@ -126,7 +123,7 @@ def _read_partial(directory: Path, run: ResolvedRun) -> pd.DataFrame | None:
     try:
         array = np.load(directory / child.PARTIAL_FILE_NAME, allow_pickle=False)
         return to_frame(array, run) if array.size else None
-    except Exception:  # no file, a cut-off file, or rows to_frame can't convert
+    except (OSError, EOFError, ValueError, SimulationError):  # no file, a cut-off file, or rows to_frame can't convert
         logger.debug("No usable partial result in %s", directory, exc_info=True)
         return None
 

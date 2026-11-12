@@ -1,3 +1,4 @@
+import hashlib
 import logging
 import shutil
 from collections.abc import Callable, Iterator
@@ -27,8 +28,10 @@ def exported_fmu(tmp_path_factory: pytest.TempPathFactory, work_dir: None) -> Ca
 
     def export(model: str, fmu_type: str = "me", **build_fields: Any) -> Path:
         config = BuildConfig(model_path=MODEL_PATH, model_name=model, fmu=FmuExportConfig(fmu_type), **build_fields)
+        # One file per config: two calls that differ only in build fields don't overwrite each other.
+        key = hashlib.sha256(repr(config).encode()).hexdigest()[:12]
         with build.build(config) as built:
-            copy = Path(shutil.copy(built.fmu_path, directory / f"{model}-{fmu_type}.fmu"))
+            copy = Path(shutil.copy(built.fmu_path, directory / f"{model}-{fmu_type}-{key}.fmu"))
         return copy
 
     return export

@@ -5,16 +5,8 @@ import logging
 import pytest
 
 from mtools.errors import ConfigError
-from mtools.internal.omc import workdir
 from tests.fmu.helpers import (build_messages, reference_fmu,
                                simulate_exported, simulate_given)
-
-
-@pytest.fixture
-def fresh_work_dir(tmp_path, monkeypatch, caplog):
-    """An empty work directory (no cached builds) for this test alone; INFO logs captured."""
-    monkeypatch.setenv(workdir.WORK_DIR_VARIABLE, str(tmp_path / "work"))
-    caplog.set_level(logging.INFO)
 
 
 def test_protected_variables_appear_only_with_emit_protected(fresh_work_dir, caplog):
@@ -39,11 +31,19 @@ def test_fmi_filter_flag_is_rejected_for_exports(caplog):
 def test_other_fmi_flags_are_allowed_and_keyed(fresh_work_dir, caplog):
     simulate_exported("FmuTests.Decay")
     simulate_exported("FmuTests.Decay", omc_flags={"--fmiFlags": "s:cvode"})
+    simulate_exported("FmuTests.Decay", omc_flags={"--fmiFlags": "s:cvode"})
 
-    assert [message.split(" ")[0] for message in build_messages(caplog)] == ["Built", "Built"]
+    assert [message.split(" ")[0] for message in build_messages(caplog)] == ["Built", "Built", "Reused"]
 
 
 def test_emit_protected_warns_on_a_given_fmu(caplog):
     simulate_given(reference_fmu("Dahlquist"), emit_protected=True)
 
     assert "settings.emit_protected has no effect on the given FMU 'Dahlquist'" in caplog.text
+
+
+def test_emit_protected_warning_waits_for_valid_settings(caplog):
+    with pytest.raises(ConfigError):
+        simulate_given(reference_fmu("Dahlquist"), emit_protected=True, solver="dassl")
+
+    assert "emit_protected" not in caplog.text

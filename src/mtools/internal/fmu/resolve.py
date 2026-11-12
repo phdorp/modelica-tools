@@ -9,18 +9,15 @@ from dataclasses import dataclass
 from typing import Any
 
 from mtools.errors import ConfigError
-from mtools.internal.fmu import name_map as names
-from mtools.internal.fmu.description import FmuDescription, FmuVariable
+from mtools.internal.fmu.description import (INTERFACE_NAMES, FmuDescription,
+                                             FmuVariable)
+from mtools.internal.fmu.name_map import problems as name_map_problems
+from mtools.internal.fmu.name_map import to_experiment, to_fmu
 from mtools.internal.fmu.parameters import start_values
 from mtools.internal.omc.config import RunSettings
 from mtools.internal.omc.init_xml import Variable
 
 logger = logging.getLogger(__name__)
-
-#: The FMU types a run can use.
-FMU_TYPES = ("me", "cs")
-#: What the problem messages call each FMU type.
-_INTERFACE_NAMES = {"me": "Model Exchange", "cs": "Co-Simulation"}
 
 #: OMC's defaults for what neither the settings nor the ``DefaultExperiment`` give.
 DEFAULT_START_TIME = 0.0
@@ -95,32 +92,35 @@ def resolve(
     default_interval = (stop_time - start_time) / DEFAULT_INTERVALS
     problems: list[str] = []
     resolved_type = _resolve_type(description, fmu_type, model_name, problems)
-    if not exported and settings.emit_protected:
-        logger.warning("settings.emit_protected has no effect on the given FMU '%s'", model_name)
     solver = _resolve_solver(settings.solver, resolved_type, model_name, problems)
     interval = _first(settings.interval, description.interval, default_interval)
-    if interval <= 0:
+    if not interval > 0:  # also NaN
         problems.append(f"settings.interval: expected a positive number, got {interval}")
     elif resolved_type == "cs" and not description.can_handle_variable_step:
         _check_interval(interval, start_time, stop_time, model_name, problems)
     column_filter = _compile_filter(settings.variable_filter, problems)
-    problems.extend(names.problems(name_map, {variable.name for variable in description.variables}, model_name=model_name))
-    to_experiment = names.to_experiment(name_map)
+    variables = {variable.name: variable for variable in description.variables}
+    problems.extend(name_map_problems(name_map, variables.keys(), model_name=model_name))
+    experiment_name = to_experiment(name_map)
     values, parameter_problems, build_values = start_values(
         settings.parameters,
-        {variable.name: variable for variable in description.variables},
+        variables,
         model_name=model_name,
-        to_fmu=names.to_fmu(name_map),
+        to_fmu=to_fmu(name_map),
         exported=exported,
         build_variables=build_variables,
     )
     problems.extend(parameter_problems)
     if problems:
-        raise ConfigError(f"Invalid run settings for '{model_name}':", model_name=model_name, diagnostics="\n".join(problems))
+        raise ConfigError(
+            f"Invalid run settings for '{model_name}':", model_name=model_name, diagnostics="\n".join(problems)
+        )
+    if not exported and settings.emit_protected:
+        logger.warning("settings.emit_protected has no effect on the given FMU '%s'", model_name)
     kept = [
         variable
         for variable in description.variables
-        if _is_column(variable) and column_filter.fullmatch(to_experiment(variable.name))
+        if _is_column(variable) and column_filter.fullmatch(experiment_name(variable.name))
     ]
     return ResolvedRun(
         model_name=model_name,
@@ -131,7 +131,7 @@ def resolve(
         tolerance=_first(settings.tolerance, description.tolerance, DEFAULT_TOLERANCE),
         solver=solver,
         start_values=values,
-        columns={variable.name: to_experiment(variable.name) for variable in kept},
+        columns={variable.name: experiment_name(variable.name) for variable in kept},
         column_types={variable.name: variable.type for variable in kept},
         cvode_guard=resolved_type == "me" and solver == "CVode",
         build_values=build_values,
@@ -145,7 +145,7 @@ def _resolve_type(description: FmuDescription, requested: str | None, model_name
     if requested is None:
         return "me" if "me" in description.fmu_types else "cs"
     if requested not in description.fmu_types:
-        problems.append(f"build.fmu_type: '{model_name}' has no {_INTERFACE_NAMES[requested]} interface")
+        problems.append(f"build.fmu_type: '{model_name}' has no {INTERFACE_NAMES[requested]} interface")
     return requested
 
 
@@ -166,15 +166,17 @@ def _resolve_solver(requested: str | None, fmu_type: str, model_name: str, probl
     if fmu_type == "cs":
         if requested is not None:
             logger.warning(
-                "Co-Simulation FMU '%s' runs its built-in solver; settings.solver '%s' is ignored", model_name, requested
+                "Co-Simulation FMU '%s' runs its built-in solver; settings.solver '%s' is ignored",
+                model_name,
+                requested,
             )
         return None
     if requested is None:
         return ME_SOLVERS["cvode"]
-    if requested.lower() not in ME_SOLVERS:
+    if requested not in ME_SOLVERS:
         problems.append(f"settings.solver: Model Exchange FMU runs support 'cvode' and 'euler', got '{requested}'")
         return None
-    return ME_SOLVERS[requested.lower()]
+    return ME_SOLVERS[requested]
 
 
 def _check_interval(interval: float, start_time: float, stop_time: float, model_name: str, problems: list[str]) -> None:

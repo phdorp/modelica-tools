@@ -80,7 +80,7 @@ def test_enumeration_takes_integer_or_qualified_literal(exported_fmu):
 def test_unit_tuple_is_rejected(exported_fmu):
     with pytest.raises(ConfigError) as error:
         simulate_given(exported_fmu(PARAMS), parameters={"k": (1.0, "m")})
-    assert "settings.parameters.k: expected a Real" in error.value.diagnostics
+    assert "settings.parameters.k: expected a Real, got [1.0, 'm']" in error.value.diagnostics.splitlines()
 
 
 def test_boolean_and_string_parameters_are_set(exported_fmu):
@@ -140,6 +140,15 @@ def test_local_variable_names_its_variability(exported_fmu):
         "settings.parameters.total: 'FmuTests.Params' parameter 'total' is fixed in the FMU (continuous); "
         "a given FMU can't be rebuilt" in error.value.diagnostics
     )
+
+
+def test_unknown_array_element_keeps_the_type_problems_of_the_known_ones(exported_fmu):
+    with pytest.raises(ConfigError) as error:
+        simulate_given(exported_fmu(PARAMS), parameters={"y0": [3.0, "x", 5.0]})
+    assert error.value.diagnostics.splitlines() == [
+        "settings.parameters.y0: 'FmuTests.Params' has no parameter 'y0[3]'",
+        "settings.parameters.y0: expected a Real, got 'x'",
+    ]
 
 
 def test_empty_array_value_is_reported(exported_fmu):

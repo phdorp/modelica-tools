@@ -138,7 +138,7 @@ def build(config: BuildConfig, build_values: Mapping[str, str] | None = None) ->
         TranslationError: OMC failed to set options, load or translate the model.
         CompileError: Compiling or linking the generated code failed.
     """
-    if config.fmu is not None and config.target == "Cpp":
+    if _is_cpp_export(config):
         logger.warning(CPP_FMU_WARNING.format(model=config.model_name))
     if workdir.no_cache():
         directory = workdir.new_run_directory("build-")
@@ -198,8 +198,8 @@ def _run_omc(config: BuildConfig, directory: Path, build_values: Mapping[str, st
         )
     _log_build_diagnostics(config.model_name, stage_text)
 
-    if config.fmu is not None and config.target == "Cpp":
-        _extract_init_xml(directory / f"{FILE_NAME_PREFIX}.fmu", directory)
+    if _is_cpp_export(config):
+        _extract_init_xml(config, directory)
     cache.save_record(directory, cache.new_record(config, output.experiment, output.loaded_libraries))
     return Build(
         config=config,
@@ -212,11 +212,29 @@ def _run_omc(config: BuildConfig, directory: Path, build_values: Mapping[str, st
     )
 
 
-def _extract_init_xml(fmu_path: Path, directory: Path) -> None:
-    """Copy ``<prefix>_init.xml`` out of a Cpp-exported FMU: ``translateModel`` writes none for Cpp."""
+def _is_cpp_export(config: BuildConfig) -> bool:
+    """Whether ``config`` exports an FMU from the Cpp target."""
+    return config.fmu is not None and config.target == "Cpp"
+
+
+def _extract_init_xml(config: BuildConfig, directory: Path) -> None:
+    """Copy ``<prefix>_init.xml`` out of the FMU that ``config`` exported into ``directory``:
+    ``translateModel`` writes none for Cpp.
+
+    Raises:
+        CompileError: The FMU is no zip archive or holds no ``sources/<prefix>_init.xml``.
+    """
     name = f"{FILE_NAME_PREFIX}_init.xml"
-    with zipfile.ZipFile(fmu_path) as archive:
-        (directory / name).write_bytes(archive.read(f"sources/{name}"))
+    fmu_path = directory / f"{FILE_NAME_PREFIX}.fmu"
+    try:
+        with zipfile.ZipFile(fmu_path) as archive:
+            (directory / name).write_bytes(archive.read(f"sources/{name}"))
+    except (OSError, KeyError, zipfile.BadZipFile) as error:
+        raise CompileError(
+            f"Modelica build failed for '{config.model_name}' ({Path(config.model_path).absolute()}):",
+            model_name=config.model_name,
+            diagnostics=f"can't read sources/{name} from the exported FMU {fmu_path}: {error}",
+        ) from None
 
 
 def _log_build_diagnostics(model_name: str, stage_text: str) -> None:

@@ -8,6 +8,7 @@ Python, so the parent can return a partial result.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import sys
 import time
@@ -23,6 +24,8 @@ RESULT_FILE_NAME = "result.npy"
 PARTIAL_FILE_NAME = "partial.npy"
 #: The prefix of the line the child prints for the exception that ended the run.
 EXCEPTION_PREFIX = "mtools-fmu-exception | "
+#: The prefix of each message the child's FMI logger prints: ``FMI | <status> | <category> | <message>``.
+FMI_PREFIX = "FMI | "
 #: FMPy's own default solver, what a Co-Simulation run (``solver=None``) passes.
 FMPY_DEFAULT_SOLVER = "CVode"
 
@@ -38,7 +41,8 @@ def _one_line(text: str) -> str:
 
 def exception_line(error: Exception) -> str:
     """Return the line that reports ``error`` as the exception that ended the run."""
-    return f"{EXCEPTION_PREFIX}{type(error).__name__}: {_one_line(str(error))}"
+    message = _one_line(str(error))
+    return f"{EXCEPTION_PREFIX}{type(error).__name__}{f': {message}' if message else ''}"
 
 
 def _log_fmi_message(_environment: Any, _instance: Any, status: int, category: bytes, message: bytes) -> None:
@@ -46,7 +50,7 @@ def _log_fmi_message(_environment: Any, _instance: Any, status: int, category: b
     if status >= 1:
         name = _STATUS_NAMES[status] if status < len(_STATUS_NAMES) else str(status)
         text = _one_line(message.decode("utf-8", "replace"))
-        print(f"FMI | {name} | {category.decode('utf-8', 'replace')} | {text}", flush=True)
+        print(f"{FMI_PREFIX}{name} | {category.decode('utf-8', 'replace')} | {text}", flush=True)
 
 
 class _PartialSaver:
@@ -105,7 +109,8 @@ def _run(directory: Path) -> int:
     try:
         result = _simulate(request, saver)
     except Exception:
-        saver.save()
+        with contextlib.suppress(Exception):  # a failed save must not hide why the run failed
+            saver.save()
         raise
     np.save(directory / RESULT_FILE_NAME, np.asarray(result), allow_pickle=False)
     return 0

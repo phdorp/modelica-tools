@@ -4,6 +4,7 @@ import os
 import subprocess
 import time
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -23,7 +24,7 @@ def test_hang_times_out():
     started = time.monotonic()
     with pytest.raises(SimulationTimeout, match=r"timed out after 3 s"):
         simulate_exported("FmuTests.Hang", timeout=3)
-    assert time.monotonic() - started < 15
+    assert 3 <= time.monotonic() - started < 15
 
 
 def test_keep_runs_names_the_directory(monkeypatch):
@@ -34,23 +35,28 @@ def test_keep_runs_names_the_directory(monkeypatch):
     assert (directory / "fmu" / "modelDescription.xml").exists()
 
 
-def test_interrupt_kills_the_child_and_removes_the_run_directory(monkeypatch):
+def test_interrupt_kills_the_child_and_removes_the_run_directory(fresh_work_dir, monkeypatch):
     simulate_exported("FmuTests.Hang", stop_time=0.1)  # export first
-    kept = set(workdir.runs_dir().iterdir())  # directories earlier tests kept
     children: list[subprocess.Popen[str]] = []
-    communicate = subprocess.Popen.communicate
 
     def interrupting(self: subprocess.Popen[str], *args: object, **kwargs: object) -> tuple[str, str]:
         children.append(self)
-        time.sleep(1)  # the child has started
+        _wait_until_extracted(Path(cast(list[str], self.args)[-1]))  # the child runs Python code
         raise KeyboardInterrupt
 
     monkeypatch.setattr(process.subprocess.Popen, "communicate", interrupting)
     with pytest.raises(KeyboardInterrupt):
         simulate_exported("FmuTests.Hang")
-    monkeypatch.setattr(process.subprocess.Popen, "communicate", communicate)
 
     [child] = children
     with pytest.raises(ProcessLookupError):
         os.killpg(child.pid, 0)
-    assert set(workdir.runs_dir().iterdir()) == kept
+    assert list(workdir.runs_dir().iterdir()) == []
+
+
+def _wait_until_extracted(directory: Path, timeout: float = 30.0) -> None:
+    """Wait until the child in the run directory ``directory`` has extracted its FMU."""
+    deadline = time.monotonic() + timeout
+    while not (directory / "fmu" / "modelDescription.xml").exists():
+        assert time.monotonic() < deadline, f"the child in {directory} didn't start"
+        time.sleep(0.05)

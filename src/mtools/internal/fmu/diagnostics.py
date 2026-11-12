@@ -4,16 +4,14 @@ from __future__ import annotations
 
 import re
 
-from mtools.internal.fmu.child import EXCEPTION_PREFIX
+from mtools.internal.fmu.child import EXCEPTION_PREFIX, FMI_PREFIX
 from mtools.internal.omc.run_diagnostics import log_entries, notable_entries
-
-#: A message the child's FMI logger printed: ``FMI | <status> | <category> | <message>``.
-_FMI_PREFIX = "FMI | "
 
 #: The first failed FMI call, which FMPy reports in an exception or an "Exception ignored" traceback.
 _FAILED_CALL = re.compile(r"\w+ failed with status \d \(\w+\)")
 
-#: CVODE's "too close" failure as the child's output shows it: the FMU's ``##CVODE## -27`` log line, ``CV_TOO_CLOSE`` or the message.
+#: CVODE's "too close" failure as the child's output shows it: the FMU's ``##CVODE## -27`` log
+#: line, ``CV_TOO_CLOSE`` or the message.
 _CVODE_TOO_CLOSE = re.compile(r"##CVODE## -27|CV_TOO_CLOSE|tout too close")
 
 #: The hint that ends the diagnostics of a Co-Simulation run that CVODE stopped with "tout too close".
@@ -42,12 +40,12 @@ def failure_diagnostics(output: str) -> str:
     for raw_line in output.splitlines():
         line = raw_line.rstrip()
         failed_call = None if call_found else _FAILED_CALL.search(line)
-        if line.startswith(_FMI_PREFIX) or line.startswith(EXCEPTION_PREFIX) or failed_call:
+        if line.startswith(FMI_PREFIX) or line.startswith(EXCEPTION_PREFIX) or failed_call:
             flush()
         if failed_call:
             call_found = True
             entries.append(failed_call.group(0))
-        if line.startswith(_FMI_PREFIX):
+        if line.startswith(FMI_PREFIX):
             entries.append(line)
         elif line.startswith(EXCEPTION_PREFIX):
             entries.append(line.removeprefix(EXCEPTION_PREFIX))
@@ -63,7 +61,7 @@ def warning_entries(output: str) -> list[str]:
     These are the FMI logger's warning messages, then the ``LOG_ASSERT`` and ``warning`` or
     ``error`` entries of an OMC-exported FMU.
     """
-    fmi_warnings = [line.rstrip() for line in output.splitlines() if line.startswith(f"{_FMI_PREFIX}warning | ")]
+    fmi_warnings = [line.rstrip() for line in output.splitlines() if line.startswith(f"{FMI_PREFIX}warning | ")]
     return fmi_warnings + notable_entries(output)
 
 

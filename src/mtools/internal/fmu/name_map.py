@@ -28,9 +28,9 @@ def problems(name_map: Mapping[str, str], fmu_names: Collection[str], *, model_n
             found.append(f"build.name_map.{key}: '{model_name}' has no variable '{fmu_name}'")
     for fmu_name, keys in named.items():
         if len(keys) > 1:
-            found.append(f"build.name_map: {_joined(keys)} both map to FMU name '{fmu_name}'")
-    for key in name_map:
-        if key != TIME and key in fmu_names and key not in named:
+            found.append(f"build.name_map: {_joined(keys)} map to FMU name '{fmu_name}'")
+    for key, fmu_name in name_map.items():
+        if TIME not in (key, fmu_name) and key in fmu_names and key not in named:
             found.append(f"build.name_map.{key}: '{key}' is also the name of an FMU variable that isn't renamed")
     return found
 
@@ -47,4 +47,6 @@ def to_experiment(name_map: Mapping[str, str]) -> Callable[[str], str]:
 
 
 def _joined(keys: list[str]) -> str:
-    return " and ".join(f"'{key}'" for key in keys)
+    """Return ``'a' and 'b' both`` or ``'a', 'b' and 'c' all``."""
+    quoted = [f"'{key}'" for key in keys]
+    return f"{', '.join(quoted[:-1])} and {quoted[-1]} {'both' if len(keys) == 2 else 'all'}"

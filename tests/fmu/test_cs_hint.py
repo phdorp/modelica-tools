@@ -9,8 +9,6 @@ from mtools.errors import SimulationError
 from mtools.internal.fmu.diagnostics import CS_CVODE_HINT, cvode_hint
 from tests.fmu.helpers import simulate_exported, simulate_given
 
-pytestmark = pytest.mark.fmu
-
 # The research note (S1: der(x) = -x with sample(0.1, 0.1), CS with --fmiFlags=s:cvode) saw this fail at 30/30 step sizes.
 # A model without a continuous state never starts CVODE, so SampledDecay carries one; 0.01 is pinned.
 CVODE_FLAGS: dict[str, str | None] = {"--fmiFlags": "s:cvode"}

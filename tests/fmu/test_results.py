@@ -20,10 +20,10 @@ def test_stair_counter_is_int64(version: str) -> None:
     assert list(result.columns) == ["time", "counter"] and result["counter"].dtype == "int64"
 
 
-def test_fmi3_fmus_run() -> None:
-    for name in ["BouncingBall", "Dahlquist", "VanDerPol"]:
-        result = simulate_given(reference_fmu(name, "3.0"), model_name=name)[name]
-        assert result["time"].dtype == "float64" and list(result.columns)[0] == "time"
+@pytest.mark.parametrize("name", ["BouncingBall", "Dahlquist", "VanDerPol"])
+def test_fmi3_fmus_run(name: str) -> None:
+    result = simulate_given(reference_fmu(name, "3.0"), model_name=name)[name]
+    assert result["time"].dtype == "float64" and list(result.columns)[0] == "time"
 
 
 @pytest.mark.parametrize(
@@ -35,6 +35,9 @@ def test_fmi3_fmus_run() -> None:
         ("Enumeration", np.array([2], np.int32), "int64"),
         ("Boolean", np.array([1], np.int32), "bool"),
         ("UInt64", np.array([2**62], np.uint64), "int64"),
+        ("UInt64", np.array([2**63 - 1], np.uint64), "int64"),
+        ("UInt64", np.array([], np.uint64), "int64"),
+        ("Clock", np.array([True]), "bool"),  # a type without a mapping keeps its dtype
     ],
 )
 def test_every_fmi_type_maps_to_a_native_dtype(fmi_type: str, values: np.ndarray, dtype: str) -> None:
@@ -42,8 +45,9 @@ def test_every_fmi_type_maps_to_a_native_dtype(fmi_type: str, values: np.ndarray
 
 
 def test_uint64_overflow_names_the_column() -> None:
-    with pytest.raises(SimulationError, match="'big'"):
+    with pytest.raises(SimulationError, match=r"^Simulation of 'M' failed:") as error:
         cast_column("big", np.array([2**63], np.uint64), "UInt64", "M")
+    assert error.value.diagnostics == "column 'big' holds a UInt64 value above the int64 range"
 
 
 def test_save_round_trip(tmp_path: Path) -> None:

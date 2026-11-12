@@ -15,8 +15,6 @@ from mtools.session_config import FmuExport, RunSettings
 from mtools.testing import ExperimentReference, ExperimentSweepReference
 from tests.fmu.fmu_models import MODEL_PATH, DecayParameters
 
-pytestmark = pytest.mark.fmu
-
 MODEL = "FmuTests.Decay"
 
 #: Communication interval of the ME vs CS pair. The Co-Simulation FMU embeds fixed-step Euler, whose error at the

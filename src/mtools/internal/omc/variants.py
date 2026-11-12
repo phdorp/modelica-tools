@@ -13,8 +13,8 @@ from typing import Any
 
 from mtools.errors import ConfigError
 from mtools.internal.omc.init_xml import Variable
-from mtools.internal.omc.parameters import (_is_array_like, expand_parameters,
-                                            flatten_parameters)
+from mtools.internal.omc.parameters import (expand_parameters,
+                                            flatten_parameters, is_array_like)
 from mtools.internal.omc.script import string_literal
 
 
@@ -70,7 +70,7 @@ def fixed_at_build(variable: Variable) -> bool:
 
 def literal(value: Any, variable: Variable) -> str:
     """Write ``value`` as a Modelica literal of ``variable``'s type; arrays as ``{...}``."""
-    if _is_array_like(value):
+    if is_array_like(value):
         return "{" + ", ".join(literal(element, variable) for element in value) + "}"
     if variable.type == "Real":
         return repr(float(value))

@@ -146,4 +146,11 @@ package FmuTests "Models the FMU tests export and run"
   equation
     assert(time < 0.5, "time passed 0.5", level = AssertionLevel.warning);
   end AssertWarns;
+
+  model SqrtFails "Decay whose sqrt(x - 0.5) fails once x drops below 0.5; the FMU reports it through the FMI logger"
+    extends Decay;
+    Real y;
+  equation
+    y = sqrt(x - 0.5);
+  end SqrtFails;
 end FmuTests;

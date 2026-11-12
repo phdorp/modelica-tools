@@ -23,8 +23,8 @@ import mtools.session_config as session_config
 from mtools.errors import ConfigError
 from mtools.internal import result_files
 from mtools.internal.fmu.config import FmuFileConfig
-from mtools.internal.fmu.description import file_problems, require_fmpy
-from mtools.internal.fmu.resolve import FMU_TYPES
+from mtools.internal.fmu.description import (FMU_TYPES, file_problems,
+                                             require_fmpy)
 from mtools.internal.omc import run_cpp
 
 TARGETS = ("C", "Cpp")
@@ -59,7 +59,8 @@ def validate(run: session_config.SimulationRun) -> tuple[backend.BuildConfig, ba
     the output format, no ``--simCodeTarget`` in ``build.omc_flags``, an exported
     FMU's ``fmu_type``, and an explicitly requested Cpp solver. Checks that need the
     build (parameter names, a solver from the annotation) happen when the build runs.
-    A build that exports an FMU needs FMPy, checked first.
+    A build that exports an FMU needs FMPy, checked first; its ``settings.solver`` is
+    FMPy's, so it skips the Cpp solver check and is checked when the FMU run resolves.
 
     Raises:
         ImportError: The build exports an FMU and FMPy isn't installed.
@@ -201,9 +202,11 @@ def _flag_problems(omc_flags: Any, *, exported: bool) -> Iterator[str]:
     for flag, value in omc_flags.items():
         if not isinstance(flag, str) or not (value is None or isinstance(value, str)):
             yield f"build.omc_flags: expected string flags with string or null values, got {flag!r}: {value!r}"
-        elif flag.lstrip("-+").split("=")[0] == "simCodeTarget":
+            continue
+        name = flag.lstrip("-+").split("=")[0]
+        if name == "simCodeTarget":
             yield f"build.omc_flags: '{flag}' is not allowed; set the simulation target with build.target"
-        elif exported and flag.lstrip("-+").split("=")[0] == "fmiFilter":
+        elif exported and name == "fmiFilter":
             yield f"build.omc_flags: '{flag}' is not allowed for an exported FMU; set settings.emit_protected"
 
 

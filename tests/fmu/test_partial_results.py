@@ -1,8 +1,11 @@
 """A failed FMU run returns the rows recorded before it failed, shaped like a full result."""
 
+import numpy as np
 import pytest
 
 from mtools.errors import SimulationError, SimulationTimeout
+from mtools.internal.fmu import child, runner
+from mtools.internal.fmu.resolve import ResolvedRun
 from tests.fmu.helpers import simulate_exported, simulate_given
 
 
@@ -35,3 +38,40 @@ def test_partial_result_uses_the_name_map(exported_fmu):
         simulate_given(exported_fmu("FmuTests.AssertFails"), name_map={"state": "x"})
     partial = error.value.partial_result
     assert partial is not None and "state" in partial.columns and "x" not in partial.columns
+
+
+RUN = ResolvedRun(
+    model_name="M",
+    fmu_type="me",
+    start_time=0.0,
+    stop_time=1.0,
+    interval=0.1,
+    tolerance=1e-6,
+    solver="CVode",
+    start_values={},
+    columns={"x": "x"},
+    column_types={"x": "Real"},
+    cvode_guard=True,
+    build_values={},
+)
+
+
+@pytest.mark.parametrize(
+    "content", [None, b"", b"\x93NUMPY cut off"], ids=["missing", "empty", "cut-off"]
+)
+def test_unreadable_partial_result_is_none(tmp_path, content):
+    if content is not None:
+        (tmp_path / child.PARTIAL_FILE_NAME).write_bytes(content)
+    assert runner._read_partial(tmp_path, RUN) is None
+
+
+def test_partial_result_conversion_bug_is_not_hidden(tmp_path, monkeypatch):
+    rows = np.zeros(2, dtype=[("time", "f8"), ("x", "f8")])
+    np.save(tmp_path / child.PARTIAL_FILE_NAME, rows, allow_pickle=False)
+
+    def broken(array: np.ndarray, run: ResolvedRun) -> None:
+        raise TypeError("a bug in to_frame")
+
+    monkeypatch.setattr(runner, "to_frame", broken)
+    with pytest.raises(TypeError, match="a bug in to_frame"):
+        runner._read_partial(tmp_path, RUN)
