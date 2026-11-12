@@ -10,6 +10,7 @@ from typing import Any
 
 from mtools.errors import ConfigError
 from mtools.internal.fmu.description import FmuDescription, FmuVariable
+from mtools.internal.fmu.parameters import start_values
 from mtools.internal.omc.config import RunSettings
 
 logger = logging.getLogger(__name__)
@@ -95,6 +96,14 @@ def resolve(
     elif resolved_type == "cs" and not description.can_handle_variable_step:
         _check_interval(interval, start_time, stop_time, model_name, problems)
     column_filter = _compile_filter(settings.variable_filter, problems)
+    values, parameter_problems, _ = start_values(
+        settings.parameters,
+        {variable.name: variable for variable in description.variables},
+        model_name=model_name,
+        to_fmu=lambda name: name,
+        exported=exported,
+    )
+    problems.extend(parameter_problems)
     if problems:
         raise ConfigError(f"Invalid run settings for '{model_name}':", model_name=model_name, diagnostics="\n".join(problems))
     kept = [
@@ -110,7 +119,7 @@ def resolve(
         interval=interval,
         tolerance=_first(settings.tolerance, description.tolerance, DEFAULT_TOLERANCE),
         solver=solver,
-        start_values={},
+        start_values=values,
         columns={variable.name: variable.name for variable in kept},
         column_types={variable.name: variable.type for variable in kept},
         cvode_guard=False,

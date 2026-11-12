@@ -38,4 +38,22 @@ package FmuTests "Models the FMU tests export and run"
   equation
     der(y) = 1;
   end Warns;
+
+  model Params "One parameter of each type, an array, a calculated parameter and a constant"
+    type Mode = enumeration(low, high);
+    parameter Real k = 1;
+    parameter Integer n = 2;
+    parameter Boolean on = true;
+    parameter String label = "a";
+    parameter Mode mode = Mode.low;
+    parameter Real y0[2] = {1, 2};
+    parameter Real twice = 2*k;
+    constant Real c = 3;
+    Real x(start = y0[1], fixed = true);
+    Real total "Uses every parameter, so none is removed";
+  equation
+    der(x) = -k*x;
+    total = n + y0[2] + twice + c + (if on then 1 else 0) + (if mode == Mode.high then 1 else 0)
+      + (if label == "a" then 1 else 0);
+  end Params;
 end FmuTests;

@@ -12,3 +12,10 @@ class DecayParameters:
 
     k: float = 1.0
     x0: float = 1.0
+
+
+@dataclass
+class DahlquistParameters:
+    """Parameters of the Reference-FMU ``Dahlquist``."""
+
+    k: float = 1.0
