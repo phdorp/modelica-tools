@@ -111,13 +111,23 @@ def _run(fmu_path: Path, description: FmuDescription, run: ResolvedRun, settings
         command = [sys.executable, "-m", "mtools.internal.fmu.child", str(directory)]
         result = execute(command, directory, settings.timeout)
         if result.returncode != 0:
-            raise _simulation_error(run, settings, result, directory, failure_diagnostics(result.output), None)
+            raise _simulation_error(run, settings, result, directory, failure_diagnostics(result.output), _read_partial(directory, run))
         if warnings := warning_entries(result.output):
             logger.warning("Simulation of '%s' reported warnings:\n%s", run.model_name, "\n".join(warnings))
         array = np.load(directory / child.RESULT_FILE_NAME, allow_pickle=False)
         return to_frame(array, run)
     finally:
         workdir.discard(directory)
+
+
+def _read_partial(directory: Path, run: ResolvedRun) -> pd.DataFrame | None:
+    """Return the partial result the child saved in ``directory``, or ``None`` if there is none or it is unreadable."""
+    try:
+        array = np.load(directory / child.PARTIAL_FILE_NAME, allow_pickle=False)
+        return to_frame(array, run) if array.size else None
+    except Exception:  # no file, a cut-off file, or rows to_frame can't convert
+        logger.debug("No usable partial result in %s", directory, exc_info=True)
+        return None
 
 
 def _simulation_error(

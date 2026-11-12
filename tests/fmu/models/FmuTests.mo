@@ -107,6 +107,23 @@ package FmuTests "Models the FMU tests export and run"
     annotation(experiment(StopTime = 1, Interval = 0.01));
   end Hang;
 
+  model SlowThenHang "Sleeps 30 ms per sample until time passes 0.5, then loops forever"
+    function slow
+      input Real t;
+      output Real y;
+      external "C" y = fmu_tests_slow(t) annotation(
+        Include = "#include <unistd.h>\nstatic double fmu_tests_slow(double t) { if (t <= 0.5) { usleep(30000); return t; } volatile int stop = 0; while (!stop) {} return t; }");
+    end slow;
+    Real x(start = 0, fixed = true);
+    discrete Real y(start = 0, fixed = true);
+  equation
+    der(x) = 1;
+    when sample(0.005, 0.01) then
+      y = slow(time);
+    end when;
+    annotation(experiment(StopTime = 1));
+  end SlowThenHang;
+
   model AssertFails "Decay that fails an assertion once time passes 0.5"
     extends Decay;
   equation
