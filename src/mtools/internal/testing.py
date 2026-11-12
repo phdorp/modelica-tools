@@ -211,6 +211,40 @@ def _select_job_value(config: object, path: str) -> object:
     return node
 
 
+def align(
+    actual: pd.DataFrame, reference: pd.DataFrame, context: str
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Return the candidate on the reference's time points and the deduplicated reference.
+
+    Where a time repeats, only the last row (the value after an event) is
+    kept on both sides. Real columns are interpolated linearly; all other
+    columns take the last value at or before each reference time.
+
+    Raises:
+        AssertionError: If a reference time lies outside the candidate's span.
+    """
+    actual = actual.drop_duplicates("time", keep="last")
+    reference = reference.drop_duplicates("time", keep="last")
+    times = actual["time"].to_numpy(dtype=float)
+    targets = reference["time"].to_numpy(dtype=float)
+    low, high = times[0], times[-1]
+    for target in targets:
+        if target < low or target > high:
+            raise AssertionError(
+                f"{context}: reference time {target:g} lies outside the candidate's "
+                f"time span [{low:g}, {high:g}]"
+            )
+    index = np.searchsorted(times, targets, side="right") - 1
+    aligned = {}
+    for column in actual.columns:
+        values = actual[column].to_numpy()
+        if pd.api.types.is_float_dtype(actual[column]):
+            aligned[column] = np.interp(targets, times, values)
+        else:
+            aligned[column] = values[index]
+    return pd.DataFrame(aligned), reference
+
+
 def assert_solutions_match(
     actual: Solution,
     reference: Solution,
@@ -218,13 +252,17 @@ def assert_solutions_match(
     atol: float,
     context: str,
     rtol: float = 0.0,
+    interpolate: bool = False,
 ) -> None:
     """Recursively assert that candidate solutions match reference solutions.
 
     Data frame references are compared by column set, row count, and
     positionally per column. The ``time`` column is compared like any other
     column: both models must be simulated under the same conditions, so a
-    time mismatch indicates a differing simulation setup. Dict references
+    time mismatch indicates a differing simulation setup. With
+    ``interpolate`` the candidate is first aligned onto the reference's time
+    points (see :func:`align`); row counts then need not match and ``time``
+    isn't compared. Dict references
     require the same key set and are compared recursively; ``context`` is
     extended with each key so failures identify the offending experiment or
     sweep combination.
@@ -235,6 +273,8 @@ def assert_solutions_match(
         atol: Absolute tolerance passed to ``numpy.testing.assert_allclose``.
         context: Human-readable location prefix used in failure messages.
         rtol: Relative tolerance passed to ``numpy.testing.assert_allclose``.
+        interpolate: Align the candidate onto the reference's time points
+            instead of comparing row by row.
 
     Raises:
         AssertionError: If the structures, signal sets, lengths, or values
@@ -250,11 +290,16 @@ def assert_solutions_match(
             raise AssertionError(
                 f"{context}: output signals differ; missing {missing!r}, unexpected {extra!r}"
             )
-        if len(actual) != len(reference):
+        if interpolate:
+            actual, reference = align(actual, reference, context)
+        elif len(actual) != len(reference):
             raise AssertionError(
-                f"{context}: solution length differs ({len(actual)} != {len(reference)})"
+                f"{context}: solution length differs ({len(actual)} != {len(reference)}); "
+                "set interpolate = True to compare on the reference's time points"
             )
         for column in reference.columns:
+            if interpolate and column == "time":
+                continue
             np.testing.assert_allclose(
                 actual[column],
                 reference[column],
@@ -279,6 +324,7 @@ def assert_solutions_match(
                 atol=atol,
                 context=f"{context}[{key!r}]",
                 rtol=rtol,
+                interpolate=interpolate,
             )
         return
     raise TypeError(f"{context}: unsupported reference solution type {type(reference).__name__!r}")

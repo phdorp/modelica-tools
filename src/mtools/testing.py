@@ -164,6 +164,11 @@ class ExperimentBase(ABC):
 
     #: Absolute tolerance used by test assertions.
     eps: ClassVar[float] = np.finfo(float).eps
+    #: Relative tolerance used by test assertions.
+    rtol: ClassVar[float] = 0.0
+    #: Compare reference tests on the reference's time points (see
+    #: :meth:`_ReferenceComparisonMixin.assert_matches_reference`).
+    interpolate: ClassVar[bool] = False
 
 
 class _ReferenceComparisonMixin(Generic[ResultType]):
@@ -171,6 +176,10 @@ class _ReferenceComparisonMixin(Generic[ResultType]):
 
     #: Absolute tolerance used by :meth:`assert_matches_reference`.
     eps: ClassVar[float]
+    #: Relative tolerance used by :meth:`assert_matches_reference`.
+    rtol: ClassVar[float]
+    #: Align the candidate onto the reference's time points first.
+    interpolate: ClassVar[bool]
     results: ResultType
     reference_results: ResultType
 
@@ -198,6 +207,8 @@ class _ReferenceComparisonMixin(Generic[ResultType]):
             cast("_internal.Solution", self.results),
             cast("_internal.Solution", self.reference_results),
             atol=self.eps,
+            rtol=self.rtol,
+            interpolate=self.interpolate,
             context=self._comparison_context(),
         )
 

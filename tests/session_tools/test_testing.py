@@ -1015,3 +1015,85 @@ def test_multi_experiment_reference_keys_each_name_by_its_own_model_name(monkeyp
     assert T.results["b"]["tag"].iloc[0] == "b:my.b"
     assert T.reference_results["a"]["tag"].iloc[0] == "a:ref.Model"
     assert T.reference_results["b"]["tag"].iloc[0] == "b:ref.Model"
+
+
+def test_rtol_is_overridable():
+    class Strict(testing.ExperimentReference):
+        name = "x"
+        results = _signal_frame([1000.0])
+        reference_results = _signal_frame([1000.5])
+
+    class Loose(Strict):
+        rtol = 1e-3
+
+    with pytest.raises(AssertionError, match="signal"):
+        Strict().assert_matches_reference()
+    Loose().assert_matches_reference()
+
+
+def test_length_mismatch_points_at_interpolate():
+    class T(testing.ExperimentReference):
+        name = "x"
+        results = _signal_frame([1.0, 2.0])
+        reference_results = _signal_frame([1.0, 2.0, 3.0])
+
+    with pytest.raises(AssertionError, match="length differs.*interpolate = True"):
+        T().assert_matches_reference()
+
+
+def test_interpolate_keeps_the_last_row_of_a_repeated_time():
+    class T(testing.ExperimentReference):
+        name = "x"
+        interpolate = True
+        results = pd.DataFrame({"time": [0.0, 0.5, 0.5, 1.0], "y": [0.0, 1.0, 5.0, 5.0]})
+        reference_results = pd.DataFrame({"time": [0.0, 0.5, 1.0], "y": [0.0, 5.0, 5.0]})
+
+    T().assert_matches_reference()
+
+
+def test_interpolate_is_linear_for_real_and_last_value_for_integer_and_boolean():
+    class T(testing.ExperimentReference):
+        name = "x"
+        interpolate = True
+        results = pd.DataFrame(
+            {"time": [0.0, 1.0], "y": [0.0, 2.0], "n": [1, 3], "b": [False, True]}
+        )
+        reference_results = pd.DataFrame(
+            {"time": [0.5], "y": [1.0], "n": [1], "b": [False]}
+        )
+
+    T().assert_matches_reference()
+
+
+def test_interpolate_rejects_reference_times_outside_the_candidate_span():
+    class T(testing.ExperimentReference):
+        name = "x"
+        interpolate = True
+        results = pd.DataFrame({"time": [0.0, 1.0], "y": [0.0, 1.0]})
+        reference_results = pd.DataFrame({"time": [0.0, 2.0], "y": [0.0, 1.0]})
+
+    with pytest.raises(
+        AssertionError, match=r"reference time 2 lies outside the candidate's time span \[0, 1\]"
+    ):
+        T().assert_matches_reference()
+
+
+def test_interpolate_ignores_row_counts_and_time():
+    class T(testing.ExperimentReference):
+        name = "x"
+        interpolate = True
+        results = pd.DataFrame({"time": [0.0, 0.5, 1.0], "y": [0.0, 0.5, 1.0]})
+        reference_results = pd.DataFrame({"time": [0.0, 0.25, 0.75, 1.0], "y": [0.0, 0.25, 0.75, 1.0]})
+
+    T().assert_matches_reference()
+
+
+def test_columns_must_match_in_interpolate_mode():
+    class T(testing.ExperimentReference):
+        name = "x"
+        interpolate = True
+        results = pd.DataFrame({"time": [0.0, 1.0], "px": [1.0, 2.0]})
+        reference_results = pd.DataFrame({"time": [0.0, 1.0], "py": [1.0, 2.0]})
+
+    with pytest.raises(AssertionError, match="output signals differ"):
+        T().assert_matches_reference()
