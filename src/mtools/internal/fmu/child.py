@@ -14,6 +14,8 @@ import numpy as np
 from mtools.internal.fmu.request import RunRequest
 
 RESULT_FILE_NAME = "result.npy"
+#: FMPy's own default solver, what a Co-Simulation run (``solver=None``) passes.
+FMPY_DEFAULT_SOLVER = "CVode"
 
 
 def main(argv: list[str]) -> int:
@@ -31,7 +33,7 @@ def main(argv: list[str]) -> int:
         step_size=request.interval,
         output_interval=request.interval,
         relative_tolerance=request.tolerance,
-        solver=request.solver or "CVode",
+        solver=request.solver or FMPY_DEFAULT_SOLVER,  # Co-Simulation ignores it
         start_values=request.start_values,
         output=request.output,
         record_events=True,

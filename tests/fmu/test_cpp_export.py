@@ -45,3 +45,10 @@ def test_cpp_export_warns_on_every_call_built_or_reused(fresh_work_dir, caplog):
     assert [message.split()[0] for message in build_messages(caplog)] == ["Built", "Reused"]
     warnings = [r for r in caplog.records if r.getMessage().startswith("Exporting 'FmuTests.Decay' from the Cpp target")]
     assert len(warnings) == 2
+
+
+def test_cpp_export_accepts_euler():
+    # settings.solver is the FMPy solver for an exported FMU, whatever the target; the Cpp
+    # output grid is nondeterministic, so only the run's success is asserted.
+    result = simulate_exported("FmuTests.Decay", target="Cpp", solver="euler")["FmuTests.Decay"]
+    assert len(result) > 0

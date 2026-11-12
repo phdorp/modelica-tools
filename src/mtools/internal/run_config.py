@@ -95,7 +95,8 @@ def validate(run: session_config.SimulationRun) -> tuple[backend.BuildConfig, ba
         ),
     )
     run_settings = _run_settings(settings)
-    run_cpp.validate_settings(build_config, run_settings)
+    if build.fmu is None:  # an exported FMU runs in FMPy, whose solvers the FMU resolution checks
+        run_cpp.validate_settings(build_config, run_settings)
     return build_config, run_settings
 
 

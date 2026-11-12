@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -24,6 +25,8 @@ DEFAULT_STOP_TIME = 1.0
 DEFAULT_TOLERANCE = 1e-6
 #: OMC's default number of output intervals.
 DEFAULT_INTERVALS = 500
+#: The solvers a Model Exchange run supports: the settings' name to FMPy's.
+ME_SOLVERS = {"cvode": "CVode", "euler": "Euler"}
 #: Variables that never become result columns.
 DROPPED_CAUSALITIES = frozenset({"independent", "parameter", "calculatedParameter"})
 DROPPED_TYPES = frozenset({"String", "Binary"})
@@ -85,17 +88,25 @@ def resolve(
     resolved_type = _resolve_type(description, fmu_type, model_name, problems)
     if not exported and settings.emit_protected:
         logger.warning("settings.emit_protected has no effect on the given FMU '%s'", model_name)
+    solver = _resolve_solver(settings.solver, resolved_type, model_name, problems)
+    interval = _first(settings.interval, description.interval, default_interval)
+    if resolved_type == "cs" and not description.can_handle_variable_step:
+        _check_interval(interval, start_time, stop_time, model_name, problems)
     if problems:
         raise ConfigError(f"Invalid run settings for '{model_name}':", model_name=model_name, diagnostics="\n".join(problems))
-    kept = [variable for variable in description.variables if _is_column(variable)]
+    kept = [
+        variable
+        for variable in description.variables
+        if _is_column(variable) and re.fullmatch(settings.variable_filter, variable.name)
+    ]
     return ResolvedRun(
         model_name=model_name,
         fmu_type=resolved_type,
         start_time=start_time,
         stop_time=stop_time,
-        interval=_first(settings.interval, description.interval, default_interval),
+        interval=interval,
         tolerance=_first(settings.tolerance, description.tolerance, DEFAULT_TOLERANCE),
-        solver="CVode" if resolved_type == "me" else None,
+        solver=solver,
         start_values={},
         columns={variable.name: variable.name for variable in kept},
         column_types={variable.name: variable.type for variable in kept},
@@ -112,6 +123,35 @@ def _resolve_type(description: FmuDescription, requested: str | None, model_name
     if requested not in description.fmu_types:
         problems.append(f"build.fmu_type: '{model_name}' has no {_INTERFACE_NAMES[requested]} interface")
     return requested
+
+
+def _resolve_solver(requested: str | None, fmu_type: str, model_name: str, problems: list[str]) -> str | None:
+    """Return FMPy's solver name for a Model Exchange run (CVode unless ``requested``), ``None`` for
+    Co-Simulation, which runs its built-in solver; ``requested`` there is warned about.
+
+    Appends to ``problems`` when ``requested`` isn't a Model Exchange solver."""
+    if fmu_type == "cs":
+        if requested is not None:
+            logger.warning(
+                "Co-Simulation FMU '%s' runs its built-in solver; settings.solver '%s' is ignored", model_name, requested
+            )
+        return None
+    if requested is None:
+        return ME_SOLVERS["cvode"]
+    if requested.lower() not in ME_SOLVERS:
+        problems.append(f"settings.solver: Model Exchange FMU runs support 'cvode' and 'euler', got '{requested}'")
+        return None
+    return ME_SOLVERS[requested.lower()]
+
+
+def _check_interval(interval: float, start_time: float, stop_time: float, model_name: str, problems: list[str]) -> None:
+    """Append to ``problems`` when ``interval`` doesn't divide the span into whole steps."""
+    steps = (stop_time - start_time) / interval
+    if abs(steps - round(steps)) > 1e-9 * max(1.0, steps):
+        problems.append(
+            f"settings.interval: {interval:g} doesn't divide the run's {stop_time - start_time:g} s "
+            f"and '{model_name}' can't change its communication step size"
+        )
 
 
 def _is_column(variable: FmuVariable) -> bool:
