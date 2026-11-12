@@ -17,7 +17,7 @@ import pandas as pd
 from mtools.errors import SimulationError, SimulationTimeout
 from mtools.internal.fmu import child
 from mtools.internal.fmu.config import FmuFileConfig
-from mtools.internal.fmu.description import FmuDescription, read_description
+from mtools.internal.fmu.description import read_description
 from mtools.internal.fmu.diagnostics import (cvode_hint, failure_diagnostics,
                                              warning_entries)
 from mtools.internal.fmu.request import RunRequest
@@ -52,7 +52,7 @@ def simulate_file(config: FmuFileConfig, settings: RunSettings) -> tuple[str, pd
         exported=False,
         build_variables={},
     )
-    return run.model_name, _run(config.fmu_path, description, run, settings)
+    return run.model_name, _run(config.fmu_path, run, settings)
 
 
 def simulate_export(build: Build, settings: RunSettings) -> pd.DataFrame:
@@ -88,10 +88,10 @@ def simulate_export(build: Build, settings: RunSettings) -> pd.DataFrame:
         # A variant keeps the values it was built with, should it need a further variant.
         with omc_build.build(build.config, {**build.build_values, **run.build_values}) as variant:
             return simulate_export(variant, replace(settings, parameters=run_parameters))
-    return _run(build.fmu_path, description, run, settings)
+    return _run(build.fmu_path, run, settings)
 
 
-def _run(fmu_path: Path, description: FmuDescription, run: ResolvedRun, settings: RunSettings) -> pd.DataFrame:
+def _run(fmu_path: Path, run: ResolvedRun, settings: RunSettings) -> pd.DataFrame:
     """Run ``fmu_path`` as resolved in ``run`` in a child process; return its result."""
     directory = workdir.new_run_directory("fmu-")
     try:
@@ -111,7 +111,8 @@ def _run(fmu_path: Path, description: FmuDescription, run: ResolvedRun, settings
         command = [sys.executable, "-m", "mtools.internal.fmu.child", str(directory)]
         result = execute(command, directory, settings.timeout)
         if result.returncode != 0:
-            raise _simulation_error(run, settings, result, directory, failure_diagnostics(result.output), _read_partial(directory, run))
+            partial = _read_partial(directory, run)
+            raise _simulation_error(run, settings, result, directory, failure_diagnostics(result.output), partial)
         if warnings := warning_entries(result.output):
             logger.warning("Simulation of '%s' reported warnings:\n%s", run.model_name, "\n".join(warnings))
         array = np.load(directory / child.RESULT_FILE_NAME, allow_pickle=False)

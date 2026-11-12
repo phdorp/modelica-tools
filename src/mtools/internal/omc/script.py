@@ -34,6 +34,9 @@ class Stage(IntEnum):
 DEFAULT_SOLVER = "dassl"
 #: The FMI version of every FMU export.
 FMI_VERSION = "2.0"
+# Read the error string into a variable first: printing a concatenation that calls
+# getErrorString() directly prints nothing after a failed buildModel (OMC 1.27.2).
+_READ_ERRORS = "mtoolsErrors := getErrorString();"
 
 
 @dataclass(frozen=True)
@@ -189,11 +192,6 @@ def _export_fmu(model: str, fmu: FmuExportConfig, file_name_prefix: str) -> list
         f" if regularFileExists({_string(file_name_prefix + '_FMU.makefile')}) then exit({int(Stage.COMPILE)});"
         f" else exit({int(Stage.TRANSLATE)}); end if; end if;",
     ]
-
-
-# Read the error string into a variable first: printing a concatenation that calls
-# getErrorString() directly prints nothing after a failed buildModel (OMC 1.27.2).
-_READ_ERRORS = "mtoolsErrors := getErrorString();"
 
 
 def _errors(stage: Stage) -> str:
