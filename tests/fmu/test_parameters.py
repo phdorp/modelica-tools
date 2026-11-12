@@ -99,3 +99,50 @@ def test_sweep_over_a_given_fmu_parameter(tmp_path):
     assert sorted(by_rate) == [0.5, 2.0]
     for rate, solution in by_rate.items():
         np.testing.assert_allclose(solution["x"], np.exp(-rate * solution["time"]), rtol=1e-4, atol=1e-6)
+
+
+def test_fmi3_integer_types_take_integers():
+    result = simulate_given(reference_fmu("Stair", "3.0"), parameters={"counter": 3})["Stair"]
+    assert result["counter"].iloc[0] == 3
+    with pytest.raises(ConfigError) as error:
+        simulate_given(reference_fmu("Stair", "3.0"), parameters={"counter": "x"})
+    assert "settings.parameters.counter: expected an Integer, got 'x'" in error.value.diagnostics
+
+
+def test_constant_is_not_settable():
+    with pytest.raises(ConfigError) as error:
+        simulate_given(reference_fmu("BouncingBall"), parameters={"v_min": 0.5})
+    assert (
+        "settings.parameters.v_min: 'BouncingBall' parameter 'v_min' is fixed in the FMU (constant); "
+        "a given FMU can't be rebuilt" in error.value.diagnostics
+    )
+
+
+def test_enumeration_integer_must_be_an_item(exported_fmu):
+    with pytest.raises(ConfigError) as error:
+        simulate_given(exported_fmu(PARAMS), parameters={"mode": 7})
+    assert (
+        "settings.parameters.mode: expected an enumeration item or a qualified literal such as 'Mode.high', got 7"
+        in error.value.diagnostics.splitlines()
+    )
+
+
+def test_unknown_enumeration_literal_is_rejected(exported_fmu):
+    with pytest.raises(ConfigError) as error:
+        simulate_given(exported_fmu(PARAMS), parameters={"mode": "Mode.bogus"})
+    assert "settings.parameters.mode: expected an enumeration item" in error.value.diagnostics
+
+
+def test_local_variable_names_its_variability(exported_fmu):
+    with pytest.raises(ConfigError) as error:
+        simulate_given(exported_fmu(PARAMS), parameters={"total": 1.0})
+    assert (
+        "settings.parameters.total: 'FmuTests.Params' parameter 'total' is fixed in the FMU (continuous); "
+        "a given FMU can't be rebuilt" in error.value.diagnostics
+    )
+
+
+def test_empty_array_value_is_reported(exported_fmu):
+    with pytest.raises(ConfigError) as error:
+        simulate_given(exported_fmu(PARAMS), parameters={"y0": []})
+    assert "settings.parameters.y0: 'y0' has an empty array value; nothing to set" in error.value.diagnostics

@@ -18,18 +18,19 @@ _KINDS = {
     "Float32": "Real",
     "Float64": "Real",
     "Integer": "Integer",
+    **{f"{prefix}Int{width}": "Integer" for prefix in ("", "U") for width in (8, 16, 32, 64)},
     "Boolean": "Boolean",
     "String": "String",
     "Enumeration": "Enumeration",
 }
-_ARTICLES = {"Real": "a", "Integer": "an", "Boolean": "a", "String": "a"}
+_ARTICLES = {"Integer": "an"}
 
 
 def is_settable(variable: FmuVariable) -> bool:
     """Whether a run can set ``variable``'s start value before initialisation."""
     if variable.causality == "parameter" and variable.variability in ("fixed", "tunable"):
         return True
-    return variable.initial == "exact" and variable.causality != "input"
+    return variable.variability != "constant" and variable.initial == "exact" and variable.causality != "input"
 
 
 def start_values(
@@ -130,7 +131,7 @@ def _enumeration(variable: FmuVariable, value: Any) -> int | None:
         return None
     if isinstance(value, (bool, np.bool_)) or not isinstance(value, numbers.Integral):
         return None
-    return int(value)
+    return int(value) if int(value) in variable.items.values() else None
 
 
 def _convert(variable: FmuVariable, value: Any) -> Any:
