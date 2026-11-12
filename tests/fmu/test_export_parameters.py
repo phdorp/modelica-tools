@@ -34,6 +34,7 @@ def test_evaluate_true_parameter_exports_a_variant(caplog):
 
 
 def test_build_time_value_of_the_wrong_type_is_a_config_error_before_any_variant(caplog):
+    caplog.set_level(logging.INFO)
     with pytest.raises(ConfigError) as error:
         simulate_exported(MODEL, parameters={"n": 2.7})
     assert "settings.parameters.n: expected an Integer, got 2.7" in error.value.diagnostics
@@ -47,6 +48,7 @@ def test_final_parameter_is_a_translation_error():
 
 @pytest.mark.parametrize("emit_protected", [False, True])
 def test_protected_parameter_is_a_config_error_before_any_variant(caplog, emit_protected):
+    caplog.set_level(logging.INFO)
     with pytest.raises(ConfigError) as error:
         simulate_exported(MODEL, parameters={"hp": 1.0}, emit_protected=emit_protected)
     assert "settings.parameters.hp: 'FmuTests.BuildTime' parameter 'hp' is protected" in error.value.diagnostics
