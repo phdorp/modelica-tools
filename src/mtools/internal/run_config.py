@@ -56,10 +56,10 @@ def validate(run: session_config.SimulationRun) -> tuple[backend.BuildConfig, ba
     """Check ``run`` and map it onto the backend's build config and run settings.
 
     Checks what needs no build: types, that files and directories exist, the target,
-    the output format, no ``--simCodeTarget`` in ``build.omc_flags``, and an
-    explicitly requested Cpp solver. Checks that need the build (parameter names, a
-    solver from the annotation) happen when the build runs. A build that exports an
-    FMU needs FMPy, checked first.
+    the output format, no ``--simCodeTarget`` in ``build.omc_flags``, an exported
+    FMU's ``fmu_type``, and an explicitly requested Cpp solver. Checks that need the
+    build (parameter names, a solver from the annotation) happen when the build runs.
+    A build that exports an FMU needs FMPy, checked first.
 
     Raises:
         ImportError: The build exports an FMU and FMPy isn't installed.
@@ -153,6 +153,8 @@ def _build_problems(build: session_config.Build) -> Iterator[str]:
             yield from _existing(f"build.extra_sources[{index}]", source, Path.is_file, "file")
     yield from _library_problems(build.libraries)
     yield from _flag_problems(build.omc_flags)
+    if build.fmu is not None and build.fmu.fmu_type not in FMU_TYPES:
+        yield f"build.fmu.fmu_type: expected 'me' or 'cs', got {build.fmu.fmu_type!r}"
 
 
 def _library_problems(libraries: Any) -> Iterator[str]:

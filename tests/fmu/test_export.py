@@ -7,6 +7,7 @@ import fmpy
 import numpy as np
 import pytest
 
+from mtools.errors import ConfigError
 from tests.fmu.helpers import build_messages, simulate_exported
 
 
@@ -28,4 +29,14 @@ def test_missing_fmpy_raises_before_export(monkeypatch, caplog):
     with pytest.raises(ImportError, match=r"^FMU runs need FMPy: install modelica-tools\[fmu\]$"):
         simulate_exported("FmuTests.Sampled")
 
+    assert build_messages(caplog) == []
+
+
+def test_unknown_fmu_type_is_a_config_error(caplog):
+    caplog.set_level(logging.INFO)
+
+    with pytest.raises(ConfigError, match="^Invalid config for 'FmuTests.Decay':\n") as raised:
+        simulate_exported("FmuTests.Decay", fmu_type="both")
+
+    assert raised.value.diagnostics == "build.fmu.fmu_type: expected 'me' or 'cs', got 'both'"
     assert build_messages(caplog) == []
