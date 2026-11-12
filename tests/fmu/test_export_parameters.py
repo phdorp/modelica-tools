@@ -55,6 +55,13 @@ def test_protected_parameter_is_a_config_error_before_any_variant(caplog, emit_p
     assert "Building a variant" not in caplog.text
 
 
+def test_derivative_of_an_exported_fmu_is_fixed_without_the_given_fmu_hint():
+    with pytest.raises(ConfigError) as error:
+        simulate_exported(MODEL, parameters={"der(y[1])": 1.0})
+    assert error.value.diagnostics == (
+        "settings.parameters.der(y[1]): 'FmuTests.BuildTime' parameter 'der(y[1])' is fixed in the FMU (continuous)"
+    )
+
 def test_parameter_evaluated_out_of_the_model_description_is_build_time():
     # OMC can leave an evaluated parameter out of the model description; the export's
     # model_init.xml still lists it as a public non-changeable parameter.

@@ -84,7 +84,7 @@ def start_values(
                 added = _add_build_value(key, value, variables, to_fmu, build_variables, build_values)
                 problems.extend(f"{path}: {problem}" for problem in added)
                 continue
-        added = _add_start_values(key, value, variables, model_name, to_fmu, values)
+        added = _add_start_values(key, value, variables, model_name, to_fmu, exported, values)
         run_problems.extend(f"{path}: {problem}" for problem in added)
     if build_values:
         return {}, problems, build_values
@@ -97,6 +97,7 @@ def _add_start_values(
     variables: Mapping[str, FmuVariable],
     model_name: str,
     to_fmu: Callable[[str], str],
+    exported: bool,
     values: dict[str, Any],
 ) -> list[str]:
     """Add the start values of ``key`` to ``values`` by FMU name; return why they can't be set."""
@@ -114,7 +115,7 @@ def _add_start_values(
     problems: list[str] = []
     for name, element in expanded.items():
         fmu_name = to_fmu(name)
-        problem = _check(variables[fmu_name], element, model_name)
+        problem = _check(variables[fmu_name], element, model_name, exported)
         if problem is None:
             values[fmu_name] = _convert(variables[fmu_name], element)
         else:
@@ -176,14 +177,12 @@ def _is_build_time(variable: FmuVariable | None, build_variable: Variable | None
     return build_variable is not None and fixed_at_build(build_variable)
 
 
-def _check(variable: FmuVariable, value: Any, model_name: str) -> str | None:
+def _check(variable: FmuVariable, value: Any, model_name: str, exported: bool) -> str | None:
     """Return why ``value`` can't be set on ``variable``, or ``None``."""
     if not is_settable(variable):
         state = variable.variability if variable.causality == "local" else variable.causality
-        return (
-            f"'{model_name}' parameter '{variable.name}' is fixed in the FMU ({state}); "
-            "a given FMU can't be rebuilt"
-        )
+        fixed = f"'{model_name}' parameter '{variable.name}' is fixed in the FMU ({state})"
+        return fixed if exported else f"{fixed}; a given FMU can't be rebuilt"
     if _accepts(variable, value):
         return None
     return f"expected {_expectation(variable)}, got {_show(value)}"
