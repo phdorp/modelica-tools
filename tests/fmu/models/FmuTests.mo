@@ -56,4 +56,24 @@ package FmuTests "Models the FMU tests export and run"
     total = n + y0[2] + twice + c + (if on then 1 else 0) + (if mode == Mode.high then 1 else 0)
       + (if label == "a" then 1 else 0);
   end Params;
+
+  model BuildTime "Parameters OMC fixes at build time, a final and a protected parameter"
+    parameter Integer n = 2;
+    parameter Real y0[n] = fill(1, n) "Sized by n, but settable in a run";
+    parameter Boolean useA = true annotation(Evaluate = true);
+    final parameter Real f = 1;
+    Real y[n](start = y0, each fixed = true);
+    Real z;
+  equation
+    for i in 1:n loop
+      der(y[i]) = -f*y[i];
+    end for;
+    if useA then
+      z = 1;
+    else
+      z = 2;
+    end if;
+  protected
+    parameter Real hp = 3;
+  end BuildTime;
 end FmuTests;

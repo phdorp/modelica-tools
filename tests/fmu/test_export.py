@@ -18,13 +18,6 @@ from tests.fmu.fmu_models import MODEL_PATH
 from tests.fmu.helpers import build_messages, simulate_exported
 
 
-@pytest.fixture
-def fresh_work_dir(tmp_path, monkeypatch, caplog):
-    """An empty work directory (no cached builds) for this test alone; INFO logs captured."""
-    monkeypatch.setenv(workdir.WORK_DIR_VARIABLE, str(tmp_path / "work"))
-    caplog.set_level(logging.INFO)
-
-
 def test_exported_fmu_runs_and_matches_the_analytic_solution(exported_fmu):
     result = simulate_exported("FmuTests.Decay")["FmuTests.Decay"]
 

@@ -1,3 +1,4 @@
+import logging
 import shutil
 from collections.abc import Callable, Iterator
 from pathlib import Path
@@ -5,9 +6,8 @@ from typing import Any
 
 import pytest
 
-from mtools.internal.omc import build
+from mtools.internal.omc import build, workdir
 from mtools.internal.omc.config import BuildConfig, FmuExportConfig
-from mtools.internal.omc.workdir import WORK_DIR_VARIABLE
 from tests.fmu.fmu_models import MODEL_PATH
 
 
@@ -15,7 +15,7 @@ from tests.fmu.fmu_models import MODEL_PATH
 def work_dir(tmp_path_factory: pytest.TempPathFactory) -> Iterator[None]:
     """Keep run directories under pytest's temporary directory, one work directory per test file."""
     with pytest.MonkeyPatch.context() as monkeypatch:
-        monkeypatch.setenv(WORK_DIR_VARIABLE, str(tmp_path_factory.mktemp("work")))
+        monkeypatch.setenv(workdir.WORK_DIR_VARIABLE, str(tmp_path_factory.mktemp("work")))
         yield
 
 
@@ -32,3 +32,10 @@ def exported_fmu(tmp_path_factory: pytest.TempPathFactory, work_dir: None) -> Ca
         return copy
 
     return export
+
+
+@pytest.fixture
+def fresh_work_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+    """An empty work directory (no cached builds) for this test alone; INFO logs captured."""
+    monkeypatch.setenv(workdir.WORK_DIR_VARIABLE, str(tmp_path / "work"))
+    caplog.set_level(logging.INFO)

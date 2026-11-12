@@ -1,20 +1,10 @@
 """A model exported as an FMU from the Cpp target: Model Exchange only, with a warning."""
 
-import logging
-
 import numpy as np
 import pytest
 
 from mtools.errors import ConfigError
-from mtools.internal.omc import workdir
 from tests.fmu.helpers import build_messages, simulate_exported
-
-
-@pytest.fixture
-def fresh_work_dir(tmp_path, monkeypatch, caplog):
-    """An empty work directory (no cached builds) for this test alone; INFO logs captured."""
-    monkeypatch.setenv(workdir.WORK_DIR_VARIABLE, str(tmp_path / "work"))
-    caplog.set_level(logging.INFO)
 
 
 def test_cpp_export_warns_once_and_runs(caplog):

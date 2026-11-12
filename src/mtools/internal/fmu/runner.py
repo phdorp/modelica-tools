@@ -42,6 +42,7 @@ def simulate_file(config: FmuFileConfig, settings: RunSettings) -> tuple[str, pd
         fmu_type=config.fmu_type,
         name_map=config.name_map,
         exported=False,
+        build_variables={},
     )
     return run.model_name, _run(config.fmu_path, description, run, settings)
 
@@ -63,6 +64,7 @@ def simulate_export(build: Build, settings: RunSettings) -> pd.DataFrame:
         fmu_type=build.config.fmu.fmu_type,
         name_map={},
         exported=True,
+        build_variables=build.variables,
     )
     return _run(build.fmu_path, description, run, settings)
 

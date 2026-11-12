@@ -12,6 +12,7 @@ from mtools.errors import ConfigError
 from mtools.internal.fmu.description import FmuDescription, FmuVariable
 from mtools.internal.fmu.parameters import start_values
 from mtools.internal.omc.config import RunSettings
+from mtools.internal.omc.init_xml import Variable
 
 logger = logging.getLogger(__name__)
 
@@ -73,11 +74,13 @@ def resolve(
     fmu_type: str | None,
     name_map: Mapping[str, str],
     exported: bool,
+    build_variables: Mapping[str, Variable],
 ) -> ResolvedRun:
     """Check ``settings`` against ``description`` and resolve every run value.
 
     Unset times, interval and tolerance come from ``settings``, then the FMU's
-    ``DefaultExperiment``, then OMC's defaults.
+    ``DefaultExperiment``, then OMC's defaults. ``build_variables`` are the variables of
+    the build that exported the FMU (``model_init.xml``), empty for a given FMU.
 
     Raises:
         ConfigError: Listing every problem by its config path.
@@ -102,6 +105,7 @@ def resolve(
         model_name=model_name,
         to_fmu=lambda name: name,
         exported=exported,
+        build_variables=build_variables,
     )
     problems.extend(parameter_problems)
     if problems:

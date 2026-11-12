@@ -9,6 +9,7 @@ from typing import Any
 import numpy as np
 
 from mtools.internal.fmu.description import FmuVariable
+from mtools.internal.omc.init_xml import Variable
 from mtools.internal.omc.parameters import (_is_array_like, expand_parameters,
                                             flatten_parameters)
 
@@ -40,8 +41,12 @@ def start_values(
     model_name: str,
     to_fmu: Callable[[str], str],
     exported: bool,
+    build_variables: Mapping[str, Variable],
 ) -> tuple[dict[str, Any], list[str], dict[str, str]]:
     """Check ``parameters`` against ``variables`` and return what a run sets.
+
+    For an exported FMU a requested name is protected first, as ``build_variables``
+    marks it; the model description doesn't tell.
 
     Args:
         parameters: The run settings' parameters (dataclass instance or mapping).
@@ -49,6 +54,8 @@ def start_values(
         model_name: The model, for the messages.
         to_fmu: Translates an experiment name to the FMU's name.
         exported: Whether the FMU was exported by this run.
+        build_variables: For an exported FMU, the variables of the build that exported
+            it (``model_init.xml``) by name; empty for a given FMU.
 
     Returns:
         The start values by FMU name, the problems by config path, and the build-time
@@ -58,6 +65,9 @@ def start_values(
     problems: list[str] = []
     for key, value in flatten_parameters(parameters).items():
         path = f"settings.parameters.{key}"
+        if exported and (protected := _protected(key, value, build_variables)):
+            problems.append(f"{path}: '{model_name}' parameter '{protected}' is protected")
+            continue
         variable = variables.get(to_fmu(key))
         if variable is not None and _is_array_like(value):
             problems.append(f"{path}: expected {_expectation(variable)}, got {_show(value)}")
@@ -80,6 +90,15 @@ def start_values(
             else:
                 problems.append(f"{path}: {problem}")
     return values, problems, {}
+
+
+def _protected(key: str, value: Any, build_variables: Mapping[str, Variable]) -> str | None:
+    """Return the first protected name ``key`` expands to, or ``None``."""
+    try:
+        names = expand_parameters({key: value})
+    except ValueError:
+        return None
+    return next((name for name in names if name in build_variables and build_variables[name].protected), None)
 
 
 def _check(variable: FmuVariable, value: Any, model_name: str) -> str | None:
