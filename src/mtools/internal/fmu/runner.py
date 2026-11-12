@@ -6,6 +6,7 @@ The run directory is deleted when the run ends, however it ended, unless
 
 from __future__ import annotations
 
+import logging
 import sys
 from dataclasses import replace
 from pathlib import Path
@@ -17,6 +18,8 @@ from mtools.errors import SimulationError, SimulationTimeout
 from mtools.internal.fmu import child
 from mtools.internal.fmu.config import FmuFileConfig
 from mtools.internal.fmu.description import FmuDescription, read_description
+from mtools.internal.fmu.diagnostics import (failure_diagnostics,
+                                             warning_entries)
 from mtools.internal.fmu.request import RunRequest
 from mtools.internal.fmu.resolve import ResolvedRun, resolve
 from mtools.internal.fmu.result import to_frame
@@ -26,6 +29,8 @@ from mtools.internal.omc.build import Build
 from mtools.internal.omc.config import RunSettings
 from mtools.internal.omc.parameters import flatten_parameters
 from mtools.internal.omc.process import ProcessResult, execute
+
+logger = logging.getLogger(__name__)
 
 FMI_TYPES = {"me": "ModelExchange", "cs": "CoSimulation"}
 
@@ -106,7 +111,9 @@ def _run(fmu_path: Path, description: FmuDescription, run: ResolvedRun, settings
         command = [sys.executable, "-m", "mtools.internal.fmu.child", str(directory)]
         result = execute(command, directory, settings.timeout)
         if result.returncode != 0:
-            raise _simulation_error(run, settings, result, directory, result.output.strip(), None)
+            raise _simulation_error(run, settings, result, directory, failure_diagnostics(result.output), None)
+        if warnings := warning_entries(result.output):
+            logger.warning("Simulation of '%s' reported warnings:\n%s", run.model_name, "\n".join(warnings))
         array = np.load(directory / child.RESULT_FILE_NAME, allow_pickle=False)
         return to_frame(array, run)
     finally:

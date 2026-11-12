@@ -106,4 +106,16 @@ package FmuTests "Models the FMU tests export and run"
     y = if time > 0.5 then spin(time) else 0;
     annotation(experiment(StopTime = 1, Interval = 0.01));
   end Hang;
+
+  model AssertFails "Decay that fails an assertion once time passes 0.5"
+    extends Decay;
+  equation
+    assert(time < 0.5, "time passed 0.5");
+  end AssertFails;
+
+  model AssertWarns "Decay that warns through an assertion once time passes 0.5"
+    extends Decay;
+  equation
+    assert(time < 0.5, "time passed 0.5", level = AssertionLevel.warning);
+  end AssertWarns;
 end FmuTests;
