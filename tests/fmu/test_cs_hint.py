@@ -46,6 +46,15 @@ def test_no_hint_without_a_cvode_failure():
     assert cvode_hint("FMICallException: fmi2DoStep failed with status 3 (error)", "cs") is None
 
 
-@pytest.mark.parametrize("output", ["CVode error (code -27)", "tout too close to t0 to start integration."])
+def test_no_hint_for_an_unrelated_minus_27():
+    assert cvode_hint("FMI | warning | logStatusWarning | x = -27.5", "cs") is None
+
+
+def test_hint_matches_the_fmu_log_line():
+    line = "FMI | fatal | logStatusFatal | fmi2DoStep: ##CVODE## -27 error occurred at time = 0.7."
+    assert cvode_hint(line, "cs") == CS_CVODE_HINT
+
+
+@pytest.mark.parametrize("output", ["CV_TOO_CLOSE", "tout too close to t0 to start integration."])
 def test_hint_matches_either_marker(output: str):
     assert cvode_hint(output, "cs") == CS_CVODE_HINT

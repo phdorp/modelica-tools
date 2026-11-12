@@ -5,7 +5,7 @@ debug logging is on, and then they log every call. FMPy's ``debug_logging`` swit
 categories, so this wraps ``fmpy.fmi2._FMU2.instantiate`` to call ``setDebugLogging`` with just
 the ``logStatus*`` categories the FMU declares. An FMU declaring none is left as it is.
 
-Only FMI 2.0 is wrapped; the FMI 3.0 instantiate calls are left unchanged.
+Only FMI 2.0 is wrapped; FMI 3.0 logging is left unchanged.
 """
 
 from __future__ import annotations
@@ -32,6 +32,7 @@ def install(declared: Iterable[str]) -> None:
 
     Idempotent: the wrapper is installed once and a later call only changes the categories.
     """
+    from fmpy.fmi1 import FMICallException
     from fmpy.fmi2 import _FMU2
 
     _selected[:] = status_categories(declared)
@@ -43,7 +44,10 @@ def install(declared: Iterable[str]) -> None:
     def instantiate(self: Any, *args: Any, **kwargs: Any) -> Any:
         result = original(self, *args, **kwargs)
         if _selected:
-            self.setDebugLogging(True, _selected)
+            try:
+                self.setDebugLogging(True, _selected)
+            except FMICallException:
+                pass  # the FMU refused: run with logging off, as before
         return result
 
     setattr(instantiate, _INSTALLED_MARK, True)

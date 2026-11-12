@@ -1,6 +1,8 @@
 """The child switches on FMI logging for the status categories an FMU declares, and no others."""
 
 import inspect
+from collections.abc import Callable
+from typing import Any
 
 import pytest
 
@@ -34,10 +36,43 @@ def test_install_sets_debug_logging_after_instantiate_and_is_idempotent(monkeypa
     assert calls == ["instantiate", (True, ["logStatusFatal", "logStatusError"])]
 
 
-def test_fmpy_instantiate_still_has_the_wrapped_signature():
+def test_fmpy_still_has_the_calls_the_wrapper_makes():
     from fmpy.fmi2 import _FMU2
 
-    assert list(inspect.signature(_FMU2.instantiate).parameters) == ["self", "visible", "callbacks", "loggingOn"]
+    assert callable(_FMU2.instantiate)
+    assert list(inspect.signature(_FMU2.setDebugLogging).parameters) == ["self", "loggingOn", "categories"]
+
+
+def _stub_fmu(monkeypatch: pytest.MonkeyPatch, set_debug_logging: Callable[..., Any]) -> list:
+    from fmpy.fmi2 import _FMU2
+
+    calls: list = []
+    monkeypatch.setattr(_FMU2, "instantiate", lambda self, *a, **k: calls.append("instantiate"))
+    monkeypatch.setattr(_FMU2, "setDebugLogging", set_debug_logging, raising=False)
+    monkeypatch.setattr(status_logging, "_selected", [])
+    return calls
+
+
+def test_no_status_category_never_calls_set_debug_logging(monkeypatch: pytest.MonkeyPatch):
+    from fmpy.fmi2 import _FMU2
+
+    calls = _stub_fmu(monkeypatch, lambda self, on, cats: calls.append("setDebugLogging"))
+    status_logging.install(["logAll"])
+    _FMU2.instantiate(_FMU2.__new__(_FMU2))
+    assert calls == ["instantiate"]
+
+
+def test_failing_set_debug_logging_leaves_the_run_going(monkeypatch: pytest.MonkeyPatch):
+    from fmpy.fmi1 import FMICallException
+    from fmpy.fmi2 import _FMU2
+
+    def refuse(self: Any, on: bool, cats: list) -> None:
+        raise FMICallException("fmi2SetDebugLogging", 3)
+
+    calls = _stub_fmu(monkeypatch, refuse)
+    status_logging.install(["logStatusFatal"])
+    _FMU2.instantiate(_FMU2.__new__(_FMU2))
+    assert calls == ["instantiate"]
 
 
 @pytest.mark.parametrize("fmi_version, name", [("2.0", "Dahlquist"), ("3.0", "Dahlquist"), ("2.0", "BouncingBall")])

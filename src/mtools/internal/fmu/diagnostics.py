@@ -13,8 +13,8 @@ _FMI_PREFIX = "FMI | "
 #: The first failed FMI call, which FMPy reports in an exception or an "Exception ignored" traceback.
 _FAILED_CALL = re.compile(r"\w+ failed with status \d \(\w+\)")
 
-#: CVODE's return code -27 (``CV_TOO_CLOSE``) or its message, as the child's output shows them.
-_CVODE_TOO_CLOSE = re.compile(r"(?<![\w.])-27\b|tout too close")
+#: CVODE's "too close" failure as the child's output shows it: the FMU's ``##CVODE## -27`` log line, ``CV_TOO_CLOSE`` or the message.
+_CVODE_TOO_CLOSE = re.compile(r"##CVODE## -27|CV_TOO_CLOSE|tout too close")
 
 #: The hint that ends the diagnostics of a Co-Simulation run that CVODE stopped with "tout too close".
 CS_CVODE_HINT = (
