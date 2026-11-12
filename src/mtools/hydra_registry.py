@@ -365,7 +365,7 @@ class HydraZenRegistry:
         Returns:
             A config type created by ``hydra_zen.make_config``.
         """
-        selected_defaults = self._hydra_defaults
+        selected_defaults = dict(self._hydra_defaults)
         if selections:
             selected_defaults.update(selections)
         default = self._build_hydra_defaults(selections=selected_defaults)
