@@ -53,7 +53,7 @@ def split_parameters(parameters: Any, variables: Mapping[str, Variable], model_n
             run_parameters[key] = value
         else:
             try:
-                build_values[key] = _literal(value, fixed[0])
+                build_values[key] = literal(value, fixed[0])
             except ValueError as error:
                 problems.append(f"settings.parameters.{key}: {error}")
     if problems:
@@ -67,10 +67,10 @@ def _fixed_at_build(variable: Variable) -> bool:
     return variable.variability == "parameter" and not variable.changeable
 
 
-def _literal(value: Any, variable: Variable) -> str:
+def literal(value: Any, variable: Variable) -> str:
     """Write ``value`` as a Modelica literal of ``variable``'s type; arrays as ``{...}``."""
     if _is_array_like(value):
-        return "{" + ", ".join(_literal(element, variable) for element in value) + "}"
+        return "{" + ", ".join(literal(element, variable) for element in value) + "}"
     if variable.type == "Real":
         return repr(float(value))
     if variable.type in ("Integer", "Enumeration"):

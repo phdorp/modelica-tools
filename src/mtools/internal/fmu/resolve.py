@@ -51,6 +51,9 @@ class ResolvedRun:
         column_types: FMU name to its FMI type name (``Real``, ``Int32``, ...), for the
             same variables as ``columns``.
         cvode_guard: Whether the child guards CVODE's steps.
+        build_values: Modifier text by key of the requested parameters OMC fixed while
+            exporting the FMU. When set, the run needs a variant FMU with them fixed, and
+            ``start_values`` may be incomplete; empty for a given FMU.
     """
 
     model_name: str
@@ -64,6 +67,7 @@ class ResolvedRun:
     columns: Mapping[str, str]
     column_types: Mapping[str, str]
     cvode_guard: bool
+    build_values: Mapping[str, str]
 
 
 def resolve(
@@ -99,7 +103,7 @@ def resolve(
     elif resolved_type == "cs" and not description.can_handle_variable_step:
         _check_interval(interval, start_time, stop_time, model_name, problems)
     column_filter = _compile_filter(settings.variable_filter, problems)
-    values, parameter_problems, _ = start_values(
+    values, parameter_problems, build_values = start_values(
         settings.parameters,
         {variable.name: variable for variable in description.variables},
         model_name=model_name,
@@ -127,6 +131,7 @@ def resolve(
         columns={variable.name: variable.name for variable in kept},
         column_types={variable.name: variable.type for variable in kept},
         cvode_guard=False,
+        build_values=build_values,
     )
 
 

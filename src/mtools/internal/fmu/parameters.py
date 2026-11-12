@@ -12,6 +12,7 @@ from mtools.internal.fmu.description import FmuVariable
 from mtools.internal.omc.init_xml import Variable
 from mtools.internal.omc.parameters import (_is_array_like, expand_parameters,
                                             flatten_parameters)
+from mtools.internal.omc.variants import literal
 
 #: The value kind each FMI type name takes: ``Real``, ``Integer``, ``Boolean``, ``String`` or ``Enumeration``.
 _KINDS = {
@@ -45,8 +46,10 @@ def start_values(
 ) -> tuple[dict[str, Any], list[str], dict[str, str]]:
     """Check ``parameters`` against ``variables`` and return what a run sets.
 
-    For an exported FMU a requested name is protected first, as ``build_variables``
-    marks it; the model description doesn't tell.
+    For an exported FMU, a requested name is first protected, as ``build_variables``
+    marks it (the model description doesn't tell), then fixed at build time, when the
+    model description makes it a ``calculatedParameter``. Its key then needs a variant
+    FMU (ADR 0001).
 
     Args:
         parameters: The run settings' parameters (dataclass instance or mapping).
@@ -58,16 +61,22 @@ def start_values(
             it (``model_init.xml``) by name; empty for a given FMU.
 
     Returns:
-        The start values by FMU name, the problems by config path, and the build-time
-        candidates by key (none for a given FMU).
+        The start values by FMU name, the problems by config path, and the modifier text
+        by key of the build-time parameters (none for a given FMU).
     """
     values: dict[str, Any] = {}
     problems: list[str] = []
+    build_values: dict[str, str] = {}
     for key, value in flatten_parameters(parameters).items():
         path = f"settings.parameters.{key}"
-        if exported and (protected := _protected(key, value, build_variables)):
-            problems.append(f"{path}: '{model_name}' parameter '{protected}' is protected")
-            continue
+        if exported:
+            names = _names(key, value)
+            if protected := [name for name in names if name in build_variables and build_variables[name].protected]:
+                problems.append(f"{path}: '{model_name}' parameter '{protected[0]}' is protected")
+                continue
+            if any(_fixed_at_build(variables.get(to_fmu(name))) for name in names):
+                build_values.update(build_time_values({key: value}, build_variables))
+                continue
         variable = variables.get(to_fmu(key))
         if variable is not None and _is_array_like(value):
             problems.append(f"{path}: expected {_expectation(variable)}, got {_show(value)}")
@@ -79,8 +88,8 @@ def start_values(
             continue
         unknown = [name for name in expanded if to_fmu(name) not in variables]
         if unknown:
-            names = ", ".join(f"'{name}'" for name in unknown)
-            problems.append(f"{path}: '{model_name}' has no parameter {names}")
+            listed = ", ".join(f"'{name}'" for name in unknown)
+            problems.append(f"{path}: '{model_name}' has no parameter {listed}")
             continue
         for name, element in expanded.items():
             fmu_name = to_fmu(name)
@@ -89,16 +98,33 @@ def start_values(
                 values[fmu_name] = _convert(variables[fmu_name], element)
             else:
                 problems.append(f"{path}: {problem}")
-    return values, problems, {}
+    return values, problems, build_values
 
 
-def _protected(key: str, value: Any, build_variables: Mapping[str, Variable]) -> str | None:
-    """Return the first protected name ``key`` expands to, or ``None``."""
+def build_time_values(candidates: Mapping[str, Any], init_variables: Mapping[str, Variable]) -> dict[str, str]:
+    """Return the modifier text by key of the build-time parameters ``candidates``, as
+    for a native build variant; the type comes from the first name in ``init_variables``.
+
+    Raises:
+        ValueError: A value can't be written as a literal of its type.
+    """
+    return {
+        key: literal(value, next(init_variables[name] for name in _names(key, value) if name in init_variables))
+        for key, value in candidates.items()
+    }
+
+
+def _names(key: str, value: Any) -> list[str]:
+    """Return the names ``key`` expands to with ``value``; none for an empty array."""
     try:
-        names = expand_parameters({key: value})
+        return list(expand_parameters({key: value}))
     except ValueError:
-        return None
-    return next((name for name in names if name in build_variables and build_variables[name].protected), None)
+        return []
+
+
+def _fixed_at_build(variable: FmuVariable | None) -> bool:
+    """Whether OMC fixed ``variable`` while translating the exported model."""
+    return variable is not None and variable.causality == "calculatedParameter"
 
 
 def _check(variable: FmuVariable, value: Any, model_name: str) -> str | None:

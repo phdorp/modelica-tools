@@ -3,9 +3,17 @@
 import pytest
 
 from mtools.errors import ConfigError
-from tests.fmu.helpers import simulate_exported
+from tests.fmu.helpers import build_messages, simulate_exported
 
 MODEL = "FmuTests.BuildTime"
+
+
+def test_array_size_sweep_exports_a_cached_variant(fresh_work_dir, caplog):
+    for _ in range(2):
+        result = simulate_exported(MODEL, parameters={"n": 3})[MODEL]
+    assert [c for c in result.columns if c.startswith("y[")] == ["y[1]", "y[2]", "y[3]"]
+    assert "Building a variant of 'FmuTests.BuildTime' because 'n' is fixed at build time" in caplog.text
+    assert [m.split(" ")[0] for m in build_messages(caplog)] == ["Built", "Built", "Reused", "Reused"]
 
 
 @pytest.mark.parametrize("emit_protected", [False, True])

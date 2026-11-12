@@ -7,6 +7,7 @@ The run directory is deleted when the run ends, however it ended, unless
 from __future__ import annotations
 
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -19,9 +20,11 @@ from mtools.internal.fmu.description import FmuDescription, read_description
 from mtools.internal.fmu.request import RunRequest
 from mtools.internal.fmu.resolve import ResolvedRun, resolve
 from mtools.internal.fmu.result import to_frame
+from mtools.internal.omc import build as omc_build
 from mtools.internal.omc import workdir
 from mtools.internal.omc.build import Build
 from mtools.internal.omc.config import RunSettings
+from mtools.internal.omc.parameters import flatten_parameters
 from mtools.internal.omc.process import execute
 
 FMI_TYPES = {"me": "ModelExchange", "cs": "CoSimulation"}
@@ -50,6 +53,10 @@ def simulate_file(config: FmuFileConfig, settings: RunSettings) -> tuple[str, pd
 def simulate_export(build: Build, settings: RunSettings) -> pd.DataFrame:
     """Run the FMU exported by ``build`` with ``settings``; return its result.
 
+    A requested parameter OMC fixed while exporting is exported into a variant FMU
+    first, which is cached like any build; the other parameters are set on the variant
+    per run, as ``Build.simulate`` does for native builds (ADR 0001).
+
     Raises:
         ConfigError: The settings don't fit the FMU's model description.
         SimulationError: The run failed.
@@ -66,6 +73,16 @@ def simulate_export(build: Build, settings: RunSettings) -> pd.DataFrame:
         exported=True,
         build_variables=build.variables,
     )
+    if run.build_values:
+        omc_build.log_variant(build.model_name, run.build_values)
+        run_parameters = {
+            key: value
+            for key, value in flatten_parameters(settings.parameters).items()
+            if key not in run.build_values
+        }
+        # A variant keeps the values it was built with, should it need a further variant.
+        with omc_build.build(build.config, {**build.build_values, **run.build_values}) as variant:
+            return simulate_export(variant, replace(settings, parameters=run_parameters))
     return _run(build.fmu_path, description, run, settings)
 
 

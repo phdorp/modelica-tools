@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import subprocess
 import zipfile
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
@@ -107,15 +107,20 @@ class Build:
         if not self.build_values:
             split = variants.split_parameters(settings.parameters, self.variables, self.model_name)
             if split.build_values:
-                logger.info(
-                    "Building a variant of '%s' because %s fixed at build time",
-                    self.model_name,
-                    ", ".join(f"'{name}'" for name in split.build_values)
-                    + (" is" if len(split.build_values) == 1 else " are"),
-                )
+                log_variant(self.model_name, split.build_values)
                 with build(self.config, split.build_values) as variant:
                     return variant.simulate(replace(settings, parameters=dict(split.run_parameters)))
         return run.simulate(self, settings)
+
+
+def log_variant(model_name: str, names: Iterable[str]) -> None:
+    """Log at INFO that a variant of ``model_name`` is built because of the parameters ``names``."""
+    quoted = [f"'{name}'" for name in names]
+    logger.info(
+        "Building a variant of '%s' because %s fixed at build time",
+        model_name,
+        ", ".join(quoted) + (" is" if len(quoted) == 1 else " are"),
+    )
 
 
 def build(config: BuildConfig, build_values: Mapping[str, str] | None = None) -> Build:
