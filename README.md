@@ -199,7 +199,7 @@ Refer to the [`kinematic_vehicle` examples](examples/) for a complete working se
 
 ### FMU runs
 
-The same experiments and test classes run against an FMU through FMPy; install the `[fmu]` extra as described under [Installation](#install-the-package).
+The same experiments and test classes run against an FMU through FMPy; install the `[fmu]` extra as described under [Install the package](#install-the-package).
 
 - `create_run(..., fmu=FmuExport())` exports a Modelica model as an FMU and runs it; exports are cached.
 - `create_fmu_run(fmu_path=..., name_map={...})` runs an FMU you supply, translating names between the experiment and the FMU.

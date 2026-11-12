@@ -9,7 +9,7 @@ One Modelica model compiled with one build configuration, as a simulation binary
 _Avoid_: Session, compiled model, binary
 
 **Build config**:
-The inputs that determine a build: model source, model name, simulation target, extra sources, libraries, compiler flags and, for an exported FMU, its FMU type. Two builds with equal build configs are interchangeable.
+The inputs that determine a build: model source, model name, simulation target, extra sources, libraries, compiler flags and, for an exported FMU, its FMU type and whether protected variables are exported (from the run settings). Two builds with equal build configs are interchangeable.
 _Avoid_: Build options
 
 **Build-time parameter**:
@@ -25,7 +25,7 @@ One execution of a build with fixed run settings.
 _Avoid_: Simulation (as a noun for a single execution), job
 
 **Run settings**:
-Everything that can vary between runs of the same build: parameter values, time range, output interval, tolerance, solver, variable filter, whether protected variables are emitted, the time limit, and whether chattering aborts the run.
+Everything that can vary between runs of the same build: parameter values, time range, output interval, tolerance, solver, variable filter, whether protected variables are emitted (for an exported FMU this selects the build instead), the time limit, and whether chattering aborts the run.
 _Avoid_: Simulation options, runtime options, sim configurations
 
 **Result**:

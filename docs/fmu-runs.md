@@ -1,6 +1,6 @@
 # FMU runs
 
-mtools runs an experiment against an FMU through [FMPy](https://github.com/CATIA-Systems/FMPy), in the same test classes and with the same parameters and run settings as a native run. This page describes the two kinds of FMU, which run settings apply, how a run is isolated, how exported FMUs are cached, how to compare results, and the known limits. For native runs, see [The OMC backend](omc-backend.md); to define run configs, see [The Hydra registry](hydra-registry.md).
+mtools runs an experiment against an FMU through [FMPy](https://github.com/CATIA-Systems/FMPy), in the same test classes and with the same parameters and run settings as a native run. This page describes the two kinds of FMU, which run settings apply, what a result holds, how a run is isolated and what its diagnostics list, how exported FMUs are cached, how to compare results, and the known limits. For native runs, see [The OMC backend](omc-backend.md); to define run configs, see [The Hydra registry](hydra-registry.md).
 
 Install FMPy with the optional `fmu` extra (the package isn't on PyPI yet, so install it from GitHub as described in the [README](../README.md#install-the-package)):
 
@@ -35,9 +35,9 @@ run_fmu = registry.create_run(
 )
 ```
 
-`settings.emit_protected=true` exports with `--fmiFilter=internal`, so protected variables become result columns. It is the only source of `--fmiFilter`: a `--fmiFilter` in `build.omc_flags` is a `ConfigError`. Other FMU flags, such as `--fmiFlags=s:cvode`, stay allowed.
+`settings.emit_protected=true` exports with `--fmiFilter=internal`, so protected variables become result columns. OMC then writes `$` in names as `_D_`, and lists protected parameters as calculated parameters, which aren't result columns. It is the only source of `--fmiFilter`: a `--fmiFilter` in `build.omc_flags` is a `ConfigError`. Other FMU flags, such as `--fmiFlags=s:cvode`, stay allowed.
 
-Parameters follow [ADR 0001](adr/0001-automatic-build-variants.md). A sweep over a build-time parameter (one OMC fixed while translating, which the FMU then lists as a `calculatedParameter`) exports one cached variant FMU per value. A protected parameter is a `ConfigError`, also with `emit_protected=true`. A `final` parameter raises `TranslationError`.
+Parameters follow [ADR 0001](adr/0001-automatic-build-variants.md). A sweep over a build-time parameter exports one cached variant FMU per value. A build-time parameter is one OMC fixed while translating: the FMU lists it as a `calculatedParameter`, or leaves it out while the export's `model_init.xml` lists it as a parameter a run can't change. When a run needs a variant, its other parameters are checked against the variant's `modelDescription.xml`, so their problems are reported after the variant is exported. A protected parameter is a `ConfigError`, also with `emit_protected=true`. A `final` parameter raises `TranslationError`.
 
 An export from `target="Cpp"` logs one WARNING naming its risks, listed under [Known limits](#known-limits). `fmu_type="cs"` on Cpp is a `ConfigError`.
 
@@ -54,7 +54,7 @@ run_ctrl = registry.create_fmu_run(
 )
 ```
 
-Its other arguments are `model_name`, `fmu_type`, `settings` and `selections`, as for `create_run`.
+Its other arguments are `model_name`, `fmu_type`, `settings`, `selections`, `include_experiment_group` and `name`, as for `create_run`.
 
 - `fmu_path` must exist and hold a readable `modelDescription.xml` and a Linux binary (`binaries/linux64` for FMI 2.0, `binaries/x86_64-linux` for FMI 3.0); otherwise `simulate` raises a `ConfigError` naming `build.fmu_path`.
 - `fmu_type=None` runs Model Exchange when the FMU offers it, otherwise Co-Simulation. Requesting a type the FMU lacks is a `ConfigError`.
@@ -76,10 +76,10 @@ A third-party FMU names its variables its own way. `name_map` maps `{experiment 
 Time range, interval, tolerance, solver, variable filter and timeout mean what they mean for native runs, with these differences. Every value is checked before the run, and a `ConfigError` names the config path.
 
 - **Defaults.** Unset `start_time`, `stop_time`, `interval` and `tolerance` come from the FMU's `DefaultExperiment`. A missing field takes OMC's default: start 0, stop 1, interval (stop - start)/500, tolerance 1e-6. `interval` must be greater than 0.
-- **Solver, Model Exchange.** `"cvode"` (the default) or `"euler"`. Any other name is a `ConfigError`. For an exported FMU, `settings.solver` is the FMPy solver on both targets, and the model's `__OpenModelica_simulationFlags` isn't consulted. Euler steps once per output interval.
+- **Solver, Model Exchange.** `"cvode"` (the default) or `"euler"`, in lower case. Any other name is a `ConfigError`. For an exported FMU, `settings.solver` is the FMPy solver on both targets, and the model's `__OpenModelica_simulationFlags` isn't consulted. Euler steps once per output interval.
 - **Solver, Co-Simulation.** The FMU's built-in solver runs. An explicit `solver` is ignored with a WARNING. `tolerance` is passed to the FMU, which OMC's Co-Simulation FMUs ignore.
 - **Interval, Co-Simulation.** If the interval doesn't divide `stop_time - start_time` and the FMU can't vary its communication step (`canHandleVariableCommunicationStepSize`), it's a `ConfigError`.
-- **`variable_filter`.** An OMC regular expression that must match the whole name, matched against the experiment's names (after the name map); `time` is always kept. An invalid regex is a `ConfigError`.
+- **`variable_filter`.** A Python regular expression (`re`) that must match the whole name, matched against the experiment's names (after the name map); `time` is always kept. An invalid regex is a `ConfigError`.
 - **`emit_protected`.** For an exported FMU, applied at export and part of the cache key. For a given FMU, no effect, with a WARNING when `true`.
 - **`abort_on_chattering`.** No effect, as on Cpp.
 - **`timeout`.** See [Isolation and timeouts](#isolation-and-timeouts).
@@ -93,7 +93,7 @@ Time range, interval, tolerance, solver, variable filter and timeout mean what t
 
 ### Results
 
-A result is a DataFrame as described in [Results](omc-backend.md#results): `time` first, then the columns `variable_filter` keeps, in `modelDescription.xml` order. Parameter, calculated-parameter and constant columns are dropped. Real columns are `float64`, Integer and enumeration columns are `int64`, Boolean columns are `bool`; String and Binary variables are left out. Model Exchange repeats rows at events, Co-Simulation has no event rows. `save_solutions`, `load_solution` and the plotting tool work unchanged.
+A result is a DataFrame as described in [Results](omc-backend.md#results): `time` first, then the columns `variable_filter` keeps, in `modelDescription.xml` order. Parameter, calculated-parameter and constant columns are dropped. Real columns are `float64`, Integer and enumeration columns are `int64`, Boolean columns are `bool`; String and Binary variables are left out. A `UInt64` value above the `int64` range raises `SimulationError` naming the column. Model Exchange repeats rows at events, Co-Simulation has no event rows. `save_solutions`, `load_solution` and the plotting tool work unchanged.
 
 ## Isolation and timeouts
 
@@ -113,7 +113,7 @@ A `SimulationError` lists, in order of occurrence:
 3. the first failed FMI call, for example `fmi2GetDerivatives failed with status 3 (error)`;
 4. the exception that ended the run.
 
-The failed call can appear twice, once on its own line and once inside the final exception. For FMI 2.0 FMUs, mtools switches on the `logStatusWarning`, `logStatusDiscard`, `logStatusError`, `logStatusFatal` and `logStatusPending` debug-logging categories that the FMU declares, so OMC FMUs report their warnings. FMI 3.0 logging is left as FMPy sets it. A successful run logs one WARNING with the FMU's warning-level messages.
+The failed call can appear twice, once on its own line and once inside the final exception. For FMI 2.0 FMUs, mtools switches on the `logStatusWarning`, `logStatusDiscard`, `logStatusError`, `logStatusFatal` and `logStatusPending` debug-logging categories that the FMU declares, so OMC FMUs report their warnings. FMI 3.0 logging is left as FMPy sets it. A successful run logs one WARNING with the FMU's warning-level messages and the `LOG_ASSERT`, warning and error entries an OMC-exported FMU printed.
 
 ## Caching
 
@@ -152,10 +152,6 @@ The kinematic vehicle example compares two exported FMUs; see [`examples/README.
 - **Co-Simulation CVODE "tout too close"** ([FMPy #882](https://github.com/CATIA-Systems/FMPy/issues/882)). A `sample()` event within one float step of the communication grid can fail inside the FMU's own CVODE. When a failed Co-Simulation run's diagnostics show it, mtools adds a hint line naming the fixes: `fmu_type="me"`, an export without `--fmiFlags=s:cvode` (Euler), or another interval. It applies to given FMUs too.
 - **Two workarounds for FMPy and OMC defects.** On Model Exchange runs with `solver="cvode"`, mtools skips the steps CVODE would refuse (FMPy #882, again). On every FMI 2.0 Model Exchange run, it zeroes the event-indicator buffer before each call: OMC 1.27.2's Cpp export declares more event indicators than it writes, so unwritten values made results nondeterministic. FMUs that set every indicator are unaffected. Both are dropped once fixed upstream.
 - **Cpp FMUs.** Model Exchange only. Time events (`when sample(...)`) don't fire under FMPy. Resources and shared libraries aren't copied.
-- **Co-Simulation accuracy.** See [Comparing results](#comparing-results).
-- **Model Exchange Euler** steps once per output interval.
-- **Linux FMUs only.** The FMU needs a `binaries/linux64` (FMI 2.0) or `binaries/x86_64-linux` (FMI 3.0) binary.
+- **Linux FMUs only**, see [Given FMUs](#given-fmus).
 - **No FMU inputs.**
-- **No native-vs-FMU reference tests.** Both sides of a reference test are native, or both are FMUs.
-- **`name_map`** is set in Python or YAML, not on the command line.
-- **A `timeout` is recommended**, see [Isolation and timeouts](#isolation-and-timeouts).
+- **No native-vs-FMU reference tests**, see [Comparing results](#comparing-results).

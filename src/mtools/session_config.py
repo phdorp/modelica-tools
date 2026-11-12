@@ -121,9 +121,11 @@ class RunSettings:
     interval: float | None = None
     #: Solver tolerance.
     tolerance: float | None = None
-    #: Integration method; on Cpp only ``dassl``, ``cvode`` and ``ida``.
+    #: Integration method; on Cpp only ``dassl``, ``cvode`` and ``ida``; a Model Exchange FMU
+    #: run takes ``cvode`` or ``euler``.
     solver: str | None = None
     #: OMC regular expression (full match) selecting result columns; ``time`` is always kept.
+    #: FMU runs match it with Python's ``re``.
     variable_filter: str = ".*"
     #: Whether protected variables become result columns.
     emit_protected: bool = False
