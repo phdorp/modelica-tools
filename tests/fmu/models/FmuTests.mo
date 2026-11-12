@@ -32,6 +32,17 @@ package FmuTests "Models the FMU tests export and run"
     annotation(experiment(StopTime = 1));
   end Sampled;
 
+  model SampledDecay "A decaying state and a counter incremented by time events, so CVODE runs with sample() events"
+    Real x(start = 1, fixed = true);
+    Integer count(start = 0);
+  equation
+    der(x) = -x;
+    when sample(0.1, 0.1) then
+      count = pre(count) + 1;
+    end when;
+    annotation(experiment(StopTime = 1));
+  end SampledDecay;
+
   model Warns "Decay plus a state without a start value, so translation warns"
     extends Decay;
     Real y;

@@ -18,7 +18,7 @@ from mtools.errors import SimulationError, SimulationTimeout
 from mtools.internal.fmu import child
 from mtools.internal.fmu.config import FmuFileConfig
 from mtools.internal.fmu.description import FmuDescription, read_description
-from mtools.internal.fmu.diagnostics import (failure_diagnostics,
+from mtools.internal.fmu.diagnostics import (cvode_hint, failure_diagnostics,
                                              warning_entries)
 from mtools.internal.fmu.request import RunRequest
 from mtools.internal.fmu.resolve import ResolvedRun, resolve
@@ -143,6 +143,8 @@ def _simulation_error(
     The one place where FMU run errors are assembled.
     """
     name = run.model_name
+    if hint := cvode_hint(result.output, run.fmu_type):
+        diagnostics = "\n".join(filter(None, [diagnostics, hint]))
     diagnostics = workdir.with_run_directory(diagnostics, directory)
     if result.timed_out:
         return SimulationTimeout(

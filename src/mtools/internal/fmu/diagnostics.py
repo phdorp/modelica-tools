@@ -13,6 +13,16 @@ _FMI_PREFIX = "FMI | "
 #: The first failed FMI call, which FMPy reports in an exception or an "Exception ignored" traceback.
 _FAILED_CALL = re.compile(r"\w+ failed with status \d \(\w+\)")
 
+#: CVODE's return code -27 (``CV_TOO_CLOSE``) or its message, as the child's output shows them.
+_CVODE_TOO_CLOSE = re.compile(r"(?<![\w.])-27\b|tout too close")
+
+#: The hint that ends the diagnostics of a Co-Simulation run that CVODE stopped with "tout too close".
+CS_CVODE_HINT = (
+    "Hint: CVODE inside the Co-Simulation FMU stopped because a sample() event lies within one "
+    "floating-point step of a communication point. "
+    'Use fmu_type="me", export without --fmiFlags=s:cvode (Euler), or choose another interval.'
+)
+
 
 def failure_diagnostics(output: str) -> str:
     """Return the readable diagnostics of a failed FMU run.
@@ -55,3 +65,10 @@ def warning_entries(output: str) -> list[str]:
     """
     fmi_warnings = [line.rstrip() for line in output.splitlines() if line.startswith(f"{_FMI_PREFIX}warning | ")]
     return fmi_warnings + notable_entries(output)
+
+
+def cvode_hint(output: str, fmu_type: str) -> str | None:
+    """Return :data:`CS_CVODE_HINT` if a Co-Simulation run's ``output`` shows CVODE's "tout too close" failure."""
+    if fmu_type == "cs" and _CVODE_TOO_CLOSE.search(output):
+        return CS_CVODE_HINT
+    return None
