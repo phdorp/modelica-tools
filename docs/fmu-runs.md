@@ -119,7 +119,7 @@ The failed call can appear twice, once on its own line and once inside the final
 
 An exported FMU is a build: `builds/<key>/` holds `model.fmu` and the build record. Hits, misses, `MTOOLS_NO_CACHE=1` and ADR 0001 variants behave as in the [build cache](omc-backend.md#build-cache).
 
-The key of an exported FMU is the native key plus `fmu_type`, `emit_protected` and the `cmake --version` of the `cmake` on `PATH`. OMC calls the first `cmake` on `PATH`, so a different CMake rebuilds. `me` and `cs` exports of one model are separate entries. Native keys don't change, so existing native builds stay cached. The Co-Simulation solver and tolerance need no field of their own: they come from the model's `experiment` annotation or from `--fmiFlags` in `omc_flags`, both already in the key.
+The key of an exported FMU is the native key plus the FMI version (`2.0`), `fmu_type`, `emit_protected`, the `cmake --version` output of the `cmake` on `PATH` and a version of the export's build-script template. OMC calls the first `cmake` on `PATH`, so a CMake with another version rebuilds; only the version output is keyed, not the path, so the same CMake version installed elsewhere reuses the build. `me` and `cs` exports of one model are separate entries. Native keys don't change, so existing native builds stay cached. The Co-Simulation solver and tolerance need no field of their own: they come from the model's `experiment` annotation or from `--fmiFlags` in `omc_flags`, both already in the key.
 
 ## Comparing results
 

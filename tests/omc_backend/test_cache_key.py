@@ -232,6 +232,25 @@ def test_fmu_fields_extend_the_key_and_leave_native_keys_alone(tmp_path: Path, m
     assert cache.cache_key(native) == before and cache.cache_key(replace(native, fmu=FmuExportConfig("me"))) != me
 
 
+def test_cmake_version_is_the_version_output_alone(monkeypatch: pytest.MonkeyPatch):
+    commands: list[list[str]] = []
+
+    def output(command: list[str], cwd: str | None = None) -> str:
+        commands.append(command)
+        return "cmake version 3.28.3"
+
+    monkeypatch.setattr(cache, "_tool_output", output)
+    versions = []
+    for path in ("/usr/bin/cmake", "/opt/cmake/bin/cmake"):
+        monkeypatch.setattr(cache.shutil, "which", lambda name, path=path: path)
+        cache.cmake_version.cache_clear()
+        versions.append(cache.cmake_version())
+    cache.cmake_version.cache_clear()
+
+    assert versions == ["cmake version 3.28.3"] * 2  # the same CMake elsewhere on PATH keeps the key
+    assert commands == [["/usr/bin/cmake", "--version"], ["/opt/cmake/bin/cmake", "--version"]]
+
+
 def test_work_directory_defaults_to_the_temp_directory_and_can_be_set(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):

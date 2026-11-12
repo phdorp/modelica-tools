@@ -165,24 +165,27 @@ def tool_version(command: str) -> str:
 
 @functools.cache
 def cmake_version() -> str:
-    """Return the path and ``--version`` output of the ``cmake`` on ``PATH``, which OMC's
-    FMU export calls, once per process."""
-    path = shutil.which("cmake")
-    return f"{path}\n{_tool_output([path or 'cmake', '--version'])}"
+    """Return the ``--version`` output of the ``cmake`` on ``PATH``, which OMC's FMU export
+    calls, once per process. Only the output is keyed, not the path, so the same CMake
+    installed elsewhere keeps the cached exports."""
+    return _tool_output([shutil.which("cmake") or "cmake", "--version"])
 
 
 @functools.cache
 def backend_version() -> str:
     """Return a version that changes whenever the build-script template changes."""
-    template = hashlib.sha256(build_script(_SAMPLE, "model").encode()).hexdigest()
-    return f"{BACKEND_REVISION}-{template[:16]}"
+    return f"{BACKEND_REVISION}-{_template_hash(_SAMPLE)}"
 
 
 @functools.cache
 def fmu_script_version() -> str:
     """Return a version that changes whenever the FMU export's build-script template changes."""
-    template = hashlib.sha256(build_script(replace(_SAMPLE, fmu=FmuExportConfig()), "model").encode()).hexdigest()
-    return template[:16]
+    return _template_hash(replace(_SAMPLE, fmu=FmuExportConfig()))
+
+
+def _template_hash(sample: BuildConfig) -> str:
+    """Return a short hash of the build script written for ``sample``."""
+    return hashlib.sha256(build_script(sample, "model").encode()).hexdigest()[:16]
 
 
 def library_hashes(config: BuildConfig, loaded: Iterable[LoadedLibrary]) -> tuple[str, ...]:
