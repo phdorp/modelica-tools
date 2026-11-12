@@ -62,7 +62,29 @@ def test_parameter_evaluated_out_of_the_model_description_is_build_time():
         "k": Variable("k", "Real", "parameter", "parameter", changeable=True, protected=False),
     }
     _, problems, build_values = start_values(
-        {"n": 3, "k": 2.0}, {"k": k}, model_name=MODEL, to_fmu=lambda name: name,
-        exported=True, build_variables=build_variables,
+        {"n": 3, "k": 2.0},
+        {"k": k},
+        model_name=MODEL,
+        to_fmu=lambda name: name,
+        exported=True,
+        build_variables=build_variables,
     )
     assert (problems, build_values) == ([], {"n": "3"})
+
+
+def test_build_time_value_that_is_no_literal_of_its_type_is_a_problem():
+    # OMC lists an enumeration as Integer in model_init.xml, so only a qualified literal can be written.
+    build_variables = {
+        "mode": Variable("mode", "Integer", "parameter", "calculatedParameter", changeable=False, protected=False)
+    }
+    _, problems, build_values = start_values(
+        {"mode": "high"},
+        {},
+        model_name=MODEL,
+        to_fmu=lambda name: name,
+        exported=True,
+        build_variables=build_variables,
+    )
+    assert (problems, build_values) == (
+        ["settings.parameters.mode: 'high' is not a qualified enumeration literal (e.g. 'Mode.high')"], {}
+    )

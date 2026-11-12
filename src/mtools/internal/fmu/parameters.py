@@ -81,10 +81,8 @@ def start_values(
                 problems.append(f"{path}: '{model_name}' parameter '{protected[0]}' is protected")
                 continue
             if any(_fixed_at_build(variables.get(to_fmu(name)), build_variables.get(name)) for name in names):
-                if wrong := _wrong_types(key, value, variables, to_fmu):
-                    problems.extend(f"{path}: {problem}" for problem in wrong)
-                else:
-                    build_values.update(build_time_values({key: value}, build_variables))
+                added = _add_build_value(key, value, variables, to_fmu, build_variables, build_values)
+                problems.extend(f"{path}: {problem}" for problem in added)
                 continue
         added = _add_start_values(key, value, variables, model_name, to_fmu, values)
         run_problems.extend(f"{path}: {problem}" for problem in added)
@@ -124,6 +122,30 @@ def _add_start_values(
     return problems
 
 
+def _add_build_value(
+    key: str,
+    value: Any,
+    variables: Mapping[str, FmuVariable],
+    to_fmu: Callable[[str], str],
+    build_variables: Mapping[str, Variable],
+    build_values: dict[str, str],
+) -> list[str]:
+    """Add the modifier text of the build-time parameter ``key`` to ``build_values``;
+    return why it can't be built."""
+    wrong = [
+        f"expected {_expectation(variables[to_fmu(name)])}, got {_show(element)}"
+        for name, element in expand_parameters({key: value}).items()
+        if to_fmu(name) in variables and not _accepts(variables[to_fmu(name)], element)
+    ]
+    if wrong:
+        return wrong
+    try:
+        build_values.update(build_time_values({key: value}, build_variables))
+    except ValueError as error:
+        return [str(error)]
+    return []
+
+
 def build_time_values(candidates: Mapping[str, Any], init_variables: Mapping[str, Variable]) -> dict[str, str]:
     """Return the modifier text by key of the build-time parameters ``candidates``, as
     for a native build variant; the type comes from the first name in ``init_variables``.
@@ -143,15 +165,6 @@ def _names(key: str, value: Any) -> list[str]:
         return list(expand_parameters({key: value}))
     except ValueError:
         return []
-
-
-def _wrong_types(key: str, value: Any, variables: Mapping[str, FmuVariable], to_fmu: Callable[[str], str]) -> list[str]:
-    """Return why the elements of ``value`` don't fit the types of the variables ``key`` names."""
-    return [
-        f"expected {_expectation(variables[to_fmu(name)])}, got {_show(element)}"
-        for name, element in expand_parameters({key: value}).items()
-        if to_fmu(name) in variables and not _accepts(variables[to_fmu(name)], element)
-    ]
 
 
 def _fixed_at_build(variable: FmuVariable | None, build_variable: Variable | None) -> bool:
