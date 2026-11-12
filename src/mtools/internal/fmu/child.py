@@ -16,7 +16,7 @@ from typing import Any
 
 import numpy as np
 
-from mtools.internal.fmu import cvode_guard, indicator_guard
+from mtools.internal.fmu import cvode_guard, indicator_guard, status_logging
 from mtools.internal.fmu.request import RunRequest
 
 RESULT_FILE_NAME = "result.npy"
@@ -96,6 +96,7 @@ def _run(directory: Path) -> int:
 
     request = RunRequest.read(directory)
     fmpy.extract(request.fmu_path, unzipdir=request.unzip_dir)
+    status_logging.install(category.name for category in fmpy.read_model_description(request.unzip_dir).logCategories)
     if request.fmi_type == "ModelExchange":
         indicator_guard.install()
     if request.cvode_guard:
