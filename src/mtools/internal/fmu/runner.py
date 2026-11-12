@@ -13,7 +13,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from mtools.errors import SimulationError
+from mtools.errors import SimulationError, SimulationTimeout
 from mtools.internal.fmu import child
 from mtools.internal.fmu.config import FmuFileConfig
 from mtools.internal.fmu.description import FmuDescription, read_description
@@ -25,7 +25,7 @@ from mtools.internal.omc import workdir
 from mtools.internal.omc.build import Build
 from mtools.internal.omc.config import RunSettings
 from mtools.internal.omc.parameters import flatten_parameters
-from mtools.internal.omc.process import execute
+from mtools.internal.omc.process import ProcessResult, execute
 
 FMI_TYPES = {"me": "ModelExchange", "cs": "CoSimulation"}
 
@@ -106,12 +106,34 @@ def _run(fmu_path: Path, description: FmuDescription, run: ResolvedRun, settings
         command = [sys.executable, "-m", "mtools.internal.fmu.child", str(directory)]
         result = execute(command, directory, settings.timeout)
         if result.returncode != 0:
-            raise SimulationError(
-                f"Simulation of '{run.model_name}' failed:",
-                model_name=run.model_name,
-                diagnostics=result.output.strip(),
-            )
+            raise _simulation_error(run, settings, result, directory, result.output.strip(), None)
         array = np.load(directory / child.RESULT_FILE_NAME, allow_pickle=False)
         return to_frame(array, run)
     finally:
         workdir.discard(directory)
+
+
+def _simulation_error(
+    run: ResolvedRun,
+    settings: RunSettings,
+    result: ProcessResult,
+    directory: Path,
+    diagnostics: str,
+    partial: pd.DataFrame | None,
+) -> SimulationError:
+    """Build the exception for a failed, crashed or timed-out FMU run.
+
+    The one place where FMU run errors are assembled.
+    """
+    name = run.model_name
+    diagnostics = workdir.with_run_directory(diagnostics, directory)
+    if result.timed_out:
+        return SimulationTimeout(
+            f"Simulation of '{name}' timed out after {settings.timeout:g} s:",
+            model_name=name,
+            diagnostics=diagnostics,
+            partial_result=partial,
+        )
+    signal = result.signal
+    header = f"Simulation of '{name}' crashed with {signal.name}:" if signal else f"Simulation of '{name}' failed:"
+    return SimulationError(header, model_name=name, diagnostics=diagnostics, partial_result=partial)

@@ -76,4 +76,34 @@ package FmuTests "Models the FMU tests export and run"
   protected
     parameter Real hp = 3;
   end BuildTime;
+
+  model Segfault "Raises SIGSEGV once time passes 0.5"
+    function crash
+      input Real t;
+      output Real y;
+      external "C" y = fmu_tests_crash(t) annotation(
+        Include = "#include <signal.h>\nstatic double fmu_tests_crash(double t) { raise(SIGSEGV); return t; }");
+    end crash;
+    Real x(start = 0, fixed = true);
+    Real y;
+  equation
+    der(x) = 1;
+    y = if time > 0.5 then crash(time) else 0;
+    annotation(experiment(StopTime = 1, Interval = 0.01));
+  end Segfault;
+
+  model Hang "Loops forever once time passes 0.5"
+    function spin
+      input Real t;
+      output Real y;
+      external "C" y = fmu_tests_spin(t) annotation(
+        Include = "static double fmu_tests_spin(double t) { volatile int stop = 0; while (!stop) {} return t; }");
+    end spin;
+    Real x(start = 0, fixed = true);
+    Real y;
+  equation
+    der(x) = 1;
+    y = if time > 0.5 then spin(time) else 0;
+    annotation(experiment(StopTime = 1, Interval = 0.01));
+  end Hang;
 end FmuTests;
