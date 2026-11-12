@@ -92,6 +92,8 @@ run_default = registry.create_run(
 
 For a different base class, call `build_run_config(base=..., build=session_config.Build(...), settings=...)` instead. `get_run_config(name)` returns a registered run config.
 
+To run an FMU instead of a native build, pass `fmu=FmuExport()` to `create_run`, or use `create_fmu_run(fmu_path=...)` for an FMU you supply; see [FMU runs](fmu-runs.md).
+
 ## Config groups
 
 `register_group_options(group, {name: config}, default=name)` registers the interchangeable options of one group, and `register_group_option` registers a single option. The group path is also the config path it fills:

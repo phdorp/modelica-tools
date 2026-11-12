@@ -11,6 +11,7 @@ A Python toolkit for configuring and running [Modelica](https://modelica.org/) s
 - **Hierarchical configuration** with [Hydra](https://hydra.cc) / [hydra-zen](https://github.com/mit-ll/hydra-zen) — Compose, override, and reuse configs across runs.
 - **Parameter sweeps** — Launch multirun sweeps over any simulation parameter from the command line.
 - **Reference-model comparison** — Test a model against a reference implementation from a run config in a shared Hydra registry, comparing output signals and values.
+- **FMU runs** — Run the same experiments against a given FMU or a Modelica model exported as an FMU, through [FMPy](https://github.com/CATIA-Systems/FMPy).
 - **Configuration groups and experiments** — Register reusable config groups (e.g., initial states) and named experiment overrides.
 - **Result visualization** — Interactive [Dash](https://dash.plotly.com/) web app for browsing simulation results (`.mat` and `.csv`) with a grid of time-series plots.
 - **Unit-testable** — Simulations are driven by config objects that can be instantiated and verified in isolation.
@@ -46,6 +47,8 @@ uv init my_simulation
 cd my_simulation
 uv add git+https://github.com/phdorp/modelica-tools.git
 ```
+
+To run FMUs, install the optional FMPy dependency (`pip install "modelica-tools[fmu]"`, or `uv add "modelica-tools[fmu] @ git+https://github.com/phdorp/modelica-tools.git"`).
 
 For development, clone the repository and install with dev dependencies:
 
@@ -215,6 +218,17 @@ Replacing Pydelica with the in-repo OMC backend changed the following:
 - Real columns are always `float64`, also when every value is a whole number; Pydelica read those as `int64`.
 - Results have no parameter columns and keep OMC's repeated rows at events.
 - The cache lives under the system temp directory until the system clears it.
+
+### FMU runs
+
+The same experiments and test classes run against an FMU through FMPy, with `pip install "modelica-tools[fmu]"`:
+
+- `create_run(..., fmu=FmuExport())` exports a Modelica model as an FMU and runs it; exports are cached.
+- `create_fmu_run(fmu_path=..., name_map={...})` runs an FMU you supply, translating names between the experiment and the FMU.
+- Each run is isolated in a child process, so a crashing FMU raises `SimulationError`; `settings.timeout` stops a hung one.
+- `assert_matches_reference()` gains `rtol` and `interpolate` for comparing results on different time grids.
+
+See [FMU runs](docs/fmu-runs.md) for settings, caching and known limits.
 
 ### Visualize results
 
