@@ -97,3 +97,19 @@ def test_build_time_value_that_is_no_literal_of_its_type_is_a_problem():
     assert (problems, build_values) == (
         ["settings.parameters.mode: 'high' is not a qualified enumeration literal (e.g. 'Mode.high')"], {}
     )
+
+
+def test_calculated_parameter_missing_from_model_init_xml_is_fixed_not_build_time():
+    # Without its model_init.xml entry, no modifier can be written for it.
+    n = FmuVariable("n", "Integer", "calculatedParameter", "fixed", "calculated", None, {})
+    _, problems, build_values = start_values(
+        {"n": 3},
+        {"n": n},
+        model_name=MODEL,
+        to_fmu=lambda name: name,
+        exported=True,
+        build_variables={},
+    )
+    assert (problems, build_values) == (
+        ["settings.parameters.n: 'FmuTests.BuildTime' parameter 'n' is fixed in the FMU (calculatedParameter)"], {}
+    )

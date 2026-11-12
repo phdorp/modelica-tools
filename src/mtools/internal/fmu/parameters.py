@@ -149,7 +149,8 @@ def _add_build_value(
 
 def build_time_values(candidates: Mapping[str, Any], init_variables: Mapping[str, Variable]) -> dict[str, str]:
     """Return the modifier text by key of the build-time parameters ``candidates``, as
-    for a native build variant; the type comes from the first name in ``init_variables``.
+    for a native build variant; the type comes from the first name in ``init_variables``,
+    which must list at least one name of each key.
 
     Raises:
         ValueError: A value can't be written as a literal of its type.
@@ -171,10 +172,13 @@ def _names(key: str, value: Any) -> list[str]:
 def _is_build_time(variable: FmuVariable | None, build_variable: Variable | None) -> bool:
     """Whether OMC fixed a variable while translating the exported model: the model
     description makes it a ``calculatedParameter``, or leaves it out while the build
-    lists it as a non-changeable parameter."""
+    lists it as a non-changeable parameter. Either way the build must list it, because
+    its modifier is written as a literal of the build's type."""
+    if build_variable is None:
+        return False
     if variable is not None:
         return variable.causality == "calculatedParameter"
-    return build_variable is not None and fixed_at_build(build_variable)
+    return fixed_at_build(build_variable)
 
 
 def _check(variable: FmuVariable, value: Any, model_name: str, exported: bool) -> str | None:
