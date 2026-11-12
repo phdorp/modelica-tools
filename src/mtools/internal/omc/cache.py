@@ -25,15 +25,14 @@ from mtools.internal.omc import workdir
 from mtools.internal.omc.config import (BuildConfig, FmuExportConfig, Library,
                                         Target)
 from mtools.internal.omc.packages import package_root
-from mtools.internal.omc.script import Experiment, LoadedLibrary, build_script
+from mtools.internal.omc.script import (FMI_VERSION, Experiment, LoadedLibrary,
+                                        build_script)
 
 logger = logging.getLogger(__name__)
 
 # Bump when a change to the backend alters builds without altering the build script.
 BACKEND_REVISION = "1"
 RECORD_NAME = "mtools-build.json"
-#: The FMI version of every FMU export.
-FMI_VERSION = "2.0"
 _TOOLS_SCRIPT = "getVersion();\ngetCompiler();\ngetCXXCompiler();\n"
 _QUOTED = re.compile(r'"((?:[^"\\]|\\.)*)"')
 #: A config using every part of the build-script template, to hash the template by.

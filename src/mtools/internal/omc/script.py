@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from enum import IntEnum
 from pathlib import Path
 
-from mtools.internal.omc.config import BuildConfig, Library
+from mtools.internal.omc.config import BuildConfig, FmuExportConfig, Library
 from mtools.internal.omc.packages import package_root
 
 
@@ -32,6 +32,8 @@ class Stage(IntEnum):
 
 
 DEFAULT_SOLVER = "dassl"
+#: The FMI version of every FMU export.
+FMI_VERSION = "2.0"
 
 
 @dataclass(frozen=True)
@@ -117,6 +119,10 @@ def build_script(config: BuildConfig, file_name_prefix: str, build_values: Mappi
     lines += _data("solver", f'getAnnotationModifierValue({model}, "__OpenModelica_simulationFlags", "s");')
     lines += [_errors(Stage.SIMULATION_OPTIONS)]
 
+    if config.fmu is not None:
+        lines += _export_fmu(model, config.fmu, file_name_prefix)
+        return "\n".join(lines) + "\n"
+
     lines += [
         f"result := buildModel({model}, fileNamePrefix={_string(file_name_prefix)});",
         _errors(Stage.TRANSLATE),
@@ -162,13 +168,40 @@ def _checked(statement: str, stage: Stage) -> list[str]:
     return [statement, _errors(stage), f"if not ok then exit({int(stage)}); end if;"]
 
 
+def _export_fmu(model: str, fmu: FmuExportConfig, file_name_prefix: str) -> list[str]:
+    """Return the statements that translate ``model`` and export it as an FMU.
+
+    ``translateModel`` writes ``<prefix>_init.xml``, which the build's variables come
+    from. ``buildModelFMU`` translates again and reports the same warnings, so the
+    first translation's error string is printed only when it fails.
+    """
+    prefix = _string(file_name_prefix)
+    return [
+        f"ok := translateModel({model}, fileNamePrefix={prefix});",
+        _READ_ERRORS,
+        f"if not ok then {_print_errors(Stage.TRANSLATE)} exit({int(Stage.TRANSLATE)}); end if;",
+        f"result := buildModelFMU({model}, version={_string(FMI_VERSION)}, fmuType={_string(fmu.fmu_type)},"
+        f" fileNamePrefix={prefix});",
+        _errors(Stage.TRANSLATE),
+        # As for buildModel, the makefile tells a failed make from a failed translation.
+        f'if result == "" then'
+        f" if regularFileExists({_string(file_name_prefix + '_FMU.makefile')}) then exit({int(Stage.COMPILE)});"
+        f" else exit({int(Stage.TRANSLATE)}); end if; end if;",
+    ]
+
+
+# Read the error string into a variable first: printing a concatenation that calls
+# getErrorString() directly prints nothing after a failed buildModel (OMC 1.27.2).
+_READ_ERRORS = "mtoolsErrors := getErrorString();"
+
+
 def _errors(stage: Stage) -> str:
-    # Read the error string into a variable first: printing a concatenation that calls
-    # getErrorString() directly prints nothing after a failed buildModel (OMC 1.27.2).
-    return (
-        "mtoolsErrors := getErrorString();\n"
-        f'print("{_BEGIN} errors {int(stage)}\\n" + mtoolsErrors + "\\n{_END}\\n");'
-    )
+    return f"{_READ_ERRORS}\n{_print_errors(stage)}"
+
+
+def _print_errors(stage: Stage) -> str:
+    """Print the error string read last into stage ``stage``'s marked section."""
+    return f'print("{_BEGIN} errors {int(stage)}\\n" + mtoolsErrors + "\\n{_END}\\n");'
 
 
 def _data(name: str, call: str) -> list[str]:

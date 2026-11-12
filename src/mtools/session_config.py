@@ -60,6 +60,14 @@ class Library:
 
 
 @dataclasses.dataclass
+class FmuExport:
+    """Export the built model as an FMI 2.0 FMU and run it through FMPy."""
+
+    #: FMU type to export and run, ``"me"`` (Model Exchange) or ``"cs"`` (Co-Simulation).
+    fmu_type: str = "me"
+
+
+@dataclasses.dataclass
 class Build:
     """What to build: one model, its sources, libraries and simulation target."""
 
@@ -77,6 +85,8 @@ class Build:
     #: Extra OMC flags (``{"-d": "nogen", "--flag": None}``); mtools adds ``-q`` and the
     #: target itself, so ``--simCodeTarget`` is rejected.
     omc_flags: dict[str, str | None] = dataclasses.field(default_factory=dict)
+    #: Export the model as an FMU and run that; ``None`` runs the native executable.
+    fmu: FmuExport | None = None
 
 
 @dataclasses.dataclass

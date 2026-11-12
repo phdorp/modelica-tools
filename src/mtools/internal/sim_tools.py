@@ -29,7 +29,8 @@ def simulate_run(config: session_config.SimulationRun | DictConfig) -> dict[str,
     """Validate a run config, build its model (or take the build from the cache) and run it.
 
     A given FMU (an :class:`~mtools.session_config.FmuFile` build) needs no build and
-    runs through FMPy in a child process.
+    runs through FMPy in a child process. A build with ``fmu`` set exports the model as
+    an FMU, cached like any build, and runs that the same way.
 
     ``hydra_zen.instantiate`` only turns the config into config objects; building and
     running happen afterwards, so their exceptions reach the caller unwrapped. Builds
@@ -55,6 +56,8 @@ def simulate_run(config: session_config.SimulationRun | DictConfig) -> dict[str,
         return {model_name: result}
     build_config, settings = run_config.validate(run)
     with omc_build.build(build_config) as built:
+        if build_config.fmu is not None:
+            return {build_config.model_name: fmu_runner.simulate_export(built, settings)}
         return {build_config.model_name: built.simulate(settings)}
 
 

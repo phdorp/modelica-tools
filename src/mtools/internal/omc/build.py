@@ -32,7 +32,8 @@ class Build:
 
     Attributes:
         config: The build config it was made from.
-        directory: Directory holding the executable and ``<prefix>_init.xml``.
+        directory: Directory holding the executable (or, for an FMU export, the FMU) and
+            ``<prefix>_init.xml``.
         file_name_prefix: Name of the executable and its generated files.
         variables: Every variable of ``<prefix>_init.xml`` by name.
         experiment: The model's experiment annotation (OMC defaults where unset).
@@ -70,6 +71,11 @@ class Build:
     @property
     def target(self) -> Target:
         return self.config.target
+
+    @property
+    def fmu_path(self) -> Path:
+        """The exported FMU of a build whose config sets ``fmu``."""
+        return self.directory / f"{self.file_name_prefix}.fmu"
 
     @property
     def parameters(self) -> dict[str, Variable]:

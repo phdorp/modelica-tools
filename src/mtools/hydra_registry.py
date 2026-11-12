@@ -404,6 +404,7 @@ class HydraZenRegistry:
         selections: Mapping[str, str] | None = None,
         include_experiment_group: bool = False,
         name: Optional[str] = None,
+        fmu: session_config.FmuExport | None = None,
     ) -> RunConfig:
         """Create and register a run config from the build fields and run settings.
 
@@ -426,6 +427,8 @@ class HydraZenRegistry:
             name: Optional name to register the created run config under the
                 root store. If provided, the config is registered via
                 ``register_run_config`` before being returned.
+            fmu: Export the model as an FMU and run that; ``None`` runs the native
+                executable.
 
         Returns:
             A config type created by ``hydra_zen.make_config``.
@@ -437,6 +440,7 @@ class HydraZenRegistry:
             extra_sources=list(extra_sources),
             libraries=list(libraries),
             omc_flags=dict(omc_flags or {}),
+            fmu=fmu,
         )
         return self.build_run_config(
             base=session_config.SimulationRun,

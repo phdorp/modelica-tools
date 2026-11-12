@@ -84,6 +84,7 @@ def validate(run: session_config.SimulationRun) -> tuple[backend.BuildConfig, ba
             for library in build.libraries
         ),
         omc_flags=dict(build.omc_flags),
+        fmu=None if build.fmu is None else backend.FmuExportConfig(fmu_type=build.fmu.fmu_type, emit_protected=False),
     )
     run_settings = _run_settings(settings)
     run_cpp.validate_settings(build_config, run_settings)

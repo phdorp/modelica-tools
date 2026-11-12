@@ -1,7 +1,8 @@
-"""Plain helpers for the FMU tests: the vendored Reference-FMUs and given-FMU runs."""
+"""Plain helpers for the FMU tests: the vendored Reference-FMUs, given-FMU and exported-FMU runs."""
 
 from __future__ import annotations
 
+import logging
 import xml.etree.ElementTree as ET
 import zipfile
 from collections.abc import Callable
@@ -15,7 +16,8 @@ from omegaconf import OmegaConf
 from mtools import sim_tools
 from mtools.hydra_registry import HydraZenRegistry
 from mtools.internal.fmu.request import RunRequest
-from mtools.session_config import RunSettings
+from mtools.session_config import FmuExport, RunSettings
+from tests.fmu.fmu_models import MODEL_PATH
 
 REFERENCE_FMUS = Path(__file__).parent / "reference_fmus"
 
@@ -44,6 +46,39 @@ def simulate_given(
         settings=RunSettings(parameters=values, **settings),
     )
     return sim_tools.simulate(OmegaConf.structured(run))
+
+
+def simulate_exported(
+    model: str,
+    *,
+    fmu_type: str = "me",
+    target: str = "C",
+    omc_flags: dict[str, str | None] | None = None,
+    parameters: Any = None,
+    **settings: Any,
+) -> dict[str, pd.DataFrame]:
+    """Export ``model`` of ``FmuTests.mo`` as an FMU and run it through ``sim_tools.simulate``."""
+    values: Any = parameters or {}
+    run = HydraZenRegistry().create_run(
+        model_name=model,
+        model_path=MODEL_PATH,
+        target=target,  # type: ignore[arg-type]
+        omc_flags=omc_flags,
+        settings=RunSettings(parameters=values, **settings),
+        fmu=FmuExport(fmu_type),
+    )
+    return sim_tools.simulate(OmegaConf.structured(run))
+
+
+def build_messages(caplog: pytest.LogCaptureFixture) -> list[str]:
+    """Return the build log's INFO messages that report a build made (``Built``) or reused (``Reused``)."""
+    return [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == "mtools.internal.omc.build"
+        and record.levelno == logging.INFO
+        and record.getMessage().startswith(("Built", "Reused"))
+    ]
 
 
 def capture_request(monkeypatch: pytest.MonkeyPatch, fmu_path: Path, **kwargs: Any) -> RunRequest:
