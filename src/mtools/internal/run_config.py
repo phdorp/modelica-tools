@@ -58,12 +58,16 @@ def validate(run: session_config.SimulationRun) -> tuple[backend.BuildConfig, ba
     Checks what needs no build: types, that files and directories exist, the target,
     the output format, no ``--simCodeTarget`` in ``build.omc_flags``, and an
     explicitly requested Cpp solver. Checks that need the build (parameter names, a
-    solver from the annotation) happen when the build runs.
+    solver from the annotation) happen when the build runs. A build that exports an
+    FMU needs FMPy, checked first.
 
     Raises:
+        ImportError: The build exports an FMU and FMPy isn't installed.
         ConfigError: Listing every invalid value by its config path.
     """
     build, settings = cast(session_config.Build, run.build), run.settings
+    if build.fmu is not None:
+        require_fmpy()
     model_name = build.model_name if isinstance(build.model_name, str) else str(build.model_name)
     problems = [*_build_problems(build), *_settings_problems(settings)]
     if (format_problem := result_files.output_format_problem(run.output_format)) is not None:
