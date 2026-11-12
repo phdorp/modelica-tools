@@ -1,8 +1,10 @@
 """Build-time and protected parameters of an exported FMU: variant FMUs, as for native builds (ADR 0001)."""
 
+import logging
+
 import pytest
 
-from mtools.errors import ConfigError
+from mtools.errors import ConfigError, TranslationError
 from tests.fmu.helpers import build_messages, simulate_exported
 
 MODEL = "FmuTests.BuildTime"
@@ -14,6 +16,18 @@ def test_array_size_sweep_exports_a_cached_variant(fresh_work_dir, caplog):
     assert [c for c in result.columns if c.startswith("y[")] == ["y[1]", "y[2]", "y[3]"]
     assert "Building a variant of 'FmuTests.BuildTime' because 'n' is fixed at build time" in caplog.text
     assert [m.split(" ")[0] for m in build_messages(caplog)] == ["Built", "Built", "Reused", "Reused"]
+
+
+def test_evaluate_true_parameter_exports_a_variant(caplog):
+    caplog.set_level(logging.INFO)
+    assert (simulate_exported(MODEL)[MODEL]["z"] == 1.0).all()
+    assert (simulate_exported(MODEL, parameters={"useA": False})[MODEL]["z"] == 2.0).all()
+    assert "Building a variant of 'FmuTests.BuildTime' because 'useA' is fixed at build time" in caplog.text
+
+
+def test_final_parameter_is_a_translation_error():
+    with pytest.raises(TranslationError, match="final"):
+        simulate_exported(MODEL, parameters={"f": 2.0})
 
 
 @pytest.mark.parametrize("emit_protected", [False, True])
