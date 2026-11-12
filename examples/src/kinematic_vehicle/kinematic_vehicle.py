@@ -29,6 +29,11 @@ TARGET = "Cpp"
 settings_default = session_config.RunSettings(parameters=MISSING, stop_time=10.0, tolerance=1e-9, solver="dassl")
 
 
+#: Run settings of the FMU run config. An exported FMU runs on FMPy, whose Model Exchange
+#: solvers are cvode and euler, so the Cpp-only ``dassl`` of ``settings_default`` doesn't apply.
+settings_fmu = dataclasses.replace(settings_default, solver="cvode")
+
+
 @dataclasses.dataclass
 class WrapperKinematicVehicle:
     v_norm: float = 10.0
@@ -47,7 +52,9 @@ registry.register_group_options("settings/parameters", {"default": vehicle_defau
 
 # Register a default option for `settings` so experiments can override the run
 # settings; the parameters above are merged into it.
-registry.register_group_options("settings", {"default": settings_default}, default="default")
+registry.register_group_options(
+    "settings", {"default": settings_default, "fmu": settings_fmu}, default="default"
+)
 
 # Parameters and run settings come from the registered group defaults, so only
 # the model name, source, and target are supplied here.
@@ -57,6 +64,18 @@ run_default = registry.create_run(
     target=TARGET,
     include_experiment_group=True,
     name="default",
+)
+
+# The same model exported as a Model Exchange FMU from the C target and run on FMPy
+# (`python -m kinematic_vehicle --config-name fmu`).
+run_fmu = registry.create_run(
+    model_name=MODEL_NAME,
+    model_path=(Path(__file__).parent / "package.mo").resolve(),
+    target="C",
+    fmu=session_config.FmuExport(),
+    selections={"settings": "fmu"},
+    include_experiment_group=True,
+    name="fmu",
 )
 
 # Register the experiments directly. Each is bound to every experiment-capable
@@ -98,5 +117,7 @@ __all__ = [
     "TARGET",
     "registry",
     "run_default",
+    "run_fmu",
+    "settings_fmu",
     "settings_default",
 ]

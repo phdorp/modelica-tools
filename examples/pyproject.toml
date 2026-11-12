@@ -5,7 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-  "modelica-tools",
+  "modelica-tools[fmu]",
 ]
 
 [tool.setuptools.packages.find]

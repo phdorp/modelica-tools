@@ -213,7 +213,7 @@ name = "examples"
 version = "0.1.0"
 source = { virtual = "examples" }
 dependencies = [
-    { name = "modelica-tools" },
+    { name = "modelica-tools", extra = ["fmu"] },
 ]
 
 [package.optional-dependencies]
@@ -224,7 +224,7 @@ test = [
 
 [package.metadata]
 requires-dist = [
-    { name = "modelica-tools", editable = "." },
+    { name = "modelica-tools", extras = ["fmu"], editable = "." },
     { name = "pandas", marker = "extra == 'test'", specifier = ">=3.0.0" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=9.0.0" },
 ]

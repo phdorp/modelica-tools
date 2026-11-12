@@ -49,6 +49,7 @@ jobs:
           uv run python -m kinematic_vehicle settings.parameters.phi=0.1
           uv run python -m kinematic_vehicle output_format=csv
           uv run python -m kinematic_vehicle experiment=turn_left
+          uv run python -m kinematic_vehicle --config-name fmu
           uv run python -m kinematic_vehicle -m settings.parameters.v_norm=10,20
 
       - name: Run examples tests
