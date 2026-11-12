@@ -114,3 +114,11 @@ def test_compile_failure_is_a_compile_error(tmp_path):
         _simulate_source(tmp_path, "CBuild", source)
 
     assert "no_such_header.h" in raised.value.diagnostics
+
+
+def test_export_logs_translation_warnings_once(fresh_work_dir, caplog):
+    simulate_exported("FmuTests.Warns")
+
+    warnings = [record.getMessage() for record in caplog.records if "reported warnings" in record.getMessage()]
+    assert len(warnings) == 1
+    assert warnings[0].count("The initial conditions are not fully specified") == 1
