@@ -12,7 +12,7 @@ import numbers
 import os
 from collections.abc import Callable, Iterator, Mapping
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import hydra_zen
 from omegaconf import DictConfig, OmegaConf
@@ -65,7 +65,9 @@ def validate(run: session_config.SimulationRun) -> tuple[backend.BuildConfig, ba
         ImportError: The build exports an FMU and FMPy isn't installed.
         ConfigError: Listing every invalid value by its config path.
     """
-    build, settings = cast(session_config.Build, run.build), run.settings
+    build, settings = run.build, run.settings
+    if not isinstance(build, session_config.Build):
+        raise TypeError(f"validate takes a run of a Build, got {type(build).__name__}")
     if build.fmu is not None:
         require_fmpy()
     model_name = build.model_name if isinstance(build.model_name, str) else str(build.model_name)
@@ -112,11 +114,19 @@ def validate_fmu_file(run: session_config.SimulationRun) -> tuple[FmuFileConfig,
         ConfigError: Listing every invalid value by its config path.
     """
     require_fmpy()
-    build, settings = cast(session_config.FmuFile, run.build), run.settings
-    model_name = build.model_name or Path(build.fmu_path).stem
-    problems = [*file_problems(Path(build.fmu_path)), *_settings_problems(settings)]
+    build, settings = run.build, run.settings
+    if not isinstance(build, session_config.FmuFile):
+        raise TypeError(f"validate_fmu_file takes a run of an FmuFile, got {type(build).__name__}")
+    if isinstance(build.fmu_path, (str, os.PathLike)):
+        model_name = build.model_name or Path(build.fmu_path).stem
+        problems = file_problems(Path(build.fmu_path))
+    else:
+        model_name = build.model_name or ""
+        problems = [f"build.fmu_path: expected a path, got {build.fmu_path!r}"]
+    problems.extend(_settings_problems(settings))
     if build.fmu_type is not None and build.fmu_type not in FMU_TYPES:
-        problems.append(f"build.fmu_type: expected 'me', 'cs' or null, got {build.fmu_type!r}")
+        expected = ", ".join(map(repr, FMU_TYPES))
+        problems.append(f"build.fmu_type: expected {expected} or null, got {build.fmu_type!r}")
     if not isinstance(build.name_map, Mapping) or not all(
         isinstance(key, str) and isinstance(value, str) for key, value in build.name_map.items()
     ):
@@ -163,7 +173,7 @@ def _build_problems(build: session_config.Build) -> Iterator[str]:
     yield from _library_problems(build.libraries)
     yield from _flag_problems(build.omc_flags, exported=build.fmu is not None)
     if build.fmu is not None and build.fmu.fmu_type not in FMU_TYPES:
-        yield f"build.fmu.fmu_type: expected 'me' or 'cs', got {build.fmu.fmu_type!r}"
+        yield f"build.fmu.fmu_type: expected {' or '.join(map(repr, FMU_TYPES))}, got {build.fmu.fmu_type!r}"
     elif build.fmu is not None and build.fmu.fmu_type == "cs" and build.target == "Cpp":
         yield "build.fmu.fmu_type: Co-Simulation export isn't supported on the Cpp target"
 

@@ -84,11 +84,11 @@ def build_messages(caplog: pytest.LogCaptureFixture) -> list[str]:
 def capture_request(monkeypatch: pytest.MonkeyPatch, fmu_path: Path, **kwargs: Any) -> RunRequest:
     """Run ``simulate_given(fmu_path, **kwargs)`` and return the request the run wrote."""
     written: list[RunRequest] = []
-    write = RunRequest.write
+    original_write = RunRequest.write
 
     def recording_write(request: RunRequest, directory: Path) -> None:
         written.append(request)
-        write(request, directory)
+        original_write(request, directory)
 
     monkeypatch.setattr(RunRequest, "write", recording_write)
     simulate_given(fmu_path, **kwargs)

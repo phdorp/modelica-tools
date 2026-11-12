@@ -1,21 +1,22 @@
 """A given FMU runs through ``sim_tools.simulate`` like a native build."""
 
 import sys
-import zipfile
-from pathlib import Path
+import xml.etree.ElementTree as ET
 
 import hydra_zen
 import numpy as np
 import pytest
 from omegaconf import OmegaConf
+from omegaconf.errors import ConfigKeyError
 
 from mtools import sim_tools
 from mtools.errors import ConfigError
 from mtools.hydra_registry import HydraZenRegistry
+from mtools.internal import run_config
 from mtools.internal.omc.workdir import KEEP_RUNS_VARIABLE, WORK_DIR_VARIABLE
-from mtools.session_config import FmuFile, RunSettings
-from tests.fmu.helpers import (capture_request, reference_fmu, simulate_given,
-                               write, zip_without)
+from mtools.session_config import FmuFile, RunSettings, SimulationRun
+from tests.fmu.helpers import (capture_request, edited_fmu, reference_fmu,
+                               simulate_given, write, zip_without)
 
 
 def test_dahlquist_runs_with_its_default_experiment():
@@ -57,7 +58,14 @@ def test_model_name_overrides_the_result_key():
             id="no-model-description",
         ),
         pytest.param(
-            lambda d: zip_without(reference_fmu("Dahlquist"), d, "binaries/linux64/"), "linux64", id="no-binary"
+            lambda d: zip_without(reference_fmu("Dahlquist"), d, "binaries/linux64/"),
+            "no linux64 binary",
+            id="no-binary",
+        ),
+        pytest.param(
+            lambda d: zip_without(reference_fmu("Dahlquist", "3.0"), d, "binaries/x86_64-linux/"),
+            "no x86_64-linux binary",
+            id="no-fmi3-binary",
         ),
     ],
 )
@@ -66,6 +74,22 @@ def test_unusable_fmu_file_is_a_config_error(tmp_path, make, phrase):
         simulate_given(make(tmp_path))
 
     assert phrase in error.value.diagnostics
+
+
+def test_fmu_path_that_is_no_path_is_a_config_error():
+    run = SimulationRun(build=FmuFile(fmu_path=3), settings=RunSettings(parameters={}))  # type: ignore[arg-type]
+
+    with pytest.raises(ConfigError) as error:
+        sim_tools.simulate(run)
+
+    assert "build.fmu_path: expected a path, got 3" in error.value.diagnostics
+
+
+def test_build_validation_rejects_a_given_fmu_run():
+    run = SimulationRun(build=FmuFile(fmu_path=reference_fmu("Dahlquist")), settings=RunSettings(parameters={}))
+
+    with pytest.raises(TypeError, match="FmuFile"):
+        run_config.validate(run)
 
 
 def test_missing_fmpy_raises_import_error(monkeypatch):
@@ -82,7 +106,7 @@ def test_fmu_file_composes_and_accepts_overrides():
         OmegaConf.merge(OmegaConf.structured(run), OmegaConf.from_dotlist(["build.fmu_type=cs"])), _convert_="object"
     )
     assert isinstance(composed.build, FmuFile) and composed.build.fmu_type == "cs"
-    with pytest.raises(Exception):
+    with pytest.raises(ConfigKeyError):
         OmegaConf.merge(OmegaConf.structured(run), OmegaConf.from_dotlist(["build.target=C"]))
 
 
@@ -108,22 +132,14 @@ def test_invalid_output_format_is_a_config_error():
     assert "output_format" in error.value.diagnostics
 
 
-def _with_independent_variable_named_t(fmu_path: Path, directory: Path) -> Path:
-    """Copy ``fmu_path`` into ``directory`` with its independent variable renamed from ``time`` to ``t``."""
-    copy = directory / fmu_path.name
-    with zipfile.ZipFile(fmu_path) as source, zipfile.ZipFile(copy, "w") as target:
-        for entry in source.infolist():
-            content = source.read(entry)
-            if entry.filename == "modelDescription.xml":
-                renamed = content.replace(b'<ScalarVariable name="time"', b'<ScalarVariable name="t"')
-                assert renamed != content
-                content = renamed
-            target.writestr(entry, content)
-    return copy
+def _rename_time_to_t(root: ET.Element) -> None:
+    """Rename the independent variable of a model description from ``time`` to ``t``."""
+    [variable] = [element for element in root.iter("ScalarVariable") if element.get("name") == "time"]
+    variable.set("name", "t")
 
 
 def test_independent_variable_of_any_name_becomes_the_time_column(tmp_path):
-    fmu = _with_independent_variable_named_t(reference_fmu("Dahlquist"), tmp_path)
+    fmu = edited_fmu(reference_fmu("Dahlquist"), tmp_path, _rename_time_to_t)
 
     result = simulate_given(fmu)["Dahlquist"]
 

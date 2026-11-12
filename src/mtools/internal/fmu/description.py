@@ -13,8 +13,9 @@ from typing import Any
 
 FMPY_MISSING = "FMU runs need FMPy: install modelica-tools[fmu]"
 
-#: The binaries directory of a 64-bit Linux FMU, by FMI major version.
-LINUX_PLATFORMS = {"2": "linux64", "3": "x86_64-linux"}
+#: The binaries directory of a 64-bit Linux FMU, by FMI major version; FMI 1.0 and 2.0
+#: share ``linux64``, so an unknown version is checked for that.
+LINUX_PLATFORMS = {"1": "linux64", "2": "linux64", "3": "x86_64-linux"}
 
 
 @dataclass(frozen=True)
@@ -100,7 +101,7 @@ def file_problems(path: Path, config_path: str = "build.fmu_path") -> list[str]:
     with zipfile.ZipFile(path) as archive:
         entries = [PurePosixPath(name) for name in archive.namelist()]
     if not any(entry.parent == PurePosixPath("binaries", platform) and entry.suffix == ".so" for entry in entries):
-        return [f"{config_path}: no linux64 binary in '{location}'"]
+        return [f"{config_path}: no {platform} binary in '{location}'"]
     return []
 
 
