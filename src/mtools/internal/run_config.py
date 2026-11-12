@@ -159,6 +159,8 @@ def _build_problems(build: session_config.Build) -> Iterator[str]:
     yield from _flag_problems(build.omc_flags, exported=build.fmu is not None)
     if build.fmu is not None and build.fmu.fmu_type not in FMU_TYPES:
         yield f"build.fmu.fmu_type: expected 'me' or 'cs', got {build.fmu.fmu_type!r}"
+    elif build.fmu is not None and build.fmu.fmu_type == "cs" and build.target == "Cpp":
+        yield "build.fmu.fmu_type: Co-Simulation export isn't supported on the Cpp target"
 
 
 def _library_problems(libraries: Any) -> Iterator[str]:

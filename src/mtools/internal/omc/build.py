@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import subprocess
+import zipfile
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -22,6 +23,12 @@ logger = logging.getLogger(__name__)
 OMC = "omc"
 FILE_NAME_PREFIX = "model"
 SCRIPT_NAME = "build.mos"
+
+CPP_FMU_WARNING = (
+    "Exporting '{model}' from the Cpp target: the FMU is Model Exchange only, time events"
+    " (when sample(...)) broke silently under FMPy, and resources and shared libraries"
+    " aren't copied into it."
+)
 
 
 @dataclass(frozen=True)
@@ -126,6 +133,8 @@ def build(config: BuildConfig, build_values: Mapping[str, str] | None = None) ->
         TranslationError: OMC failed to set options, load or translate the model.
         CompileError: Compiling or linking the generated code failed.
     """
+    if config.fmu is not None and config.target == "Cpp":
+        logger.warning(CPP_FMU_WARNING.format(model=config.model_name))
     if workdir.no_cache():
         directory = workdir.new_run_directory("build-")
         result = _make(config, directory, build_values)
@@ -184,6 +193,8 @@ def _run_omc(config: BuildConfig, directory: Path, build_values: Mapping[str, st
         )
     _log_build_diagnostics(config.model_name, stage_text)
 
+    if config.fmu is not None and config.target == "Cpp":
+        _extract_init_xml(directory / f"{FILE_NAME_PREFIX}.fmu", directory)
     cache.save_record(directory, cache.new_record(config, output.experiment, output.loaded_libraries))
     return Build(
         config=config,
@@ -194,6 +205,13 @@ def _run_omc(config: BuildConfig, directory: Path, build_values: Mapping[str, st
         loaded_libraries=output.loaded_libraries,
         build_values=dict(build_values or {}),
     )
+
+
+def _extract_init_xml(fmu_path: Path, directory: Path) -> None:
+    """Copy ``<prefix>_init.xml`` out of a Cpp-exported FMU: ``translateModel`` writes none for Cpp."""
+    name = f"{FILE_NAME_PREFIX}_init.xml"
+    with zipfile.ZipFile(fmu_path) as archive:
+        (directory / name).write_bytes(archive.read(f"sources/{name}"))
 
 
 def _log_build_diagnostics(model_name: str, stage_text: str) -> None:
