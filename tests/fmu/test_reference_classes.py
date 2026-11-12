@@ -43,6 +43,61 @@ def _decay_registry(
     return registry
 
 
+def _exported(registry: HydraZenRegistry, **fmu: Any) -> RunConfig:
+    return registry.create_run(
+        model_name=MODEL, model_path=MODEL_PATH, fmu=FmuExport(**fmu), include_experiment_group=True, name="default"
+    )
+
+
+class TestExportedMatchesGiven(ExperimentReference):
+    name = "decay"
+
+    @pytest.fixture(scope="class")
+    def registry(self, exported_fmu: Callable[..., Path]) -> HydraZenRegistry:
+        given = exported_fmu("FmuTests.Decay")
+        return _decay_registry(
+            _exported,
+            lambda r: r.create_fmu_run(
+                fmu_path=given, model_name=MODEL, include_experiment_group=True, name="reference"
+            ),
+        )
+
+    @pytest.fixture(scope="class")
+    def reference_run_config(self, registry: HydraZenRegistry) -> RunConfig:
+        return registry.get_run_config("reference")
+
+    def test_matches(self) -> None:
+        self.assert_matches_reference()
+
+
+class TestModelExchangeMatchesCoSimulation(ExperimentReference):
+    name = "decay"
+    interpolate = True
+    rtol = 1e-3
+    eps = 1e-6
+
+    @pytest.fixture(scope="class")
+    def registry(self) -> HydraZenRegistry:
+        return _decay_registry(
+            _exported,
+            lambda r: r.create_run(
+                model_name=MODEL,
+                model_path=MODEL_PATH,
+                fmu=FmuExport(fmu_type="cs"),
+                include_experiment_group=True,
+                name="reference",
+            ),
+            interval=CS_INTERVAL,
+        )
+
+    @pytest.fixture(scope="class")
+    def reference_run_config(self, registry: HydraZenRegistry) -> RunConfig:
+        return registry.get_run_config("reference")
+
+    def test_matches(self) -> None:
+        self.assert_matches_reference()
+
+
 class TestGivenFmusWithoutModelName(ExperimentReference):
     """Both sides are given FMUs without ``model_name``; results are keyed by the FMU's ``modelName``."""
 
