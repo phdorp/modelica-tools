@@ -26,11 +26,21 @@ FMPY_DEFAULT_SOLVER = "CVode"
 _STATUS_NAMES = ("ok", "warning", "discard", "error", "fatal", "pending")
 
 
+def _one_line(text: str) -> str:
+    """Flatten ``text`` onto one line, so the parent reads one entry per line."""
+    return " ".join(text.split())
+
+
+def exception_line(error: Exception) -> str:
+    """Return the line that reports ``error`` as the exception that ended the run."""
+    return f"{EXCEPTION_PREFIX}{type(error).__name__}: {_one_line(str(error))}"
+
+
 def _log_fmi_message(_environment: Any, _instance: Any, status: int, category: bytes, message: bytes) -> None:
     """The FMI logger: print each message of status warning or worse as ``FMI | <status> | <category> | <message>``."""
     if status >= 1:
         name = _STATUS_NAMES[status] if status < len(_STATUS_NAMES) else str(status)
-        text = message.decode("utf-8", "replace").strip().replace("\n", " ")
+        text = _one_line(message.decode("utf-8", "replace"))
         print(f"FMI | {name} | {category.decode('utf-8', 'replace')} | {text}", flush=True)
 
 
@@ -43,7 +53,7 @@ def main(argv: list[str]) -> int:
     try:
         return _run(Path(argv[0]))
     except Exception as error:
-        print(f"{EXCEPTION_PREFIX}{type(error).__name__}: {error}", flush=True)
+        print(exception_line(error), flush=True)
         return 1
 
 
