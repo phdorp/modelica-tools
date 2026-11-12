@@ -157,6 +157,7 @@ An experiment name nothing uses can't be detected and stays silent. FMI aliases 
 - **Timeout.** `settings.timeout` covers the whole child: interpreter start, `import fmpy`, extraction and the run. On expiry the parent kills the process group with SIGKILL and raises `SimulationTimeout`. Exporting is a build and stays outside the limit. FMPy's own `timeout` is never used.
 - **No chattering guard.** A chattering Model Exchange FMU, or a Co-Simulation FMU that keeps returning `Discard`, runs until `timeout`, or forever without one. The docs recommend a `timeout` for FMU tests.
 - **CVODE guard, Model Exchange.** On every Model Exchange run with `solver="cvode"`, the child wraps FMPy's private `fmpy.sundials.CVodeSolver.step` so that a step is skipped, returning no state event and `tNext`, only when CVODE would refuse it: `|tNext − t| < 2·DBL_EPSILON·max(|t|, |tNext|)`. Measured with FMPy 0.3.32 on three `sample()` models over 30 intervals each: 90/90 pass with correct counters, against 12–26 failures out of 30 per model without the guard. It's never installed for `euler`. Drop it once FMPy fixes [#882](https://github.com/CATIA-Systems/FMPy/issues/882).
+- **Event-indicator guard, Model Exchange.** On every Model Exchange run, whatever the solver, the child wraps `fmpy.fmi2.FMU2Model.getEventIndicators` so that the indicator buffer is zeroed before each call. OMC 1.27.2's Cpp export declares more event indicators than `fmi2GetEventIndicators` writes, and FMPy passes CVODE's uninitialised root buffers, so CVODE sometimes sees a fake root on almost every step. Without the guard, one cached Cpp FMU of a decaying state gave 109 rows (error 4.2e-6) in some runs and about 13238 rows (error 7.75e-4) in others; with it, 5 out of 5 runs gave 107 rows and 4.2e-6. FMI 2.0 requires every indicator to be set, so the guard changes nothing for FMUs that set them all. Drop it once OMC fixes the Cpp export.
 - **Co-Simulation CVODE hint.** When a Co-Simulation run's diagnostics contain CVODE −27 / "tout too close", the `SimulationError` diagnostics end with one hint line. It names the cause (a `sample()` event within one float step of the communication grid, inside the FMU's own CVODE) and the fixes: `fmu_type="me"`, an export without `--fmiFlags=s:cvode` (Euler), or another interval. This applies to given FMUs too.
 
 ### Errors and diagnostics ([How an FMU run is isolated, stopped and reports failures](https://github.com/phdorp/modelica-tools/issues/78))
@@ -263,6 +264,7 @@ One set of rules for every reference test, FMU or native.
 - **Two internal checks, without a simulation:**
   - Cache-key unit tests: the FMU fields change the key; native keys are unchanged. Prior art: `tests/omc_backend/test_cache_key.py`.
   - A check that fails if `fmpy.sundials.CVodeSolver.step` is missing or its signature changes, so an FMPy upgrade can't silently drop the CVODE guard.
+  - A check that fails if `fmpy.fmi2.FMU2Model.getEventIndicators` is missing or its parameters are no longer `self, z, nz`, so an FMPy upgrade can't silently drop the event-indicator guard.
 
 ## Out of Scope
 
