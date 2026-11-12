@@ -132,12 +132,16 @@ def _add_build_value(
     build_values: dict[str, str],
 ) -> list[str]:
     """Add the modifier text of the build-time parameter ``key`` to ``build_values``;
-    return why it can't be built."""
-    wrong = [
-        f"expected {_expectation(variables[to_fmu(name)])}, got {_show(element)}"
-        for name, element in expand_parameters({key: value}).items()
-        if to_fmu(name) in variables and not _accepts(variables[to_fmu(name)], element)
-    ]
+    return why it can't be built. Each element is checked against its type in the model
+    description, or in ``build_variables`` for a name the description leaves out."""
+    wrong: list[str] = []
+    for name, element in expand_parameters({key: value}).items():
+        variable = variables.get(to_fmu(name))
+        if variable is not None and not _accepts(variable, element):
+            wrong.append(f"expected {_expectation(variable)}, got {_show(element)}")
+        elif variable is None and name in build_variables and not _accepts_build(build_variables[name], element):
+            kind = _KINDS.get(build_variables[name].type, build_variables[name].type)
+            wrong.append(f"expected {_kind_expectation(kind)}, got {_show(element)}")
     if wrong:
         return wrong
     try:
@@ -194,6 +198,23 @@ def _check(variable: FmuVariable, value: Any, model_name: str, exported: bool) -
 
 def _accepts(variable: FmuVariable, value: Any) -> bool:
     kind = _KINDS.get(variable.type)
+    if kind == "Enumeration":
+        return _enumeration(variable, value) is not None
+    return _accepts_kind(kind, value)
+
+
+def _accepts_build(variable: Variable, value: Any) -> bool:
+    """Whether ``value`` fits the type ``model_init.xml`` gives ``variable``. OMC lists an
+    enumeration as Integer there, so an Integer also takes a string, which
+    :func:`~mtools.internal.omc.variants.literal` requires to be a qualified literal."""
+    kind = _KINDS.get(variable.type)
+    if kind in ("Integer", "Enumeration"):
+        return isinstance(value, str) or _integer(value) is not None
+    return _accepts_kind(kind, value)
+
+
+def _accepts_kind(kind: str | None, value: Any) -> bool:
+    """Whether ``value`` fits the value kind ``Real``, ``Integer``, ``Boolean`` or ``String``."""
     if kind == "Real":
         return isinstance(value, numbers.Real) and not isinstance(value, (bool, np.bool_))
     if kind == "Integer":
@@ -202,8 +223,6 @@ def _accepts(variable: FmuVariable, value: Any) -> bool:
         return isinstance(value, (bool, np.bool_))
     if kind == "String":
         return isinstance(value, str)
-    if kind == "Enumeration":
-        return _enumeration(variable, value) is not None
     return False
 
 
@@ -248,10 +267,14 @@ def _convert(variable: FmuVariable, value: Any) -> Any:
 def _expectation(variable: FmuVariable) -> str:
     kind = _KINDS.get(variable.type, variable.type)
     if kind != "Enumeration":
-        return f"{_ARTICLES.get(kind, 'a')} {kind}"
+        return _kind_expectation(kind)
     type_name = (variable.declared_type or "Type").rpartition(".")[2]
     item = list(variable.items)[-1] if variable.items else "item"
     return f"an enumeration item or a qualified literal such as '{type_name}.{item}'"
+
+
+def _kind_expectation(kind: str) -> str:
+    return f"{_ARTICLES.get(kind, 'a')} {kind}"
 
 
 def _show(value: Any) -> str:

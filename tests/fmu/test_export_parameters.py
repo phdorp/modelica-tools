@@ -81,6 +81,26 @@ def test_parameter_evaluated_out_of_the_model_description_is_build_time():
     assert (problems, build_values) == ([], {"n": "3"})
 
 
+def test_parameter_evaluated_out_of_the_model_description_is_type_checked_against_model_init_xml():
+    # OMC lists an enumeration as Integer in model_init.xml, so Integer also takes a qualified literal.
+    build_variables = {
+        name: Variable(name, type_name, "parameter", "calculatedParameter", changeable=False, protected=False)
+        for name, type_name in [("n", "Integer"), ("on", "Boolean"), ("mode", "Integer"), ("k", "Real")]
+    }
+    _, problems, build_values = start_values(
+        {"n": 2.7, "on": "false", "mode": "Mode.high", "k": 2},
+        {},
+        model_name=MODEL,
+        to_fmu=lambda name: name,
+        exported=True,
+        build_variables=build_variables,
+    )
+    assert problems == [
+        "settings.parameters.n: expected an Integer, got 2.7",
+        "settings.parameters.on: expected a Boolean, got 'false'",
+    ]
+    assert build_values == {"mode": "Mode.high", "k": "2.0"}
+
 def test_build_time_value_that_is_no_literal_of_its_type_is_a_problem():
     # OMC lists an enumeration as Integer in model_init.xml, so only a qualified literal can be written.
     build_variables = {
