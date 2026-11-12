@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from mtools.errors import ConfigError
+from mtools.internal.fmu import name_map as names
 from mtools.internal.fmu.description import FmuDescription, FmuVariable
 from mtools.internal.fmu.parameters import start_values
 from mtools.internal.omc.config import RunSettings
@@ -103,11 +104,13 @@ def resolve(
     elif resolved_type == "cs" and not description.can_handle_variable_step:
         _check_interval(interval, start_time, stop_time, model_name, problems)
     column_filter = _compile_filter(settings.variable_filter, problems)
+    problems.extend(names.problems(name_map, {variable.name for variable in description.variables}, model_name=model_name))
+    to_experiment = names.to_experiment(name_map)
     values, parameter_problems, build_values = start_values(
         settings.parameters,
         {variable.name: variable for variable in description.variables},
         model_name=model_name,
-        to_fmu=lambda name: name,
+        to_fmu=names.to_fmu(name_map),
         exported=exported,
         build_variables=build_variables,
     )
@@ -117,7 +120,7 @@ def resolve(
     kept = [
         variable
         for variable in description.variables
-        if _is_column(variable) and column_filter.fullmatch(variable.name)
+        if _is_column(variable) and column_filter.fullmatch(to_experiment(variable.name))
     ]
     return ResolvedRun(
         model_name=model_name,
@@ -128,7 +131,7 @@ def resolve(
         tolerance=_first(settings.tolerance, description.tolerance, DEFAULT_TOLERANCE),
         solver=solver,
         start_values=values,
-        columns={variable.name: variable.name for variable in kept},
+        columns={variable.name: to_experiment(variable.name) for variable in kept},
         column_types={variable.name: variable.type for variable in kept},
         cvode_guard=False,
         build_values=build_values,

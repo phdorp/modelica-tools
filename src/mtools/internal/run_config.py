@@ -117,6 +117,10 @@ def validate_fmu_file(run: session_config.SimulationRun) -> tuple[FmuFileConfig,
     problems = [*file_problems(Path(build.fmu_path)), *_settings_problems(settings)]
     if build.fmu_type is not None and build.fmu_type not in FMU_TYPES:
         problems.append(f"build.fmu_type: expected 'me', 'cs' or null, got {build.fmu_type!r}")
+    if not isinstance(build.name_map, Mapping) or not all(
+        isinstance(key, str) and isinstance(value, str) for key, value in build.name_map.items()
+    ):
+        problems.append(f"build.name_map: expected a mapping of experiment names to FMU names, got {build.name_map!r}")
     if (format_problem := result_files.output_format_problem(run.output_format)) is not None:
         problems.append(format_problem)
     if problems:

@@ -75,6 +75,8 @@ def start_values(
     build_values: dict[str, str] = {}
     for key, value in flatten_parameters(parameters).items():
         path = f"settings.parameters.{key}"
+        if to_fmu(key) != key:
+            path += f" (FMU name '{to_fmu(key)}')"
         if exported:
             names = _names(key, value)
             if protected := [name for name in names if name in build_variables and build_variables[name].protected]:
