@@ -129,6 +129,7 @@ def cache_key(config: BuildConfig, build_values: Mapping[str, str] | None = None
             "kind": "fmu",
             "fmi_version": FMI_VERSION,
             "fmu_type": config.fmu.fmu_type,
+            "emit_protected": config.fmu.emit_protected,
             "cmake": cmake_version(),
             "script": fmu_script_version(),
         }

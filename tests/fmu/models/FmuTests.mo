@@ -16,6 +16,13 @@ package FmuTests "Models the FMU tests export and run"
     annotation(experiment(StopTime = 1, Interval = 0.01));
   end Decay;
 
+  model Protected "Decay plus protected variables"
+    extends Decay;
+  protected
+    Real hidden = 2*x;
+    parameter Real hp = 3;
+  end Protected;
+
   model Sampled "A counter incremented by time events"
     Integer count(start = 0);
   equation

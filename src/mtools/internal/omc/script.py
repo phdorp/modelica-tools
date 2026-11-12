@@ -91,7 +91,8 @@ def build_script(config: BuildConfig, file_name_prefix: str, build_values: Mappi
             loading the sources and builds that class instead of the model.
     """
     model = variant_class_name(config.model_name) if build_values else config.model_name
-    flags = " ".join([f"--simCodeTarget={config.target}", "-q", *map(_flag, config.omc_flags.items())])
+    fmi_filter = ["--fmiFilter=internal"] if config.fmu is not None and config.fmu.emit_protected else []
+    flags = " ".join([f"--simCodeTarget={config.target}", "-q", *fmi_filter, *map(_flag, config.omc_flags.items())])
     lines = _checked(f"ok := setCommandLineOptions({_string(flags)});", Stage.OPTIONS)
 
     directories = [str(library.directory) for library in config.libraries if library.directory is not None]

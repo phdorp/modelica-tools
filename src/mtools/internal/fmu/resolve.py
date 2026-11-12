@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -9,6 +10,8 @@ from typing import Any
 from mtools.errors import ConfigError
 from mtools.internal.fmu.description import FmuDescription, FmuVariable
 from mtools.internal.omc.config import RunSettings
+
+logger = logging.getLogger(__name__)
 
 #: The FMU types a run can use.
 FMU_TYPES = ("me", "cs")
@@ -80,6 +83,8 @@ def resolve(
     default_interval = (stop_time - start_time) / DEFAULT_INTERVALS
     problems: list[str] = []
     resolved_type = _resolve_type(description, fmu_type, model_name, problems)
+    if not exported and settings.emit_protected:
+        logger.warning("settings.emit_protected has no effect on the given FMU '%s'", model_name)
     if problems:
         raise ConfigError(f"Invalid run settings for '{model_name}':", model_name=model_name, diagnostics="\n".join(problems))
     kept = [variable for variable in description.variables if _is_column(variable)]

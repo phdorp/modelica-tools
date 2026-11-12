@@ -88,7 +88,11 @@ def validate(run: session_config.SimulationRun) -> tuple[backend.BuildConfig, ba
             for library in build.libraries
         ),
         omc_flags=dict(build.omc_flags),
-        fmu=None if build.fmu is None else backend.FmuExportConfig(fmu_type=build.fmu.fmu_type, emit_protected=False),
+        fmu=(
+            None
+            if build.fmu is None
+            else backend.FmuExportConfig(fmu_type=build.fmu.fmu_type, emit_protected=settings.emit_protected)
+        ),
     )
     run_settings = _run_settings(settings)
     run_cpp.validate_settings(build_config, run_settings)
@@ -152,7 +156,7 @@ def _build_problems(build: session_config.Build) -> Iterator[str]:
         for index, source in enumerate(build.extra_sources):
             yield from _existing(f"build.extra_sources[{index}]", source, Path.is_file, "file")
     yield from _library_problems(build.libraries)
-    yield from _flag_problems(build.omc_flags)
+    yield from _flag_problems(build.omc_flags, exported=build.fmu is not None)
     if build.fmu is not None and build.fmu.fmu_type not in FMU_TYPES:
         yield f"build.fmu.fmu_type: expected 'me' or 'cs', got {build.fmu.fmu_type!r}"
 
@@ -173,7 +177,7 @@ def _library_problems(libraries: Any) -> Iterator[str]:
             yield from _existing(f"{path}.directory", library.directory, Path.is_dir, "directory")
 
 
-def _flag_problems(omc_flags: Any) -> Iterator[str]:
+def _flag_problems(omc_flags: Any, *, exported: bool) -> Iterator[str]:
     if not isinstance(omc_flags, Mapping):
         yield f"build.omc_flags: expected a mapping of flag to value, got {omc_flags!r}"
         return
@@ -182,6 +186,8 @@ def _flag_problems(omc_flags: Any) -> Iterator[str]:
             yield f"build.omc_flags: expected string flags with string or null values, got {flag!r}: {value!r}"
         elif flag.lstrip("-+").split("=")[0] == "simCodeTarget":
             yield f"build.omc_flags: '{flag}' is not allowed; set the simulation target with build.target"
+        elif exported and flag.lstrip("-+").split("=")[0] == "fmiFilter":
+            yield f"build.omc_flags: '{flag}' is not allowed for an exported FMU; set settings.emit_protected"
 
 
 def _settings_problems(settings: session_config.RunSettings) -> Iterator[str]:
