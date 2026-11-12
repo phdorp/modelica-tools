@@ -1078,12 +1078,39 @@ def test_interpolate_rejects_reference_times_outside_the_candidate_span():
         T().assert_matches_reference()
 
 
+@pytest.mark.parametrize(
+    "reference_times, outside", [([0.0, float("nan")], "nan"), ([-1.0, 0.0], "-1")], ids=["nan", "before"]
+)
+def test_interpolate_rejects_every_reference_time_outside_the_span(reference_times, outside):
+    class T(testing.ExperimentReference):
+        name = "x"
+        interpolate = True
+        results = pd.DataFrame({"time": [0.0, 1.0], "y": [0.0, 1.0]})
+        reference_results = pd.DataFrame({"time": reference_times, "y": [0.0, 0.0]})
+
+    with pytest.raises(AssertionError, match=rf"reference time {outside} lies outside"):
+        T().assert_matches_reference()
+
+
+def test_interpolate_rejects_unsorted_candidate_times():
+    class T(testing.ExperimentReference):
+        name = "x"
+        interpolate = True
+        results = pd.DataFrame({"time": [0.0, 1.0, 0.5], "y": [0.0, 1.0, 0.5]})
+        reference_results = pd.DataFrame({"time": [0.0, 1.0], "y": [0.0, 1.0]})
+
+    with pytest.raises(AssertionError, match="candidate times aren't increasing"):
+        T().assert_matches_reference()
+
+
 def test_interpolate_ignores_row_counts_and_time():
     class T(testing.ExperimentReference):
         name = "x"
         interpolate = True
         results = pd.DataFrame({"time": [0.0, 0.5, 1.0], "y": [0.0, 0.5, 1.0]})
-        reference_results = pd.DataFrame({"time": [0.0, 0.25, 0.75, 1.0], "y": [0.0, 0.25, 0.75, 1.0]})
+        reference_results = pd.DataFrame(
+            {"time": [0.0, 0.25, 0.75, 1.0], "y": [0.0, 0.25, 0.75, 1.0]}
+        )
 
     T().assert_matches_reference()
 
@@ -1114,20 +1141,23 @@ def test_interpolate_rejects_an_empty_table(empty):
         T().assert_matches_reference()
 
 
-class TestPickSolution:
+class TestPickResult:
     def test_named_model_takes_its_table(self):
         table = pd.DataFrame({"a": [1.0]})
-        assert internal_testing.pick_solution({"m": table, "n": pd.DataFrame()}, "m") == ("m", table)
+        results = {"m": table, "n": pd.DataFrame()}
+        assert internal_testing.pick_result(results, "m") == ("m", table)
 
     def test_unset_model_name_takes_the_single_table_and_its_key(self):
         table = pd.DataFrame({"a": [1.0]})
-        assert internal_testing.pick_solution({"FmuTests.Decay": table}, None) == ("FmuTests.Decay", table)
+        results = {"FmuTests.Decay": table}
+        assert internal_testing.pick_result(results, None) == ("FmuTests.Decay", table)
 
-    @pytest.mark.parametrize("solutions", [{}, {"a": pd.DataFrame(), "b": pd.DataFrame()}])
-    def test_unset_model_name_needs_exactly_one_table(self, solutions):
-        with pytest.raises(AssertionError, match=r"expected one solution table .* got \d+: .*set build.model_name"):
-            internal_testing.pick_solution(solutions, None)
+    @pytest.mark.parametrize("results", [{}, {"a": pd.DataFrame(), "b": pd.DataFrame()}])
+    def test_unset_model_name_needs_exactly_one_table(self, results):
+        expected = r"expected one result table .* got \d+: .*set build.model_name"
+        with pytest.raises(AssertionError, match=expected):
+            internal_testing.pick_result(results, None)
 
     def test_unknown_model_name_names_it_and_the_keys_found(self):
-        with pytest.raises(AssertionError, match=r"'x'.*\['a', 'b'\]"):
-            internal_testing.pick_solution({"a": pd.DataFrame(), "b": pd.DataFrame()}, "x")
+        with pytest.raises(AssertionError, match=r"no result for .*'x'.*\['a', 'b'\]"):
+            internal_testing.pick_result({"a": pd.DataFrame(), "b": pd.DataFrame()}, "x")

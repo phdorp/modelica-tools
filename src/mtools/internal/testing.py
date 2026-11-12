@@ -175,20 +175,27 @@ def _ensure_unique(keys: list, message: str) -> None:
         raise ValueError(message)
 
 
-def pick_solution(solutions: Mapping[str, pd.DataFrame], model_name: str | None) -> tuple[str, pd.DataFrame]:
-    """Return ``(name, table)`` of the model ``model_name`` from one run's ``solutions``.
+def pick_result(results: Mapping[str, pd.DataFrame], model_name: str | None) -> tuple[str, pd.DataFrame]:
+    """Return ``(name, table)`` of the model ``model_name`` from one run's ``results``.
 
     A given FMU configured without ``build.model_name`` has ``None`` here; its run
     returns a single table keyed by the FMU's own ``modelName``, which is taken instead.
+
+    Raises:
+        AssertionError: ``model_name`` is ``None`` and the run returned other than one
+            table, or the run returned no table for ``model_name``.
     """
-    keys = list(solutions)
+    keys = list(results)
     if model_name is None:
-        assert len(keys) == 1, (
-            f"expected one solution table when build.model_name is unset, got {len(keys)}: {keys}; set build.model_name"
-        )
+        if len(keys) != 1:
+            raise AssertionError(
+                f"expected one result table when build.model_name is unset, got {len(keys)}: {keys}; "
+                "set build.model_name"
+            )
         model_name = keys[0]
-    assert model_name in solutions, f"no solution for build.model_name {model_name!r}; the run returned {keys}"
-    return model_name, solutions[model_name]
+    if model_name not in results:
+        raise AssertionError(f"no result for build.model_name {model_name!r}; the run returned {keys}")
+    return model_name, results[model_name]
 
 
 def _select_job_value(config: object, path: str) -> object:
@@ -237,8 +244,9 @@ def align(
     columns take the last value at or before each reference time.
 
     Raises:
-        AssertionError: If either table is empty, or a reference time lies
-            outside the candidate's span.
+        AssertionError: If either table is empty, the candidate's times aren't
+            increasing, or a reference time (``NaN`` included) lies outside the
+            candidate's span.
     """
     actual = actual.drop_duplicates("time", keep="last")
     reference = reference.drop_duplicates("time", keep="last")
@@ -247,13 +255,15 @@ def align(
             raise AssertionError(f"{context}: {side} solution is empty; nothing to interpolate")
     times = actual["time"].to_numpy(dtype=float)
     targets = reference["time"].to_numpy(dtype=float)
+    if not np.all(np.diff(times) > 0):
+        raise AssertionError(f"{context}: candidate times aren't increasing; can't interpolate")
     low, high = times[0], times[-1]
-    for target in targets:
-        if target < low or target > high:
-            raise AssertionError(
-                f"{context}: reference time {target:g} lies outside the candidate's "
-                f"time span [{low:g}, {high:g}]"
-            )
+    outside = targets[~((targets >= low) & (targets <= high))]
+    if outside.size:
+        raise AssertionError(
+            f"{context}: reference time {outside[0]:g} lies outside the candidate's "
+            f"time span [{low:g}, {high:g}]"
+        )
     index = np.searchsorted(times, targets, side="right") - 1
     aligned = {}
     for column in actual.columns:
@@ -277,14 +287,17 @@ def assert_solutions_match(
     """Recursively assert that candidate solutions match reference solutions.
 
     By default, data frame references are compared by column set, row count,
-    and positionally per column. The ``time`` column is compared like any
-    other column: both models must be simulated under the same conditions, so
-    a time mismatch indicates a differing simulation setup. With
-    ``interpolate`` the candidate is first aligned onto the reference's time
-    points (see :func:`align`); row counts then need not match and ``time``
-    isn't compared. Dict references require the same key set and are compared
-    recursively; ``context`` is extended with each key so failures identify
-    the offending experiment or sweep combination.
+    and positionally per column. The ``time`` column is compared like any other
+    column: both models must be simulated under the same conditions, so a time
+    mismatch indicates a differing simulation setup.
+
+    With ``interpolate`` the candidate is first aligned onto the reference's
+    time points (see :func:`align`); row counts then need not match and
+    ``time`` isn't compared.
+
+    Dict references require the same key set and are compared recursively;
+    ``context`` is extended with each key so failures identify the offending
+    experiment or sweep combination.
 
     Args:
         actual: Candidate solution structure (data frame or dict of them).
@@ -482,7 +495,7 @@ class _SweepPlan:
             configured = _select_job_value(job.config, "build.model_name")
             if configured is not None and not isinstance(configured, str):
                 raise ValueError("config path 'build.model_name' is neither a string nor unset in sweep job config")
-            model_name, results[raw_key] = pick_solution(job.solutions, configured)
+            model_name, results[raw_key] = pick_result(job.solutions, configured)
             if model_name not in self.model_names:
                 self.model_names.append(model_name)
         assert len(results) == len(self.combos), (
