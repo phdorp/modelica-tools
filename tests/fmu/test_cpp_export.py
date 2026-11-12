@@ -25,10 +25,16 @@ def test_cpp_export_warns_once_and_runs(caplog):
         if record.getMessage().startswith("Exporting 'FmuTests.Decay' from the Cpp target")
     ]
     assert len(warnings) == 1
-    # The Cpp FMU's output grid is nondeterministic across runs of the same FMU and settings:
-    # 109 rows (max relative error 4.2e-6) or about 13238 rows (max relative error 7.75e-4).
-    # The tolerance covers the worse mode.
-    np.testing.assert_allclose(result["x"], np.exp(-result["time"]), rtol=2e-3, atol=1e-6)
+    # Without the event-indicator guard (see indicator_guard.py) the output varies per run.
+    np.testing.assert_allclose(result["x"], np.exp(-result["time"]), rtol=1e-4, atol=1e-6)
+
+
+def test_cpp_export_runs_are_reproducible(fresh_work_dir):
+    # The export is cached after the first run, so each further run is one child start.
+    results = [simulate_exported("FmuTests.Decay", target="Cpp")["FmuTests.Decay"] for _ in range(8)]
+    assert {len(result) for result in results} == {len(results[0])}
+    for result in results:
+        np.testing.assert_allclose(result["x"], np.exp(-result["time"]), rtol=1e-4, atol=1e-6)
 
 
 def test_cpp_co_simulation_is_a_config_error(caplog):

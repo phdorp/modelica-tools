@@ -11,6 +11,7 @@ from pathlib import Path
 
 import numpy as np
 
+from mtools.internal.fmu import indicator_guard
 from mtools.internal.fmu.request import RunRequest
 
 RESULT_FILE_NAME = "result.npy"
@@ -25,6 +26,8 @@ def main(argv: list[str]) -> int:
     directory = Path(argv[0])
     request = RunRequest.read(directory)
     fmpy.extract(request.fmu_path, unzipdir=request.unzip_dir)
+    if request.fmi_type == "ModelExchange":
+        indicator_guard.install()
     result = fmpy.simulate_fmu(
         request.unzip_dir,
         fmi_type=request.fmi_type,
