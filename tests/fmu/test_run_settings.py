@@ -72,3 +72,19 @@ def test_all_step4_problems_come_in_one_error(tmp_path):
         "build.fmu_type: 'Dahlquist' has no Model Exchange interface",
         "settings.solver: Model Exchange FMU runs support 'cvode' and 'euler', got 'dassl'",
     ]
+
+
+def test_invalid_variable_filter_is_a_config_error():
+    with pytest.raises(ConfigError) as error:
+        simulate_given(reference_fmu("Dahlquist"), variable_filter="(")
+    assert "settings.variable_filter: invalid regular expression '(': missing ), unterminated subpattern at position 0" in (
+        error.value.diagnostics
+    )
+
+
+@pytest.mark.parametrize("fmu_type", ["me", "cs"])
+@pytest.mark.parametrize("interval", [0.0, -0.5])
+def test_non_positive_interval_is_a_config_error(fmu_type, interval):
+    with pytest.raises(ConfigError) as error:
+        simulate_given(reference_fmu("Dahlquist"), fmu_type=fmu_type, interval=interval)
+    assert f"settings.interval: expected a positive number, got {interval}" in error.value.diagnostics

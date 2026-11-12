@@ -90,14 +90,17 @@ def resolve(
         logger.warning("settings.emit_protected has no effect on the given FMU '%s'", model_name)
     solver = _resolve_solver(settings.solver, resolved_type, model_name, problems)
     interval = _first(settings.interval, description.interval, default_interval)
-    if resolved_type == "cs" and not description.can_handle_variable_step:
+    if interval <= 0:
+        problems.append(f"settings.interval: expected a positive number, got {interval}")
+    elif resolved_type == "cs" and not description.can_handle_variable_step:
         _check_interval(interval, start_time, stop_time, model_name, problems)
+    column_filter = _compile_filter(settings.variable_filter, problems)
     if problems:
         raise ConfigError(f"Invalid run settings for '{model_name}':", model_name=model_name, diagnostics="\n".join(problems))
     kept = [
         variable
         for variable in description.variables
-        if _is_column(variable) and re.fullmatch(settings.variable_filter, variable.name)
+        if _is_column(variable) and column_filter.fullmatch(variable.name)
     ]
     return ResolvedRun(
         model_name=model_name,
@@ -123,6 +126,15 @@ def _resolve_type(description: FmuDescription, requested: str | None, model_name
     if requested not in description.fmu_types:
         problems.append(f"build.fmu_type: '{model_name}' has no {_INTERFACE_NAMES[requested]} interface")
     return requested
+
+
+def _compile_filter(pattern: str, problems: list[str]) -> re.Pattern[str]:
+    """Return the compiled ``variable_filter``; appends to ``problems`` when it isn't a regular expression."""
+    try:
+        return re.compile(pattern)
+    except re.error as error:
+        problems.append(f"settings.variable_filter: invalid regular expression {pattern!r}: {error}")
+        return re.compile("")
 
 
 def _resolve_solver(requested: str | None, fmu_type: str, model_name: str, problems: list[str]) -> str | None:
