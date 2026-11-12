@@ -75,7 +75,10 @@ def start_values(
                 problems.append(f"{path}: '{model_name}' parameter '{protected[0]}' is protected")
                 continue
             if any(_fixed_at_build(variables.get(to_fmu(name))) for name in names):
-                build_values.update(build_time_values({key: value}, build_variables))
+                if wrong := _wrong_types(key, value, variables, to_fmu):
+                    problems.extend(f"{path}: {problem}" for problem in wrong)
+                else:
+                    build_values.update(build_time_values({key: value}, build_variables))
                 continue
         variable = variables.get(to_fmu(key))
         if variable is not None and _is_array_like(value):
@@ -120,6 +123,15 @@ def _names(key: str, value: Any) -> list[str]:
         return list(expand_parameters({key: value}))
     except ValueError:
         return []
+
+
+def _wrong_types(key: str, value: Any, variables: Mapping[str, FmuVariable], to_fmu: Callable[[str], str]) -> list[str]:
+    """Return why the elements of ``value`` don't fit the types of the variables ``key`` names."""
+    return [
+        f"expected {_expectation(variables[to_fmu(name)])}, got {_show(element)}"
+        for name, element in expand_parameters({key: value}).items()
+        if to_fmu(name) in variables and not _accepts(variables[to_fmu(name)], element)
+    ]
 
 
 def _fixed_at_build(variable: FmuVariable | None) -> bool:

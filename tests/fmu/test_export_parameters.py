@@ -25,6 +25,13 @@ def test_evaluate_true_parameter_exports_a_variant(caplog):
     assert "Building a variant of 'FmuTests.BuildTime' because 'useA' is fixed at build time" in caplog.text
 
 
+def test_build_time_value_of_the_wrong_type_is_a_config_error_before_any_variant(caplog):
+    with pytest.raises(ConfigError) as error:
+        simulate_exported(MODEL, parameters={"n": 2.7})
+    assert "settings.parameters.n: expected an Integer, got 2.7" in error.value.diagnostics
+    assert "Building a variant" not in caplog.text
+
+
 def test_final_parameter_is_a_translation_error():
     with pytest.raises(TranslationError, match="final"):
         simulate_exported(MODEL, parameters={"f": 2.0})
