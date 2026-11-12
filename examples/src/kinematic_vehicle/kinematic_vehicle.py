@@ -19,6 +19,7 @@ import mtools.hydra_registry as hydra_registry
 import mtools.session_config as session_config
 
 MODEL_NAME = "kinematic_vehicle.WrapperKinematicVehicle"
+MODEL_PATH = (Path(__file__).parent / "package.mo").resolve()
 
 #: Simulation target of every run config in this example: OpenModelica's C++ runtime.
 TARGET = "Cpp"
@@ -63,7 +64,7 @@ registry.register_group_options(
 # the model name, source, and target are supplied here.
 run_default = registry.create_run(
     model_name=MODEL_NAME,
-    model_path=(Path(__file__).parent / "package.mo").resolve(),
+    model_path=MODEL_PATH,
     target=TARGET,
     include_experiment_group=True,
     name="default",
@@ -73,7 +74,7 @@ run_default = registry.create_run(
 # (`python -m kinematic_vehicle --config-name fmu`).
 run_fmu = registry.create_run(
     model_name=MODEL_NAME,
-    model_path=(Path(__file__).parent / "package.mo").resolve(),
+    model_path=MODEL_PATH,
     target="C",
     fmu=session_config.FmuExport(),
     selections={"settings": "fmu"},
@@ -115,12 +116,13 @@ registry.register_experiment(
 # Re-exported for convenience.
 __all__ = [
     "MODEL_NAME",
+    "MODEL_PATH",
     "TARGET",
     "registry",
     "run_default",
     "run_fmu",
+    "settings_default",
     "settings_fmu",
     "vehicle_default",
     "vehicle_turn_left",
-    "settings_default",
 ]
