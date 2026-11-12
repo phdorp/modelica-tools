@@ -6,6 +6,8 @@ import numpy as np
 import pytest
 
 from mtools.errors import ConfigError
+from mtools.internal import run_config
+from mtools.session_config import FmuFile, RunSettings, SimulationRun
 from tests.fmu.helpers import reference_fmu, simulate_given
 
 pytestmark = pytest.mark.fmu
@@ -37,6 +39,23 @@ def test_map_problems(name_map, line):
     with pytest.raises(ConfigError) as error:
         simulate_given(reference_fmu("Dahlquist"), name_map=name_map, variable_filter="x")
     assert line in error.value.diagnostics  # collision checked regardless of variable_filter
+
+
+def test_collision_is_checked_whatever_the_filter_keeps():
+    with pytest.raises(ConfigError) as error:
+        simulate_given(reference_fmu("Dahlquist"), name_map={"x": "k"}, variable_filter="nothing")
+    assert "build.name_map.x: 'x' is also the name of an FMU variable that isn't renamed" in error.value.diagnostics
+
+
+@pytest.mark.parametrize("name_map", [{"a": 1}, ["a"], {1: "x"}])
+def test_name_map_must_map_strings_to_strings(name_map):
+    run = SimulationRun(
+        build=FmuFile(fmu_path=reference_fmu("Dahlquist"), name_map=name_map),  # type: ignore[arg-type]
+        settings=RunSettings(parameters={}),
+    )
+    with pytest.raises(ConfigError) as error:
+        run_config.validate_fmu_file(run)
+    assert "build.name_map: expected a mapping of experiment names to FMU names, got" in error.value.diagnostics
 
 
 def test_swap_is_legal():
