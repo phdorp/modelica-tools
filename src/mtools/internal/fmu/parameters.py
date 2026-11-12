@@ -48,10 +48,11 @@ def start_values(
 
     For an exported FMU, a requested name is first protected, as ``build_variables``
     marks it (the model description doesn't tell), then fixed at build time, when the
-    model description makes it a ``calculatedParameter``. Its key then needs a variant
-    FMU (ADR 0001), and the other keys are set on the variant and checked against its
-    model description instead: an array sized by a build-time parameter has other
-    elements there.
+    model description makes it a ``calculatedParameter`` or leaves it out while
+    ``build_variables`` lists it as a non-changeable parameter. Its key then needs a
+    variant FMU (ADR 0001), and the other keys are set on the variant and checked
+    against its model description instead: an array sized by a build-time parameter
+    has other elements there.
 
     Args:
         parameters: The run settings' parameters (dataclass instance or mapping).
@@ -79,7 +80,7 @@ def start_values(
             if protected := [name for name in names if name in build_variables and build_variables[name].protected]:
                 problems.append(f"{path}: '{model_name}' parameter '{protected[0]}' is protected")
                 continue
-            if any(_fixed_at_build(variables.get(to_fmu(name))) for name in names):
+            if any(_fixed_at_build(variables.get(to_fmu(name)), build_variables.get(name)) for name in names):
                 if wrong := _wrong_types(key, value, variables, to_fmu):
                     problems.extend(f"{path}: {problem}" for problem in wrong)
                 else:
@@ -153,9 +154,13 @@ def _wrong_types(key: str, value: Any, variables: Mapping[str, FmuVariable], to_
     ]
 
 
-def _fixed_at_build(variable: FmuVariable | None) -> bool:
-    """Whether OMC fixed ``variable`` while translating the exported model."""
-    return variable is not None and variable.causality == "calculatedParameter"
+def _fixed_at_build(variable: FmuVariable | None, build_variable: Variable | None) -> bool:
+    """Whether OMC fixed a variable while translating the exported model: the model
+    description makes it a ``calculatedParameter``, or leaves it out while the build
+    lists it as a non-changeable parameter."""
+    if variable is not None:
+        return variable.causality == "calculatedParameter"
+    return build_variable is not None and build_variable.variability == "parameter" and not build_variable.changeable
 
 
 def _check(variable: FmuVariable, value: Any, model_name: str) -> str | None:

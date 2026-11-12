@@ -5,6 +5,9 @@ import logging
 import pytest
 
 from mtools.errors import ConfigError, TranslationError
+from mtools.internal.fmu.description import FmuVariable
+from mtools.internal.fmu.parameters import start_values
+from mtools.internal.omc.init_xml import Variable
 from tests.fmu.helpers import build_messages, simulate_exported
 
 MODEL = "FmuTests.BuildTime"
@@ -48,3 +51,18 @@ def test_protected_parameter_is_a_config_error_before_any_variant(caplog, emit_p
         simulate_exported(MODEL, parameters={"hp": 1.0}, emit_protected=emit_protected)
     assert "settings.parameters.hp: 'FmuTests.BuildTime' parameter 'hp' is protected" in error.value.diagnostics
     assert "Building a variant" not in caplog.text
+
+
+def test_parameter_evaluated_out_of_the_model_description_is_build_time():
+    # OMC can leave an evaluated parameter out of the model description; the export's
+    # model_init.xml still lists it as a public non-changeable parameter.
+    k = FmuVariable("k", "Real", "parameter", "fixed", "exact", None, {})
+    build_variables = {
+        "n": Variable("n", "Integer", "parameter", "calculatedParameter", changeable=False, protected=False),
+        "k": Variable("k", "Real", "parameter", "parameter", changeable=True, protected=False),
+    }
+    _, problems, build_values = start_values(
+        {"n": 3, "k": 2.0}, {"k": k}, model_name=MODEL, to_fmu=lambda name: name,
+        exported=True, build_variables=build_variables,
+    )
+    assert (problems, build_values) == ([], {"n": "3"})
