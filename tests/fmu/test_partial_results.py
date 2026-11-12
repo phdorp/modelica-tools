@@ -1,11 +1,15 @@
 """A failed FMU run returns the rows recorded before it failed, shaped like a full result."""
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 
 from mtools.errors import SimulationError, SimulationTimeout
 from mtools.internal.fmu import child, runner
 from mtools.internal.fmu.resolve import ResolvedRun
+from mtools.internal.omc.config import RunSettings
+from mtools.internal.omc.process import ProcessResult
 from tests.fmu.helpers import simulate_exported, simulate_given
 
 
@@ -63,6 +67,17 @@ def test_unreadable_partial_result_is_none(tmp_path, content):
     if content is not None:
         (tmp_path / child.PARTIAL_FILE_NAME).write_bytes(content)
     assert runner._read_partial(tmp_path, RUN) is None
+
+
+def test_non_structured_partial_result_keeps_the_run_error(monkeypatch):
+    def failed_run(command: object, directory: Path, timeout: float | None) -> ProcessResult:
+        np.save(directory / child.PARTIAL_FILE_NAME, np.zeros(3), allow_pickle=False)
+        return ProcessResult(returncode=1, output="", timed_out=False)
+
+    monkeypatch.setattr(runner, "execute", failed_run)
+    with pytest.raises(SimulationError, match="^Simulation of 'M' failed:") as error:
+        runner._run(Path("model.fmu"), RUN, RunSettings())
+    assert error.value.partial_result is None
 
 
 def test_partial_result_conversion_bug_is_not_hidden(tmp_path, monkeypatch):

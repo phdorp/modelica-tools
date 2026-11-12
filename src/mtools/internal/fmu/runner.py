@@ -123,7 +123,9 @@ def _read_partial(directory: Path, run: ResolvedRun) -> pd.DataFrame | None:
     try:
         array = np.load(directory / child.PARTIAL_FILE_NAME, allow_pickle=False)
         return to_frame(array, run) if array.size else None
-    except (OSError, EOFError, ValueError, SimulationError):  # no file, a cut-off file, or rows to_frame can't convert
+    # OSError: no file; EOFError/ValueError: an empty or cut-off file, or a column missing from the
+    # rows; IndexError: a non-structured array; SimulationError: rows to_frame can't convert.
+    except (OSError, EOFError, ValueError, IndexError, SimulationError):
         logger.debug("No usable partial result in %s", directory, exc_info=True)
         return None
 
