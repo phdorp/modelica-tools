@@ -9,10 +9,10 @@ import pytest
 from omegaconf import OmegaConf
 
 from mtools import sim_tools
-from mtools.errors import ConfigError
+from mtools.errors import CompileError, ConfigError, TranslationError
 from mtools.hydra_registry import HydraZenRegistry
 from mtools.internal.omc import workdir
-from mtools.session_config import RunSettings
+from mtools.session_config import FmuExport, RunSettings
 from tests.fmu.fmu_models import MODEL_PATH
 from tests.fmu.helpers import build_messages, simulate_exported
 
@@ -82,3 +82,35 @@ def test_no_cache_exports_into_a_throwaway_directory(fresh_work_dir, monkeypatch
     assert message.startswith("Built 'FmuTests.Decay' without cache in ")
     assert list(workdir.builds_dir().iterdir()) == []
     assert list(workdir.runs_dir().iterdir()) == []  # the export and the run directory are deleted
+
+
+def _simulate_source(tmp_path, model: str, source: str) -> None:
+    """Export ``model`` from ``source``, written into ``tmp_path``, and run it."""
+    path = tmp_path / f"{model}.mo"
+    path.write_text(source)
+    run = HydraZenRegistry().create_run(
+        model_name=model, model_path=path, settings=RunSettings(parameters={}), fmu=FmuExport()
+    )
+    sim_tools.simulate(OmegaConf.structured(run))
+
+
+def test_translation_failure_is_a_translation_error(tmp_path):
+    source = "model Broken Real x; equation der(x) = undefinedThing; end Broken;\n"
+
+    with pytest.raises(TranslationError, match="^Modelica translation failed for 'Broken'") as raised:
+        _simulate_source(tmp_path, "Broken", source)
+
+    assert raised.value.diagnostics.count("Variable undefinedThing not found in scope Broken") == 1
+
+
+def test_compile_failure_is_a_compile_error(tmp_path):
+    source = (
+        "model CBuild\n  function f\n    input Real x;\n    output Real y;\n"
+        '    external "C" y = missingF(x) annotation(Include="#include \\"no_such_header.h\\"");\n'
+        "  end f;\n  Real v = f(time);\nend CBuild;\n"
+    )
+
+    with pytest.raises(CompileError, match="^Modelica build failed for 'CBuild'") as raised:
+        _simulate_source(tmp_path, "CBuild", source)
+
+    assert "no_such_header.h" in raised.value.diagnostics
