@@ -12,7 +12,8 @@ Do not install any dependencie unless the devcontainer is unavailable.
 
 - `src/mtools/` — main package: `session_config.py`, `sim_tools.py`, `hydra_registry.py`, `testing.py`, `errors.py`, and internal helpers in `internal/`.
 - `src/mtools/internal/omc/` — the OpenModelica backend (build, cache, run); reference in `docs/omc-backend.md`.
-- `tests/omc_backend/`, `tests/session_tools/`, `tests/plot_tools/` — pytest suites; `tests/conftest.py` resets process-wide state between tests.
+- `src/mtools/internal/fmu/` — FMU runs through FMPy (resolve, child process, diagnostics); reference in `docs/fmu-runs.md`.
+- `tests/omc_backend/`, `tests/session_tools/`, `tests/plot_tools/`, `tests/fmu/` — pytest suites; `tests/conftest.py` resets process-wide state between tests.
 - `examples/` — separate uv workspace member with its own `pyproject.toml`, package, and tests.
 
 ## Development

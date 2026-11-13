@@ -46,14 +46,14 @@ def expand_parameters(parameters: Mapping[str, Any]) -> dict[str, Any]:
     """
     expanded: dict[str, Any] = {}
     for name, value in parameters.items():
-        if _is_array_like(value):
+        if is_array_like(value):
             expanded.update(_expand_array(name, (), value))
         else:
             expanded[name] = value
     return expanded
 
 
-def _is_array_like(value: Any) -> bool:
+def is_array_like(value: Any) -> bool:
     return hasattr(value, "__iter__") and not isinstance(value, (str, bytes, Mapping))
 
 
@@ -63,7 +63,7 @@ def _expand_array(name: str, indices: tuple[int, ...], value: Any) -> dict[str, 
     expanded: dict[str, Any] = {}
     for index, element in enumerate(value, start=1):
         element_indices = (*indices, index)
-        if _is_array_like(element):
+        if is_array_like(element):
             expanded.update(_expand_array(name, element_indices, element))
         else:
             expanded[f"{name}[{','.join(map(str, element_indices))}]"] = element

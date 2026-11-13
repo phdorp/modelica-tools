@@ -78,7 +78,11 @@ Run directories and uncached builds are otherwise deleted when `simulate` ends. 
 
 ## Build cache
 
-The cache key is a content hash of the source packages (including `Resources/`), library specs, target, `omc_flags`, build-time parameter values, and the OMC and C compiler versions. Editing a file in the package, in an `extra_sources` package or in a `directory` library rebuilds. The key does not depend on where the sources are, so two checkouts of the same project that share a work directory share their builds. There is no automatic eviction; delete `<work dir>/builds/` to clear it. C headers included by absolute path from outside any package are not part of the key, so changing one does not trigger a rebuild; use `MTOOLS_NO_CACHE=1` for those models.
+The cache key is a content hash of the source packages (including `Resources/`), library specs, target, `omc_flags`, build-time parameter values, and the OMC and C compiler versions. Editing a file in the package, in an `extra_sources` package or in a `directory` library rebuilds. The key does not depend on where the sources are, so two checkouts of the same project that share a work directory share their builds.
+
+There is no automatic eviction; delete `<work dir>/builds/` to clear it. C headers included by absolute path from outside any package are not part of the key, so changing one does not trigger a rebuild; use `MTOOLS_NO_CACHE=1` for those models.
+
+Exported FMUs are cached under the same rules; their key adds the FMU settings and the CMake version (not its path); see [FMU runs](fmu-runs.md#caching).
 
 ## Errors and logging
 

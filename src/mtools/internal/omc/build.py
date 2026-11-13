@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import logging
 import subprocess
-from collections.abc import Mapping
+import zipfile
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
@@ -23,6 +24,12 @@ OMC = "omc"
 FILE_NAME_PREFIX = "model"
 SCRIPT_NAME = "build.mos"
 
+CPP_FMU_WARNING = (
+    "Exporting '{model}' from the Cpp target: the FMU is Model Exchange only, time events"
+    " (when sample(...)) broke silently under FMPy, and resources and shared libraries"
+    " aren't copied into it."
+)
+
 
 @dataclass(frozen=True)
 class Build:
@@ -32,7 +39,8 @@ class Build:
 
     Attributes:
         config: The build config it was made from.
-        directory: Directory holding the executable and ``<prefix>_init.xml``.
+        directory: Directory holding the executable (or, for an FMU export, the FMU) and
+            ``<prefix>_init.xml``.
         file_name_prefix: Name of the executable and its generated files.
         variables: Every variable of ``<prefix>_init.xml`` by name.
         experiment: The model's experiment annotation (OMC defaults where unset).
@@ -72,6 +80,11 @@ class Build:
         return self.config.target
 
     @property
+    def fmu_path(self) -> Path:
+        """The exported FMU of a build whose config sets ``fmu``."""
+        return self.directory / f"{self.file_name_prefix}.fmu"
+
+    @property
     def parameters(self) -> dict[str, Variable]:
         """The variables a run may name: parameters, and other variables whose start
         value a run can change (e.g. states)."""
@@ -94,15 +107,20 @@ class Build:
         if not self.build_values:
             split = variants.split_parameters(settings.parameters, self.variables, self.model_name)
             if split.build_values:
-                logger.info(
-                    "Building a variant of '%s' because %s fixed at build time",
-                    self.model_name,
-                    ", ".join(f"'{name}'" for name in split.build_values)
-                    + (" is" if len(split.build_values) == 1 else " are"),
-                )
+                log_variant(self.model_name, split.build_values)
                 with build(self.config, split.build_values) as variant:
                     return variant.simulate(replace(settings, parameters=dict(split.run_parameters)))
         return run.simulate(self, settings)
+
+
+def log_variant(model_name: str, names: Iterable[str]) -> None:
+    """Log at INFO that a variant of ``model_name`` is built because of the parameters ``names``."""
+    quoted = [f"'{name}'" for name in names]
+    logger.info(
+        "Building a variant of '%s' because %s fixed at build time",
+        model_name,
+        ", ".join(quoted) + (" is" if len(quoted) == 1 else " are"),
+    )
 
 
 def build(config: BuildConfig, build_values: Mapping[str, str] | None = None) -> Build:
@@ -120,6 +138,8 @@ def build(config: BuildConfig, build_values: Mapping[str, str] | None = None) ->
         TranslationError: OMC failed to set options, load or translate the model.
         CompileError: Compiling or linking the generated code failed.
     """
+    if _is_cpp_export(config):
+        logger.warning(CPP_FMU_WARNING.format(model=config.model_name))
     if workdir.no_cache():
         directory = workdir.new_run_directory("build-")
         result = _make(config, directory, build_values)
@@ -178,6 +198,8 @@ def _run_omc(config: BuildConfig, directory: Path, build_values: Mapping[str, st
         )
     _log_build_diagnostics(config.model_name, stage_text)
 
+    if _is_cpp_export(config):
+        _extract_init_xml(config, directory)
     cache.save_record(directory, cache.new_record(config, output.experiment, output.loaded_libraries))
     return Build(
         config=config,
@@ -188,6 +210,31 @@ def _run_omc(config: BuildConfig, directory: Path, build_values: Mapping[str, st
         loaded_libraries=output.loaded_libraries,
         build_values=dict(build_values or {}),
     )
+
+
+def _is_cpp_export(config: BuildConfig) -> bool:
+    """Whether ``config`` exports an FMU from the Cpp target."""
+    return config.fmu is not None and config.target == "Cpp"
+
+
+def _extract_init_xml(config: BuildConfig, directory: Path) -> None:
+    """Copy ``<prefix>_init.xml`` out of the FMU that ``config`` exported into ``directory``:
+    ``translateModel`` writes none for Cpp.
+
+    Raises:
+        CompileError: The FMU is no zip archive or holds no ``sources/<prefix>_init.xml``.
+    """
+    name = f"{FILE_NAME_PREFIX}_init.xml"
+    fmu_path = directory / f"{FILE_NAME_PREFIX}.fmu"
+    try:
+        with zipfile.ZipFile(fmu_path) as archive:
+            (directory / name).write_bytes(archive.read(f"sources/{name}"))
+    except (OSError, KeyError, zipfile.BadZipFile) as error:
+        raise CompileError(
+            f"Modelica build failed for '{config.model_name}' ({Path(config.model_path).absolute()}):",
+            model_name=config.model_name,
+            diagnostics=f"can't read sources/{name} from the exported FMU {fmu_path}: {error}",
+        ) from None
 
 
 def _log_build_diagnostics(model_name: str, stage_text: str) -> None:

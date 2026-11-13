@@ -9,7 +9,9 @@ requires-python = ">=3.11"
 dependencies = ["hydra-zen~=0.16.0", "hydra-core>=1.3.2,<1.3.7", "pandas~=3.0.2", "numpy~=2.4.6", "dash~=4.1.0"]
 
 [project.optional-dependencies]
-dev = ["mypy~=1.20.0", "pytest~=9.0.2", "pytest-xdist~=3.8.0", "isort~=8.0.1", "pandas-stubs~=3.0.0", "plotly-stubs~=0.1.3"]
+dev = ["mypy~=1.20.0", "pytest~=9.0.2", "pytest-xdist~=3.8.0", "isort~=8.0.1", "pandas-stubs~=3.0.0", "plotly-stubs~=0.1.3", "fmpy~=0.3.32"]
+# FMU runs (given and exported FMUs) need FMPy; it is imported only for FMU runs.
+fmu = ["fmpy~=0.3.32"]
 testing = ["pytest~=9.0.2", "numpy~=2.4.6"]
 
 # Tests run in parallel, one test file per worker (`loadfile`), so tests in a
@@ -24,6 +26,7 @@ pythonpath = [".", "tests/session_tools"]
 testpaths = ["tests"]
 markers = [
     "cpp: builds or runs the Cpp target (deselect with -m 'not cpp' while iterating)",
+    "fmu: runs an FMU through FMPy (every test under tests/fmu/)",
 ]
 
 [tool.uv.workspace]
@@ -47,3 +50,8 @@ packages = ["src/mtools"]
 mypy_path = ["src", "tests/session_tools"]
 namespace_packages = true
 explicit_package_bases = true
+
+# FMPy ships no type information.
+[[tool.mypy.overrides]]
+module = ["fmpy", "fmpy.*"]
+ignore_missing_imports = true

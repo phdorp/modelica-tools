@@ -52,7 +52,8 @@ def simulate(
 
     Single-run: ``simulate(config)`` validates the run config, builds the model
     (or reuses a cached build), runs it and returns the result keyed by
-    ``build.model_name``.
+    ``build.model_name``. A given FMU (``FmuFile``) needs no build; its result is
+    keyed by ``build.model_name``, or by the FMU's ``modelName`` when that is unset.
 
     Multirun: ``simulate(run_config_type, overrides=[...], multirun=True,
     registry=registry)`` fans out via ``hydra_zen.launch``; each job runs the
@@ -72,6 +73,10 @@ def simulate(
 
     Returns:
         Single-run solution mapping, or a list of per-job sweep results.
+
+    Raises:
+        ImportError: The run is an FMU run (a given or exported FMU) and FMPy isn't
+            installed (``modelica-tools[fmu]``).
     """
     if not multirun:
         return _internal.simulate_run(config)  # type: ignore[arg-type]

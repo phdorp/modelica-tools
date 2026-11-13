@@ -28,6 +28,8 @@ tests/
 │   ├── KinematicVehicle.mo
 │   └── WrapperKinematicVehicle.mo
 ├── test_entry_point.py     # `python -m kinematic_vehicle` saves .mat or .csv
+├── fmu_registry.py         # Registry with the candidate and reference FMU run configs
+├── test_fmu_reference_comparison.py  # Candidate vs reference, both as exported FMUs
 ├── test_kinematic_vehicle.py  # Plausibility tests via parameterized experiments
 └── test_reference_comparison.py  # Candidate vs reference model comparison
 ```
@@ -37,8 +39,8 @@ tests/
 `src/kinematic_vehicle/kinematic_vehicle.py` creates one `HydraZenRegistry` and fills a `SimulationRun` in four steps. [The Hydra registry](../docs/hydra-registry.md) describes each call.
 
 1. `register_group_options("settings/parameters", {"default": vehicle_default}, default="default")` makes the `WrapperKinematicVehicle` dataclass the parameter defaults, overridable as `settings.parameters.*`.
-2. `register_group_options("settings", {"default": settings_default}, default="default")` sets the run settings: `stop_time=10.0`, `tolerance=1e-9` and `solver="dassl"`. Its `parameters` are left `MISSING`, so the group above fills them.
-3. `create_run(model_name=MODEL_NAME, model_path=..., target="Cpp", include_experiment_group=True, name="default")` creates the `build` part and registers the run config as `default`, the `config_name` that `__main__.py` passes to `@hydra.main`.
+2. `register_group_options("settings", {"default": settings_default, "fmu": settings_fmu}, default="default")` sets the run settings. `default` has `stop_time=10.0`, `tolerance=1e-9` and `solver="dassl"`; `fmu` is the same with `solver="cvode"`, a Model Exchange solver. Their `parameters` are left `MISSING`, so the group above fills them.
+3. `create_run(model_name=MODEL_NAME, model_path=..., target="Cpp", include_experiment_group=True, name="default")` creates the `build` part and registers the run config as `default`, the `config_name` that `__main__.py` passes to `@hydra.main`. A second `create_run(..., target="C", fmu=FmuExport(), selections={"settings": "fmu"}, name="fmu")` registers the same model as an exported FMU.
 4. `register_experiment(name=..., base_run_config=run_default, overrides={...})` registers `standstill`, `straight_driving`, `turn_left` (each replacing `settings/parameters`) and `protected_output` (replacing `settings`).
 
 The composed config has three top-level keys: `build`, `settings` and `output_format`.
@@ -87,6 +89,14 @@ uv run python -m kinematic_vehicle settings.parameters.wheelbase=3.0
 
 Overrides a wrapper parameter directly. `phi` is the steering angle in radians and `wheelbase` is the
 distance between the axles. `v_norm` is overridden the same way.
+
+### FMU run
+
+```bash
+uv run python -m kinematic_vehicle --config-name fmu
+```
+
+Exports the model as a Model Exchange FMU from the C target, runs it through FMPy and saves the result as usual. The `fmu` run config selects the `fmu` settings option. Every experiment runs on it (`experiment=turn_left --config-name=fmu`). The example depends on `modelica-tools[fmu]`; see [FMU runs](../docs/fmu-runs.md). A given FMU is configured with `create_fmu_run(fmu_path=Path("vehicle.fmu"), name_map={"vehicle.px": "px"})`, where `name_map` maps experiment names to the FMU's names.
 
 ### Experiment override
 
@@ -217,6 +227,8 @@ numerical differences. The comparison is explicit, so a test can assert physical
 before comparing against the reference.
 
 See `tests/test_reference_comparison.py` for the complete example.
+
+`tests/test_fmu_reference_comparison.py` runs the same comparison with both sides exported as Model Exchange FMUs from the C target. `tests/fmu_registry.py` holds its own registry with the two FMU run configs (`fmu=FmuExport()`) and the `turn_left` experiment, and the test class sets `rtol = 1e-6` because the two sides run CVODE on different model structures.
 
 ## Results
 

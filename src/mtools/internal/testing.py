@@ -175,6 +175,29 @@ def _ensure_unique(keys: list, message: str) -> None:
         raise ValueError(message)
 
 
+def pick_result(results: Mapping[str, pd.DataFrame], model_name: str | None) -> tuple[str, pd.DataFrame]:
+    """Return ``(name, table)`` of the model ``model_name`` from one run's ``results``.
+
+    A given FMU configured without ``build.model_name`` has ``None`` here; its run
+    returns a single table keyed by the FMU's own ``modelName``, which is taken instead.
+
+    Raises:
+        AssertionError: ``model_name`` is ``None`` and the run returned other than one
+            table, or the run returned no table for ``model_name``.
+    """
+    keys = list(results)
+    if model_name is None:
+        if len(keys) != 1:
+            raise AssertionError(
+                f"expected one result table when build.model_name is unset, got {len(keys)}: {keys}; "
+                "set build.model_name"
+            )
+        model_name = keys[0]
+    if model_name not in results:
+        raise AssertionError(f"no result for build.model_name {model_name!r}; the run returned {keys}")
+    return model_name, results[model_name]
+
+
 def _select_job_value(config: object, path: str) -> object:
     """Extract the value at ``path`` from a job's composed config.
 
@@ -211,6 +234,47 @@ def _select_job_value(config: object, path: str) -> object:
     return node
 
 
+def align(
+    actual: pd.DataFrame, reference: pd.DataFrame, context: str
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Return the candidate on the reference's time points and the deduplicated reference.
+
+    Where a time repeats, only the last row (the value after an event) is
+    kept on both sides. Real columns are interpolated linearly; all other
+    columns take the last value at or before each reference time.
+
+    Raises:
+        AssertionError: If either table is empty, the candidate's times aren't
+            increasing, or a reference time (``NaN`` included) lies outside the
+            candidate's span.
+    """
+    actual = actual.drop_duplicates("time", keep="last")
+    reference = reference.drop_duplicates("time", keep="last")
+    for side, frame in (("candidate", actual), ("reference", reference)):
+        if frame.empty:
+            raise AssertionError(f"{context}: {side} solution is empty; nothing to interpolate")
+    times = actual["time"].to_numpy(dtype=float)
+    targets = reference["time"].to_numpy(dtype=float)
+    if not np.all(np.diff(times) > 0):
+        raise AssertionError(f"{context}: candidate times aren't increasing; can't interpolate")
+    low, high = times[0], times[-1]
+    outside = targets[~((targets >= low) & (targets <= high))]
+    if outside.size:
+        raise AssertionError(
+            f"{context}: reference time {outside[0]:g} lies outside the candidate's "
+            f"time span [{low:g}, {high:g}]"
+        )
+    index = np.searchsorted(times, targets, side="right") - 1
+    aligned = {}
+    for column in actual.columns:
+        values = actual[column].to_numpy()
+        if pd.api.types.is_float_dtype(actual[column]):
+            aligned[column] = np.interp(targets, times, values)
+        else:
+            aligned[column] = values[index]
+    return pd.DataFrame(aligned), reference
+
+
 def assert_solutions_match(
     actual: Solution,
     reference: Solution,
@@ -218,16 +282,22 @@ def assert_solutions_match(
     atol: float,
     context: str,
     rtol: float = 0.0,
+    interpolate: bool = False,
 ) -> None:
     """Recursively assert that candidate solutions match reference solutions.
 
-    Data frame references are compared by column set, row count, and
-    positionally per column. The ``time`` column is compared like any other
-    column: both models must be simulated under the same conditions, so a
-    time mismatch indicates a differing simulation setup. Dict references
-    require the same key set and are compared recursively; ``context`` is
-    extended with each key so failures identify the offending experiment or
-    sweep combination.
+    By default, data frame references are compared by column set, row count,
+    and positionally per column. The ``time`` column is compared like any other
+    column: both models must be simulated under the same conditions, so a time
+    mismatch indicates a differing simulation setup.
+
+    With ``interpolate`` the candidate is first aligned onto the reference's
+    time points (see :func:`align`); row counts then need not match and
+    ``time`` isn't compared.
+
+    Dict references require the same key set and are compared recursively;
+    ``context`` is extended with each key so failures identify the offending
+    experiment or sweep combination.
 
     Args:
         actual: Candidate solution structure (data frame or dict of them).
@@ -235,6 +305,8 @@ def assert_solutions_match(
         atol: Absolute tolerance passed to ``numpy.testing.assert_allclose``.
         context: Human-readable location prefix used in failure messages.
         rtol: Relative tolerance passed to ``numpy.testing.assert_allclose``.
+        interpolate: Align the candidate onto the reference's time points
+            instead of comparing row by row.
 
     Raises:
         AssertionError: If the structures, signal sets, lengths, or values
@@ -250,11 +322,16 @@ def assert_solutions_match(
             raise AssertionError(
                 f"{context}: output signals differ; missing {missing!r}, unexpected {extra!r}"
             )
-        if len(actual) != len(reference):
+        if interpolate:
+            actual, reference = align(actual, reference, context)
+        elif len(actual) != len(reference):
             raise AssertionError(
-                f"{context}: solution length differs ({len(actual)} != {len(reference)})"
+                f"{context}: solution length differs ({len(actual)} != {len(reference)}); "
+                "set interpolate = True to compare on the reference's time points"
             )
         for column in reference.columns:
+            if interpolate and column == "time":
+                continue
             np.testing.assert_allclose(
                 actual[column],
                 reference[column],
@@ -279,6 +356,7 @@ def assert_solutions_match(
                 atol=atol,
                 context=f"{context}[{key!r}]",
                 rtol=rtol,
+                interpolate=interpolate,
             )
         return
     raise TypeError(f"{context}: unsupported reference solution type {type(reference).__name__!r}")
@@ -404,8 +482,9 @@ class _SweepPlan:
         """Map each job's solution table to its raw combination key.
 
         The model name keying a job's solutions is read from that job's own
-        composed config, so a job whose config lacks ``build.model_name`` fails here
-        rather than returning a mis-keyed table. The distinct names seen are
+        composed config; a job whose ``build.model_name`` is unset (a given FMU) takes
+        the single table its run returned, and any other job whose name is absent from
+        its solutions fails here rather than returning a mis-keyed table. The distinct names seen are
         exposed on :attr:`model_names` for failure-context reporting.
         """
         results = {}
@@ -413,12 +492,12 @@ class _SweepPlan:
             raw_key = self.key_of(job)
             if raw_key in results:
                 raise ValueError(f"duplicate sweep job for combination {raw_key!r}")
-            model_name = _select_job_value(job.config, "build.model_name")
-            if not isinstance(model_name, str):
-                raise ValueError("config path 'build.model_name' is not a string in sweep job config")
+            configured = _select_job_value(job.config, "build.model_name")
+            if configured is not None and not isinstance(configured, str):
+                raise ValueError("config path 'build.model_name' is neither a string nor unset in sweep job config")
+            model_name, results[raw_key] = pick_result(job.solutions, configured)
             if model_name not in self.model_names:
                 self.model_names.append(model_name)
-            results[raw_key] = job.solutions[model_name]
         assert len(results) == len(self.combos), (
             f"expected {len(self.combos)} sweep results, got {len(results)}"
         )

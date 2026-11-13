@@ -341,7 +341,7 @@ class HydraZenRegistry:
         self,
         *,
         base: type[DataClass],
-        build: session_config.Build | type[DataClass],
+        build: session_config.BuildSpec | type[DataClass],
         settings: session_config.RunSettings | type[DataClass],
         selections: Mapping[str, str] | None = None,
         include_experiment_group: bool = False,
@@ -365,7 +365,7 @@ class HydraZenRegistry:
         Returns:
             A config type created by ``hydra_zen.make_config``.
         """
-        selected_defaults = self._hydra_defaults
+        selected_defaults = dict(self._hydra_defaults)
         if selections:
             selected_defaults.update(selections)
         default = self._build_hydra_defaults(selections=selected_defaults)
@@ -404,6 +404,7 @@ class HydraZenRegistry:
         selections: Mapping[str, str] | None = None,
         include_experiment_group: bool = False,
         name: Optional[str] = None,
+        fmu: session_config.FmuExport | None = None,
     ) -> RunConfig:
         """Create and register a run config from the build fields and run settings.
 
@@ -426,6 +427,8 @@ class HydraZenRegistry:
             name: Optional name to register the created run config under the
                 root store. If provided, the config is registered via
                 ``register_run_config`` before being returned.
+            fmu: Export the model as an FMU and run that; ``None`` runs the native
+                executable.
 
         Returns:
             A config type created by ``hydra_zen.make_config``.
@@ -437,6 +440,58 @@ class HydraZenRegistry:
             extra_sources=list(extra_sources),
             libraries=list(libraries),
             omc_flags=dict(omc_flags or {}),
+            fmu=fmu,
+        )
+        return self.build_run_config(
+            base=session_config.SimulationRun,
+            build=build,
+            settings=settings if settings is not None else session_config.RunSettings(parameters=MISSING),
+            selections=selections,
+            include_experiment_group=include_experiment_group,
+            name=name,
+        )
+
+    def create_fmu_run(
+        self,
+        *,
+        fmu_path: Path,
+        model_name: str | None = None,
+        fmu_type: str | None = None,
+        name_map: Mapping[str, str] | None = None,
+        settings: session_config.RunSettings | None = None,
+        selections: Mapping[str, str] | None = None,
+        include_experiment_group: bool = False,
+        name: Optional[str] = None,
+    ) -> RunConfig:
+        """Create and register a run config that runs a given FMU.
+
+        The FMU-file counterpart of ``create_run``: it assembles a
+        :class:`~mtools.session_config.FmuFile` build config and passes the other
+        arguments on to ``build_run_config``.
+
+        Args:
+            fmu_path: The ``.fmu`` file to run.
+            model_name: Name the results are keyed by; ``None`` takes the FMU's ``modelName``.
+            fmu_type: ``"me"``, ``"cs"`` or ``None`` (Model Exchange when the FMU offers it).
+            name_map: Experiment name to FMU variable name.
+            settings: Run settings. Defaults to settings whose parameters come from the
+                ``settings/parameters`` group and whose other values come from the
+                FMU's default experiment; a ``settings`` group default replaces it.
+            selections: Optional mapping of hierarchy path to selected option.
+            include_experiment_group: Whether to include ``{"experiment": None}``
+                in defaults to allow experiment overrides.
+            name: Optional name to register the created run config under the
+                root store. If provided, the config is registered via
+                ``register_run_config`` before being returned.
+
+        Returns:
+            A config type created by ``hydra_zen.make_config``.
+        """
+        build = session_config.FmuFile(
+            fmu_path=fmu_path,
+            model_name=model_name,
+            fmu_type=fmu_type,
+            name_map=dict(name_map or {}),
         )
         return self.build_run_config(
             base=session_config.SimulationRun,

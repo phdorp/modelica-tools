@@ -15,17 +15,22 @@ import pandas
 from hydra.core.utils import JobReturn
 from omegaconf import DictConfig
 
+import mtools.internal.fmu.runner as fmu_runner
 import mtools.internal.hydra_state as hydra_state
 import mtools.internal.omc.build as omc_build
 import mtools.internal.run_config as run_config
+import mtools.session_config as session_config
 
 if TYPE_CHECKING:
-    import mtools.session_config as session_config
     from mtools.internal.hydra_state import ActivatableRegistry
 
 
 def simulate_run(config: session_config.SimulationRun | DictConfig) -> dict[str, pandas.DataFrame]:
     """Validate a run config, build its model (or take the build from the cache) and run it.
+
+    A given FMU (an :class:`~mtools.session_config.FmuFile` build) needs no build and
+    runs through FMPy in a child process. A build with ``fmu`` set exports the model as
+    an FMU, cached like any build, and runs that the same way.
 
     ``hydra_zen.instantiate`` only turns the config into config objects; building and
     running happen afterwards, so their exceptions reach the caller unwrapped. Builds
@@ -35,16 +40,24 @@ def simulate_run(config: session_config.SimulationRun | DictConfig) -> dict[str,
         config: Run config, as config objects or as a composed Hydra config.
 
     Returns:
-        The result keyed by ``build.model_name``.
+        The result keyed by ``build.model_name``; for a given FMU without one, by the
+        FMU's ``modelName``.
 
     Raises:
+        ImportError: The run needs FMPy and it isn't installed.
         mtools.errors.ConfigError: The config is invalid; nothing was built.
         mtools.errors.BuildError: Translating or compiling the model failed.
         mtools.errors.SimulationError: The run failed or timed out.
     """
     run = run_config.instantiate(config)
+    if isinstance(run.build, session_config.FmuFile):
+        fmu_config, fmu_settings = run_config.validate_fmu_file(run)
+        model_name, result = fmu_runner.simulate_file(fmu_config, fmu_settings)
+        return {model_name: result}
     build_config, settings = run_config.validate(run)
     with omc_build.build(build_config) as built:
+        if build_config.fmu is not None:
+            return {build_config.model_name: fmu_runner.simulate_export(built, settings)}
         return {build_config.model_name: built.simulate(settings)}
 
 

@@ -13,8 +13,8 @@ from typing import Any
 
 from mtools.errors import ConfigError
 from mtools.internal.omc.init_xml import Variable
-from mtools.internal.omc.parameters import (_is_array_like, expand_parameters,
-                                            flatten_parameters)
+from mtools.internal.omc.parameters import (expand_parameters,
+                                            flatten_parameters, is_array_like)
 from mtools.internal.omc.script import string_literal
 
 
@@ -48,12 +48,12 @@ def split_parameters(parameters: Any, variables: Mapping[str, Variable], model_n
         if protected := [name for name in names if name in variables and variables[name].protected]:
             problems.append(f"settings.parameters.{key}: '{model_name}' parameter '{protected[0]}' is protected")
             continue
-        fixed = [variables[name] for name in names if name in variables and _fixed_at_build(variables[name])]
+        fixed = [variables[name] for name in names if name in variables and fixed_at_build(variables[name])]
         if not fixed:
             run_parameters[key] = value
         else:
             try:
-                build_values[key] = _literal(value, fixed[0])
+                build_values[key] = literal(value, fixed[0])
             except ValueError as error:
                 problems.append(f"settings.parameters.{key}: {error}")
     if problems:
@@ -63,14 +63,15 @@ def split_parameters(parameters: Any, variables: Mapping[str, Variable], model_n
     return Split(build_values, run_parameters)
 
 
-def _fixed_at_build(variable: Variable) -> bool:
+def fixed_at_build(variable: Variable) -> bool:
+    """Whether the build fixed ``variable``: a parameter whose value a run can't change."""
     return variable.variability == "parameter" and not variable.changeable
 
 
-def _literal(value: Any, variable: Variable) -> str:
+def literal(value: Any, variable: Variable) -> str:
     """Write ``value`` as a Modelica literal of ``variable``'s type; arrays as ``{...}``."""
-    if _is_array_like(value):
-        return "{" + ", ".join(_literal(element, variable) for element in value) + "}"
+    if is_array_like(value):
+        return "{" + ", ".join(literal(element, variable) for element in value) + "}"
     if variable.type == "Real":
         return repr(float(value))
     if variable.type in ("Integer", "Enumeration"):

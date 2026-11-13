@@ -26,6 +26,19 @@ class Library:
 
 
 @dataclass(frozen=True)
+class FmuExportConfig:
+    """How a build exports its model as an FMI 2.0 FMU instead of an executable.
+
+    Attributes:
+        fmu_type: ``"me"`` (Model Exchange) or ``"cs"`` (Co-Simulation).
+        emit_protected: Whether protected variables become FMU variables.
+    """
+
+    fmu_type: str = "me"
+    emit_protected: bool = False
+
+
+@dataclass(frozen=True)
 class BuildConfig:
     """The inputs that determine a build.
 
@@ -38,6 +51,7 @@ class BuildConfig:
         libraries: Libraries loaded before the sources.
         omc_flags: Extra OMC flags (``{"-d": "nogen", "--flag": None}``); mtools adds
             the target and ``-q`` itself.
+        fmu: How to export the model as an FMU; ``None`` builds the native executable.
     """
 
     model_path: Path
@@ -46,6 +60,7 @@ class BuildConfig:
     extra_sources: Sequence[Path] = ()
     libraries: Sequence[Library] = ()
     omc_flags: Mapping[str, str | None] = field(default_factory=dict)
+    fmu: FmuExportConfig | None = None
 
 
 @dataclass(frozen=True)

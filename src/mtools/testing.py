@@ -164,6 +164,18 @@ class ExperimentBase(ABC):
 
     #: Absolute tolerance used by test assertions.
     eps: ClassVar[float] = np.finfo(float).eps
+    #: Relative tolerance of reference comparisons (default ``0.0``). It
+    #: applies together with ``eps`` (the absolute tolerance) to every
+    #: compared column.
+    rtol: ClassVar[float] = 0.0
+    #: Compare reference tests on the reference's time points (default
+    #: ``False``: same row count, every column including ``time`` row by
+    #: row). When ``True``, the last row of each repeated time is kept on
+    #: both sides, the candidate is interpolated onto the reference's time
+    #: points (linearly for float columns, last value at or before the time
+    #: for Integer and Boolean columns), and ``time`` isn't compared.
+    #: Reference times must lie within the candidate's time span.
+    interpolate: ClassVar[bool] = False
 
 
 class _ReferenceComparisonMixin(Generic[ResultType]):
@@ -171,6 +183,10 @@ class _ReferenceComparisonMixin(Generic[ResultType]):
 
     #: Absolute tolerance used by :meth:`assert_matches_reference`.
     eps: ClassVar[float]
+    #: Relative tolerance used by :meth:`assert_matches_reference`.
+    rtol: ClassVar[float]
+    #: Align the candidate onto the reference's time points first.
+    interpolate: ClassVar[bool]
     results: ResultType
     reference_results: ResultType
 
@@ -193,11 +209,21 @@ class _ReferenceComparisonMixin(Generic[ResultType]):
         return f"{context})"
 
     def assert_matches_reference(self) -> None:
-        """Assert that every candidate solution matches its reference solution."""
+        """Assert that every candidate solution matches its reference solution.
+
+        Both sides must have the same columns. Every compared column must
+        satisfy ``rtol`` and ``eps`` (absolute). By default the tables need
+        the same row count and are compared row by row, ``time`` included.
+        With ``interpolate = True`` the candidate is aligned onto the
+        reference's time points first (see :attr:`ExperimentBase.interpolate`)
+        and ``time`` isn't compared.
+        """
         _internal.assert_solutions_match(
             cast("_internal.Solution", self.results),
             cast("_internal.Solution", self.reference_results),
             atol=self.eps,
+            rtol=self.rtol,
+            interpolate=self.interpolate,
             context=self._comparison_context(),
         )
 
@@ -235,10 +261,10 @@ class ExperimentT(ExperimentBase, Generic[NameType, ResultType]):
         candidate_model_names = {}
         for name in names:
             config = registry.compose_experiment(name)
-            candidate_model_names[name] = config.build.model_name
-            results[name] = sim_tools.simulate(cast("session_config.SimulationRun", config))[
-                config.build.model_name
-            ]
+            model_name, results[name] = _internal.pick_result(
+                sim_tools.simulate(cast("session_config.SimulationRun", config)), config.build.model_name
+            )
+            candidate_model_names[name] = model_name
         cls._candidate_model_names = candidate_model_names
         cls.results = cast(ResultType, results[cls.name] if isinstance(cls.name, str) else results)
 
@@ -290,10 +316,10 @@ class ExperimentReferenceT(
         reference_model_names = {}
         for name in names:
             config = registry.compose_experiment(name, run_config=reference_run_config)
-            reference_model_names[name] = config.build.model_name
-            reference_results[name] = sim_tools.simulate(cast("session_config.SimulationRun", config))[
-                config.build.model_name
-            ]
+            model_name, reference_results[name] = _internal.pick_result(
+                sim_tools.simulate(cast("session_config.SimulationRun", config)), config.build.model_name
+            )
+            reference_model_names[name] = model_name
         cls._reference_model_names = reference_model_names
         cls.reference_results = cast(
             ResultType,

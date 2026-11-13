@@ -318,6 +318,7 @@ class TestCreateRun:
             omc_flags={"-d": "nogen"},
             settings=session_config.RunSettings(parameters=KinematicVehicle(state_0=State()), stop_time=3.0),
             name="mapped",
+            fmu=session_config.FmuExport("cs"),
         )
         registry.create_run(
             model_name="KinematicVehicle",
@@ -338,9 +339,11 @@ class TestCreateRun:
             "extra_sources": [extra_source],
             "libraries": [{"name": "Modelica", "version": "4.0.0", "directory": None}],
             "omc_flags": {"-d": "nogen"},
+            "fmu": {"fmu_type": "cs"},
         }
         assert mapped.settings.stop_time == 3.0
         assert defaults.build.target == "C"
+        assert defaults.build.fmu is None
         assert list(defaults.build.extra_sources) == []
         assert list(defaults.build.libraries) == []
         assert dict(defaults.build.omc_flags) == {}
@@ -399,6 +402,33 @@ class TestRegisterGroupOptions:
 
         assert default_cfg.settings.parameters.state_0.px == 0.0
         assert front_cfg.settings.parameters.state_0.px == 1.0
+
+    def test_selections_apply_to_one_run_config_only(self):
+        registry = HydraZenRegistry(store=hydra_zen.ZenStore())
+        registry.register_group_name("settings.parameters.state_0", "parameters/state_0")
+        registry.register_group_options(
+            "parameters/state_0",
+            {"zero_state": State(), "front_position": State(px=1.0)},
+            default="zero_state",
+        )
+        model_path = Path("tests/session_tools/models/kinematic_vehicle.mo").resolve()
+        settings = session_config.RunSettings(parameters=KinematicVehicle(state_0=State()))
+        registry.create_run(
+            model_name="KinematicVehicle",
+            settings=settings,
+            model_path=model_path,
+            selections={"parameters/state_0": "front_position"},
+            name="front",
+        )
+        registry.create_run(model_name="KinematicVehicle", settings=settings, model_path=model_path, name="later")
+        registry.add_to_hydra_store(overwrite_ok=True)
+
+        with initialize(version_base=None, config_path=None):
+            front_cfg = compose(config_name="front")
+            later_cfg = compose(config_name="later")
+
+        assert front_cfg.settings.parameters.state_0.px == 1.0
+        assert later_cfg.settings.parameters.state_0.px == 0.0
 
     def test_unknown_default_raises_value_error(self):
         registry = HydraZenRegistry(store=hydra_zen.ZenStore())

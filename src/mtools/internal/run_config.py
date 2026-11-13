@@ -22,6 +22,9 @@ import mtools.internal.omc.config as backend
 import mtools.session_config as session_config
 from mtools.errors import ConfigError
 from mtools.internal import result_files
+from mtools.internal.fmu.config import FmuFileConfig
+from mtools.internal.fmu.description import (FMU_TYPES, file_problems,
+                                             require_fmpy)
 from mtools.internal.omc import run_cpp
 
 TARGETS = ("C", "Cpp")
@@ -53,14 +56,21 @@ def validate(run: session_config.SimulationRun) -> tuple[backend.BuildConfig, ba
     """Check ``run`` and map it onto the backend's build config and run settings.
 
     Checks what needs no build: types, that files and directories exist, the target,
-    the output format, no ``--simCodeTarget`` in ``build.omc_flags``, and an
-    explicitly requested Cpp solver. Checks that need the build (parameter names, a
-    solver from the annotation) happen when the build runs.
+    the output format, no ``--simCodeTarget`` in ``build.omc_flags``, an exported
+    FMU's ``fmu_type``, and an explicitly requested Cpp solver. Checks that need the
+    build (parameter names, a solver from the annotation) happen when the build runs.
+    A build that exports an FMU needs FMPy, checked first; its ``settings.solver`` is
+    FMPy's, so it skips the Cpp solver check and is checked when the FMU run resolves.
 
     Raises:
+        ImportError: The build exports an FMU and FMPy isn't installed.
         ConfigError: Listing every invalid value by its config path.
     """
     build, settings = run.build, run.settings
+    if not isinstance(build, session_config.Build):
+        raise TypeError(f"validate takes a run of a Build, got {type(build).__name__}")
+    if build.fmu is not None:
+        require_fmpy()
     model_name = build.model_name if isinstance(build.model_name, str) else str(build.model_name)
     problems = [*_build_problems(build), *_settings_problems(settings)]
     if (format_problem := result_files.output_format_problem(run.output_format)) is not None:
@@ -81,8 +91,62 @@ def validate(run: session_config.SimulationRun) -> tuple[backend.BuildConfig, ba
             for library in build.libraries
         ),
         omc_flags=dict(build.omc_flags),
+        fmu=(
+            None
+            if build.fmu is None
+            else backend.FmuExportConfig(fmu_type=build.fmu.fmu_type, emit_protected=settings.emit_protected)
+        ),
     )
-    run_settings = backend.RunSettings(
+    run_settings = _run_settings(settings)
+    if build.fmu is None:  # an exported FMU runs in FMPy, whose solvers the FMU resolution checks
+        run_cpp.validate_settings(build_config, run_settings)
+    return build_config, run_settings
+
+
+def validate_fmu_file(run: session_config.SimulationRun) -> tuple[FmuFileConfig, backend.RunSettings]:
+    """Check a run of a given FMU and map it onto its FMU config and the run settings.
+
+    Checks that FMPy is installed, that the FMU file can be run (an archive with a
+    readable model description and a Linux binary), the run settings and the output
+    format. Checks against the model description happen when the run starts.
+
+    Raises:
+        ImportError: FMPy isn't installed.
+        ConfigError: Listing every invalid value by its config path.
+    """
+    require_fmpy()
+    build, settings = run.build, run.settings
+    if not isinstance(build, session_config.FmuFile):
+        raise TypeError(f"validate_fmu_file takes a run of an FmuFile, got {type(build).__name__}")
+    if isinstance(build.fmu_path, (str, os.PathLike)):
+        model_name = build.model_name or Path(build.fmu_path).stem
+        problems = file_problems(Path(build.fmu_path))
+    else:
+        model_name = build.model_name or ""
+        problems = [f"build.fmu_path: expected a path, got {build.fmu_path!r}"]
+    problems.extend(_settings_problems(settings))
+    if build.fmu_type is not None and build.fmu_type not in FMU_TYPES:
+        expected = ", ".join(map(repr, FMU_TYPES))
+        problems.append(f"build.fmu_type: expected {expected} or null, got {build.fmu_type!r}")
+    if not isinstance(build.name_map, Mapping) or not all(
+        isinstance(key, str) and isinstance(value, str) for key, value in build.name_map.items()
+    ):
+        problems.append(f"build.name_map: expected a mapping of experiment names to FMU names, got {build.name_map!r}")
+    if (format_problem := result_files.output_format_problem(run.output_format)) is not None:
+        problems.append(format_problem)
+    if problems:
+        raise ConfigError(_HEADER.format(model_name), model_name=model_name, diagnostics="\n".join(problems))
+    fmu_config = FmuFileConfig(
+        fmu_path=Path(build.fmu_path),
+        model_name=build.model_name,
+        fmu_type=build.fmu_type,
+        name_map=dict(build.name_map),
+    )
+    return fmu_config, _run_settings(settings)
+
+
+def _run_settings(settings: session_config.RunSettings) -> backend.RunSettings:
+    return backend.RunSettings(
         parameters=settings.parameters,
         start_time=settings.start_time,
         stop_time=settings.stop_time,
@@ -94,8 +158,6 @@ def validate(run: session_config.SimulationRun) -> tuple[backend.BuildConfig, ba
         timeout=settings.timeout,
         abort_on_chattering=settings.abort_on_chattering,
     )
-    run_cpp.validate_settings(build_config, run_settings)
-    return build_config, run_settings
 
 
 def _build_problems(build: session_config.Build) -> Iterator[str]:
@@ -110,7 +172,11 @@ def _build_problems(build: session_config.Build) -> Iterator[str]:
         for index, source in enumerate(build.extra_sources):
             yield from _existing(f"build.extra_sources[{index}]", source, Path.is_file, "file")
     yield from _library_problems(build.libraries)
-    yield from _flag_problems(build.omc_flags)
+    yield from _flag_problems(build.omc_flags, exported=build.fmu is not None)
+    if build.fmu is not None and build.fmu.fmu_type not in FMU_TYPES:
+        yield f"build.fmu.fmu_type: expected {' or '.join(map(repr, FMU_TYPES))}, got {build.fmu.fmu_type!r}"
+    elif build.fmu is not None and build.fmu.fmu_type == "cs" and build.target == "Cpp":
+        yield "build.fmu.fmu_type: Co-Simulation export isn't supported on the Cpp target"
 
 
 def _library_problems(libraries: Any) -> Iterator[str]:
@@ -129,15 +195,19 @@ def _library_problems(libraries: Any) -> Iterator[str]:
             yield from _existing(f"{path}.directory", library.directory, Path.is_dir, "directory")
 
 
-def _flag_problems(omc_flags: Any) -> Iterator[str]:
+def _flag_problems(omc_flags: Any, *, exported: bool) -> Iterator[str]:
     if not isinstance(omc_flags, Mapping):
         yield f"build.omc_flags: expected a mapping of flag to value, got {omc_flags!r}"
         return
     for flag, value in omc_flags.items():
         if not isinstance(flag, str) or not (value is None or isinstance(value, str)):
             yield f"build.omc_flags: expected string flags with string or null values, got {flag!r}: {value!r}"
-        elif flag.lstrip("-+").split("=")[0] == "simCodeTarget":
+            continue
+        name = flag.lstrip("-+").split("=")[0]
+        if name == "simCodeTarget":
             yield f"build.omc_flags: '{flag}' is not allowed; set the simulation target with build.target"
+        elif exported and name == "fmiFilter":
+            yield f"build.omc_flags: '{flag}' is not allowed for an exported FMU; set settings.emit_protected"
 
 
 def _settings_problems(settings: session_config.RunSettings) -> Iterator[str]:

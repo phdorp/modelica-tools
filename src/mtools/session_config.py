@@ -25,10 +25,14 @@ if TYPE_CHECKING:
     #: Parameter values: a (nested) parameter dataclass instance. OmegaConf cannot
     #: type a ``Protocol``, so Hydra sees ``Any``.
     Parameters: TypeAlias = "DataclassType"
+    #: What a run simulates: a Modelica build or a given FMU. OmegaConf has no
+    #: ``Union`` support, so Hydra sees ``Any`` and composes the instance it is given.
+    BuildSpec: TypeAlias = "Build | FmuFile"
 else:
     Target = str
     OutputFormat = str
     Parameters = Any
+    BuildSpec = Any
 
 #: A Modelica source file; must exist when the run is validated.
 FilePath = Path
@@ -56,6 +60,14 @@ class Library:
 
 
 @dataclasses.dataclass
+class FmuExport:
+    """Export the built model as an FMI 2.0 FMU and run it through FMPy."""
+
+    #: FMU type to export and run, ``"me"`` (Model Exchange) or ``"cs"`` (Co-Simulation).
+    fmu_type: str = "me"
+
+
+@dataclasses.dataclass
 class Build:
     """What to build: one model, its sources, libraries and simulation target."""
 
@@ -73,6 +85,24 @@ class Build:
     #: Extra OMC flags (``{"-d": "nogen", "--flag": None}``); mtools adds ``-q`` and the
     #: target itself, so ``--simCodeTarget`` is rejected.
     omc_flags: dict[str, str | None] = dataclasses.field(default_factory=dict)
+    #: Export the model as an FMU and run that; ``None`` runs the native executable.
+    fmu: FmuExport | None = None
+
+
+@dataclasses.dataclass
+class FmuFile:
+    """A given FMU, run through FMPy instead of a Modelica build."""
+
+    #: The ``.fmu`` file to run.
+    fmu_path: FilePath
+    #: Name the results are keyed by; ``None`` takes the FMU's ``modelName``.
+    model_name: str | None = None
+    #: FMU type to run, ``"me"`` (Model Exchange) or ``"cs"`` (Co-Simulation); ``None``
+    #: runs Model Exchange when the FMU offers it, otherwise Co-Simulation.
+    fmu_type: str | None = None
+    #: Experiment name to FMU variable name, for parameters and result columns alike
+    #: (``{"ctrl.k": "Kp"}``); unmapped names are used as they are.
+    name_map: dict[str, str] = dataclasses.field(default_factory=dict)
 
 
 @dataclasses.dataclass
@@ -91,9 +121,11 @@ class RunSettings:
     interval: float | None = None
     #: Solver tolerance.
     tolerance: float | None = None
-    #: Integration method; on Cpp only ``dassl``, ``cvode`` and ``ida``.
+    #: Integration method; on Cpp only ``dassl``, ``cvode`` and ``ida``; a Model Exchange FMU
+    #: run takes ``cvode`` or ``euler``.
     solver: str | None = None
     #: OMC regular expression (full match) selecting result columns; ``time`` is always kept.
+    #: FMU runs match it with Python's ``re``.
     variable_filter: str = ".*"
     #: Whether protected variables become result columns.
     emit_protected: bool = False
@@ -107,8 +139,8 @@ class RunSettings:
 class SimulationRun:
     """Top-level run config: one build, the settings to run it with, and how to save it."""
 
-    #: What to build.
-    build: Build
+    #: What to build: a :class:`Build`, or a given FMU as :class:`FmuFile`.
+    build: BuildSpec
     #: How to run it.
     settings: RunSettings
     #: File format ``sim_tools.save_solutions`` writes: ``"mat"`` (OMC's MATLAB v4

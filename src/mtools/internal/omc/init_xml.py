@@ -16,7 +16,8 @@ class Variable:
         type: Modelica type from the child element: ``Real``, ``Integer``,
             ``Boolean``, ``String`` or ``Enumeration``.
         variability: ``parameter``, ``discrete``, ``continuous`` or ``constant``.
-        causality: ``parameter``, ``calculatedParameter``, ``local``, ...
+        causality: ``parameter``, ``calculatedParameter``, ``local``, ...; the copy a
+            Cpp-exported FMU carries marks every variable ``internal``.
         changeable: Whether a run can set its value (``isValueChangeable``).
         protected: Whether the variable is protected.
         alias: ``noAlias``, ``alias`` or ``negatedAlias``.

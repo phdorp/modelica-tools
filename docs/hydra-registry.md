@@ -28,7 +28,7 @@ SimulationRun
 | `build.extra_sources`, `build.libraries`, `build.omc_flags` | Extra packages, libraries (`name`, `version`, `directory`) and OMC flags. `--simCodeTarget` is rejected; use `build.target`. |
 | `settings.parameters.*` | Parameter values. The structure follows the parameter dataclass. |
 | `settings.start_time`, `stop_time`, `interval`, `tolerance`, `solver` | Values left unset come from the model's `experiment` annotation, or OMC's defaults (0 to 1 s) if it has none. The default solver comes from the `__OpenModelica_simulationFlags(s=...)` annotation, else `dassl`. |
-| `settings.variable_filter`, `emit_protected`, `timeout`, `abort_on_chattering` | Result columns (an OMC regular expression), protected variables, a time limit in seconds, and aborting a chattering run (C only). |
+| `settings.variable_filter`, `emit_protected`, `timeout`, `abort_on_chattering` | Result columns (an OMC regular expression; Python's `re` for FMU runs), protected variables, a time limit in seconds, and aborting a chattering run (C only). |
 | `output_format` | `mat` (default) or `csv`; see [Saving results](omc-backend.md#saving-results). |
 
 Parameters:
@@ -91,6 +91,8 @@ run_default = registry.create_run(
 | `name` | The name to register the run config under. It becomes the `config_name` for `@hydra.main` and for `compose`. |
 
 For a different base class, call `build_run_config(base=..., build=session_config.Build(...), settings=...)` instead. `get_run_config(name)` returns a registered run config.
+
+To run an FMU instead of a native build, pass `fmu=FmuExport()` to `create_run`, or use `create_fmu_run(fmu_path=...)` for an FMU you supply; see [FMU runs](fmu-runs.md).
 
 ## Config groups
 
